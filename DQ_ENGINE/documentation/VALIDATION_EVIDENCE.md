@@ -30,6 +30,14 @@ user-defined class U (U0001 through U0011). The completed-run rejection test
 expects U0002. Static checks validate these codes; live compilation of this
 revision remains unverified.
 
+## Monthly reconciliation format correction
+
+The user reported a datatype/FORMAT error in query 13 of test_numeric.sql.
+The independent monthly baseline now formats FACT_DT as DATE before casting
+to CHAR(10). This changes only the test expression, not the profiling engine.
+Local static checks passed; the corrected statement has not been executed
+against Teradata here.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.
