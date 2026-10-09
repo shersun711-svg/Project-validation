@@ -1,5 +1,10 @@
 # Configuration
 
+Normal users edit `config/DQ_RDS_config.xlsx` and run `sas/04_load_dq_config.sas`.
+SAS loads Project, Fields and Settings directly to Teradata without a workbook
+validation phase. See [Excel setup and usage](EXCEL_CONFIGURATION.md). The CSV
+workflow below is retained as a legacy option.
+
 `DQ_PROJECT_CONFIG` has one active source per project. Database, source and column names must be simple identifiers matching `[A-Za-z_][A-Za-z0-9_]*`, up to 128 characters. Project IDs use the same convention up to 30 characters. SQL quotes validated source names; arbitrary SQL snippets and user-supplied predicates are not configuration inputs.
 
 `DQ_FIELD_CONFIG` retains all logical types. A field runs in Numeric Basic only when FIELD_TYPE=NUMERIC, ACTIVE_IND=Y and NUMERIC_BASIC_IND=Y. Disabling a field is an explicit analyst decision. The approved workbook FIELD_TYPE controls module selection. The engine does not query database types or alter classifications; Teradata evaluates numeric expressions and explicit statistical casts when each batch executes.
@@ -36,16 +41,15 @@ Workbook classifications are assumed correct. No DBC.ColumnsV or validation-view
 
 ## Add a project
 
-Insert a project row pointing to an approved table/view and its real reporting-date column. The candidate account column can be NULL if not applicable; it is not a grouping key or a required Numeric Basic input. Load that project's approved field mappings, review the configuration, optionally create a settings override, and run `%run_dq_engine(project=YOUR_PROJECT,numeric_basic=Y)`.
+Copy the three-sheet workbook, edit its Project row to point to the approved table/view and reporting date, and load it using the Excel configuration program. Alternatively, insert a project row manually. The candidate account column can be NULL if not applicable; it is not a grouping key or a required Numeric Basic input. Load that project's approved field mappings, review the configuration, optionally create a settings override, and run `%run_dq_engine(project=YOUR_PROJECT,numeric_basic=Y)`.
 
 DATE and TIMESTAMP reporting columns are accepted. For TIMESTAMP WITH TIME ZONE, confirm the database's extraction/session time-zone convention before comparing calendar periods across systems. There is no database type lookup; reporting-date compatibility and timezone behaviour have not been tested here.
 
 Keep source population and configuration stable during a run. The numeric selection is captured and revalidated per attempt; the latest failed-run retry refreshes selection/settings. There is no transaction-wide source snapshot across batches. Use a controlled, immutable staging table if source data can change during profiling. Future modules should use the same captured source, period conventions and metric metadata, with global success decided by the orchestrator after all selected modules complete.
 
-## Planned later: Excel configuration interface
+## Excel configuration is now implemented
 
-Keep the agreed three-sheet workbook design for a future enhancement: Project,
-Fields and Settings. SAS will validate/load that workbook into the existing
-Teradata configuration tables, separately from profiling execution. This
-revision follows the current workbook-derived mappings but does not implement
-that new Excel loader; the existing loader still accepts field CSV files.
+The agreed Project/Fields/Settings workbook is available. The final user decision
+is to load it directly, without SAS workbook validation. Database table constraints
+and transaction error handling remain. Profiling calculations and the deferred
+Excel report module are unchanged.

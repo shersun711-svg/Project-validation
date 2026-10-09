@@ -23,6 +23,17 @@ The deployment account needs create-table/view/procedure privileges in the DQ da
 
 The engine database is not automatically created, scripts are not automatically submitted, and no live credentials are supplied by this repository. The SQL and SAS files are actual source code; live compilation/execution and performance acceptance remain deployment gates.
 
+## Normal configuration workflow
+
+Edit the three-sheet `config/DQ_RDS_config.xlsx` workbook and run
+`sas/04_load_dq_config.sas` to load Project, Fields and Settings directly into
+Teradata. There is no SAS workbook validation/preview phase. Loading stays
+separate from profiling. Existing installations need only the additive
+`setup/06_create_excel_config_tables.sql` and
+`setup/07_apply_excel_config.sql` upgrade. Read
+[Excel configuration instructions](EXCEL_CONFIGURATION.md) for exact steps.
+Excel configuration input is available; Excel report generation remains deferred.
+
 ## Current Enterprise Guide connection and first test
 
 The entry program now uses the user-provided non-secret connection settings:
@@ -71,7 +82,14 @@ There is no Extended execution mode yet. Future modules will add calls inside th
 |---|---|
 | `sas/00_run_dq_engine.sas` | Analyst settings and entry program |
 | `sas/01_dq_controller.sas` | Switch validation, secure pass-through, status/summary reads |
-| `sas/03_load_field_config.sas` | Validated small CSV configuration upload/merge |
+| `sas/03_load_field_config.sas` | Legacy CSV field upload, retained for compatibility |
+| `sas/04_load_dq_config.sas` | Direct Excel configuration entry program |
+| `sas/05_dq_excel_config.sas` | Reads the three sheets and uploads configuration |
+| `config/DQ_RDS_config.xlsx` | Editable Project/Fields/Settings workbook with 589 RDS fields |
+| `setup/06_create_excel_config_tables.sql` | Additive staging/log tables for Excel loads |
+| `setup/07_apply_excel_config.sql` | Atomic database configuration upsert |
+| `tests/test_config_apply.sql` | Isolated-test configuration load/rollback checks |
+| `tools/build_config_workbook.mjs` | Developer-only initial workbook packaging |
 | `setup/00_create_config_tables.sql` | Projects, fields, settings, future PSI interface, staging and metric definitions |
 | `setup/01_create_result_tables.sql` | Long-format metric storage and captured numeric field selection |
 | `setup/02_create_log_tables.sql` | Run and per-attempt/per-batch logs |
@@ -88,7 +106,7 @@ There is no Extended execution mode yet. Future modules will add calls inside th
 | `tests/test_failure_restart.sql` | Invalid configuration, runtime overflow and recovery |
 | `tests/test_full_execution.sas` | Controller switches, successful execution and protected history |
 | `tests/test_sas_reconciliation.sas` | Ten metrics compared with SAS sample calculations |
-| `tests/validate_rds.sql` | Live RDS types, key uniqueness, nulls and baseline checks |
+| `tests/validate_rds.sql` | Configuration, key uniqueness, nulls and baseline checks |
 | `tests/benchmark_numeric.sql` | EXPLAIN and timing queries |
 | `tools/check_static.mjs` | Developer-only template/input checks; not required to deploy |
 

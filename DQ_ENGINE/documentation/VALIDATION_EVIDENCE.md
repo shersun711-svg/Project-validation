@@ -38,6 +38,31 @@ to CHAR(10). This changes only the test expression, not the profiling engine.
 Local static checks passed; the corrected statement has not been executed
 against Teradata here.
 
+## Direct Excel configuration revision
+
+Added an editable three-sheet RDS workbook, a direct SAS loader and an additive
+Teradata migration/apply procedure. Per the final user instruction there is no
+SAS workbook validation or approval-preview phase. Connection/file/staging errors
+remain errors, and the database applies the configuration transactionally.
+Original field mappings and profiling SQL are unchanged. New workbook packaging,
+static source checks and source/seed alignment were checked locally; new SAS/XLSX
+reads, transactions and live loading remain unexecuted. A database test script
+covers commit/rollback and history preservation. The user's current Teradata
+connection failure is still unresolved and must be retested on Monday.
+
+Checks executed for this revision:
+
+- `node DQ_ENGINE/tools/check_static.mjs`: passed for 24 SQL/SAS files;
+  dynamic aggregate templates stayed below the existing SQL text limit at
+  batch sizes 25 and 30.
+- `node DQ_ENGINE/tools/check_config_workbook.mjs`: passed; three sheets,
+  all 589 field mappings and initial settings match the supplied configuration.
+- ZIP integrity and a secure JDK XML parser: passed for the workbook archive
+  and all eight XML/relationship files. This does not establish Excel or SAS
+  compatibility at runtime.
+- `git diff --check`: passed. Existing profiling modules, result SQL and
+  SAS run/controller files were unchanged by this revision.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.
