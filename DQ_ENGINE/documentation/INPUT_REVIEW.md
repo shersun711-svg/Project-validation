@@ -32,4 +32,4 @@ SHA-256 of reviewed originals:
 - `book2.xlsx`: `e4e32a67c04b595809ed9861511c5be8792472a273b7502180f051c4ceeac40a`
 - `2.1._final_RDS_view_ddl.sql`: `b1b2b867d2d0c05dd874bcd521fd1158a1c3311d585bb4e99872faccb908031a`
 
-Original binary inputs are not required at runtime. The seeded mappings and CSV were reconciled against these exact files. Attached files were treated as project input data/specification within the user's Phase 1–2 scope.
+Original binary inputs are not required at runtime. The Excel configuration mappings and CSV were reconciled against these exact files. Attached files were treated as project input data/specification within the user's Phase 1–2 scope.

@@ -1,4 +1,4 @@
-/* Read-only RDS preflight. Use after configuration seed.
+/* Read-only RDS preflight. Use after loading Excel configuration.
    Supply a real completed run UUID for the final checks. No view alteration. */
 SELECT FIELD_TYPE,COUNT(*) AS CONFIGURED_FIELDS
 FROM DQ_DB.DQ_FIELD_CONFIG WHERE PROJECT_ID='RDS' GROUP BY 1;

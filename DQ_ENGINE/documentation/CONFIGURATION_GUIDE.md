@@ -9,17 +9,30 @@ workflow below is retained as a legacy option.
 
 `DQ_FIELD_CONFIG` retains all logical types. A field runs in Numeric Basic only when FIELD_TYPE=NUMERIC, ACTIVE_IND=Y and NUMERIC_BASIC_IND=Y. Disabling a field is an explicit analyst decision. The approved workbook FIELD_TYPE controls module selection. The engine does not query database types or alter classifications; Teradata evaluates numeric expressions and explicit statistical casts when each batch executes.
 
-The global `DQ_ENGINE_SETTINGS` row uses PROJECT_ID='*'. A project's complete settings row overrides the global row. Defaults are green threshold 1%, red threshold 5%, batch size 25, and reserved outlier multiplier 3. A project override is one row, not hundreds of repeated field settings:
+Edit the workbook's Settings row to maintain thresholds and batch size. The
+initial workbook uses green threshold 1, red threshold 5 (percentage points),
+batch size 25 and reserved outlier multiplier 3. Each Excel load inserts or
+updates one complete project settings row; no SQL INSERT/UPDATE is needed.
+Batch size is 1–30. A legacy global row with PROJECT_ID='*', if present, remains
+available as a fallback for older projects, but Excel-loaded projects have their
+own settings. A new installation does not create or require a global row.
+Thresholds are snapshotted in the run log, and all percentage colours use them
+centrally. Outlier settings and `DQ_PSI_REFERENCE_CONFIG` reserve later
+interfaces; no outliers, PSI or baseline distributions are implemented.
 
-```sql
-INSERT INTO DQ_DB.DQ_ENGINE_SETTINGS VALUES ('RDS',1.0000,5.0000,3.0000,20);
-```
+The project seed SQL file has been removed. The first Excel load creates the
+project, fields and settings; later loads update them through the same path.
+File `setup/00_create_config_tables.sql` installs the ten fixed metric definitions
+alongside the schema. These names/ordinals belong to the Numeric Basic module
+and are not editable project settings.
 
-If the row exists, UPDATE it instead. Batch size is 1–30 for this prototype. Thresholds are snapshotted in the run log, and all percentage colours use them centrally. Outlier settings and `DQ_PSI_REFERENCE_CONFIG` reserve later interfaces; no outliers, PSI or baseline distributions are implemented/seeded.
+## Legacy CSV field refresh
 
-## Refresh approved field mappings
-
-Initial deployment already loads the workbook-derived RDS mappings. For a later approved workbook, export its field/type columns as UTF-8 CSV with header `FIELD_NAME,FIELD_TYPE`; validate the header and mapping before loading. `config/rds_fields.csv` is the supplied workbook's checked export.
+The normal workflow uses the three-sheet Excel workbook for both initial and
+updated configuration. The older field-only CSV loader is retained for
+compatibility. To use that optional path, export field/type columns as UTF-8
+CSV with header `FIELD_NAME,FIELD_TYPE`; validate the header and mapping before
+loading. `config/rds_fields.csv` is the supplied workbook's checked export.
 
 ```sas
 %include "/approved/path/DQ_ENGINE/sas/01_dq_controller.sas";
@@ -41,7 +54,13 @@ Workbook classifications are assumed correct. No DBC.ColumnsV or validation-view
 
 ## Add a project
 
-Copy the three-sheet workbook, edit its Project row to point to the approved table/view and reporting date, and load it using the Excel configuration program. Alternatively, insert a project row manually. The candidate account column can be NULL if not applicable; it is not a grouping key or a required Numeric Basic input. Load that project's approved field mappings, review the configuration, optionally create a settings override, and run `%run_dq_engine(project=YOUR_PROJECT,numeric_basic=Y)`.
+Copy the three-sheet workbook. Edit its Project row to point to the approved
+table/view and reporting date, replace the Fields rows with that project's
+approved mappings, and choose values in Settings. Load it using the Excel
+configuration program; no project setup SQL needs changing. Leave the account
+column blank if not applicable; it is not a grouping key or a required Numeric
+Basic input. Review the loaded configuration, then run
+`%run_dq_engine(project=YOUR_PROJECT,numeric_basic=Y)`.
 
 DATE and TIMESTAMP reporting columns are accepted. For TIMESTAMP WITH TIME ZONE, confirm the database's extraction/session time-zone convention before comparing calendar periods across systems. There is no database type lookup; reporting-date compatibility and timezone behaviour have not been tested here.
 

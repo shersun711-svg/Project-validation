@@ -11,12 +11,12 @@ Prerequisites are SAS 9.4 with SAS/ACCESS to Teradata, an approved SAS authentic
 The deployment account needs create-table/view/procedure privileges in the DQ database. The runtime account needs SELECT on the source, configuration reads, results/log/snapshot DML, EXECUTE on the engine procedures and supported access to `DBC.SysExecSQL`. Verify dynamic-SQL privileges with the DBA. Volatile aggregates require spool space. Grant only approved project source access: procedures use `SQL SECURITY INVOKER`.
 
 1. Make deployment copies of the SQL files and replace **every** `DQ_DB` token with the approved DQ database name, including tokens inside dynamic SQL strings and configuration values. Use an ordinary identifier, maximum 128 characters. Do not execute the supplied RDS source-view DDL.
-2. In a Teradata-mode session, deploy `setup/00_create_config_tables.sql`, `01_create_result_tables.sql`, then `02_create_log_tables.sql`. These are one-time creates; do not drop existing tables to rerun deployment.
-3. Run `setup/03_seed_rds_config.sql` once on the new schema. It loads all 589 approved workbook fields and ten metric definitions. Repeated seed inserts deliberately fail uniqueness checks rather than resetting existing configuration.
+2. In a Teradata-mode session, deploy `setup/00_create_config_tables.sql`, `01_create_result_tables.sql`, then `02_create_log_tables.sql`. File 00 also installs the ten fixed Numeric Basic metric definitions. Project, field and settings tables stay empty until Excel is loaded. These are one-time creates; do not drop existing tables to rerun deployment.
+3. Deploy `setup/06_create_excel_config_tables.sql`, then compile `setup/07_apply_excel_config.sql` as one complete procedure statement. The former project seed file has been removed; no project configuration needs editing in SQL.
 4. Deploy `results/90_colour_classification.sql` and `91_dq_summary_views.sql`. Database type validation has been removed; skip the former `04_config_validation.sql` step. Submit each `REPLACE PROCEDURE` as a complete SPL statement in a supported client; ordinary semicolon splitting will break a procedure body. With BTEQ, extract the procedure statement to its own file and use the site's approved `.COMPILE FILE` workflow.
 5. Compile `modules/10_numeric_basic.sql`, then `modules/00_run_engine.sql`. The latter depends on the former. Inspect compiler errors and warnings; a client accepting a file is insufficient evidence.
-6. Run `tests/validate_rds.sql` configuration/population queries. Workbook FIELD_TYPE is authoritative, with no database metadata comparison. Missing columns or incompatible numeric/date operations will fail during SQL execution and be logged. No missing columns were found in the supplied DDL; no live physical type compatibility is claimed.
-7. In a **test environment**, render and run `tests/00_create_numeric_fixture.sql`, `test_numeric.sql`, `test_colour.sql` and `test_failure_restart.sql`, in that order. CALL/DDL errors fail the test. Each assertion SELECT must return zero rows. Fixture names/UUIDs are synthetic and reserved by these scripts. Run once on a fresh fixture deployment; new repeated test runs need new UUIDs and restored fixtures, not deletion of production history.
+6. Edit `config/DQ_RDS_config.xlsx` and load it using `sas/04_load_dq_config.sas`, following [Excel configuration instructions](EXCEL_CONFIGURATION.md). The first load creates the RDS project, all field mappings and its settings row. Require load status APPLIED, then run `tests/validate_rds.sql` configuration/population queries. Workbook FIELD_TYPE is authoritative, with no database metadata comparison. Missing columns or incompatible numeric/date operations will fail during SQL execution and be logged. No missing columns were found in the supplied DDL; no live physical type compatibility is claimed.
+7. In a **test environment**, render and run `tests/00_create_numeric_fixture.sql`, `test_numeric.sql`, `test_colour.sql` and `test_failure_restart.sql`, in that order. Fixtures provide their own project settings and do not need an RDS/global seed. CALL/DDL errors fail the test. Each assertion SELECT must return zero rows. Fixture names/UUIDs are synthetic and reserved by these scripts. Run once on a fresh fixture deployment; new repeated test runs need new UUIDs and restored fixtures, not deletion of production history. The additional `tests/test_config_apply.sql` exercises Excel configuration application and rollback; its temporary constraint requires an isolated test engine.
 8. Edit the labelled settings in `sas/00_run_dq_engine.sas`: `engine_root`, `td_server`, `td_authdomain`, `dq_database`, `project`, switches and optional retry UUID. Have SAS resolve credentials through the organisation-approved AUTHDOMAIN. No passwords, raw tokens or account-level extracts are needed. Ensure the client uses the approved encrypted Teradata connection configuration.
 9. Include the controller in a SAS test session with those connection settings. Run `tests/test_full_execution.sas`, then `test_sas_reconciliation.sas`. Stop on any SAS error or assertion failure. These exercise the synthetic fixture, not production RDS rows.
 10. Run `00_run_dq_engine.sas` for `project=RDS`, `numeric_basic=Y`, all other switches `N`. Keep Teradata session mode, **without an enclosing explicit transaction**, so statement-level logging and failure handling work as designed. Check `dq_status`, `WORK.DQ_RUN_STATUS`, `WORK.DQ_MODULE_STATUS` and the database run log. Require `SUCCEEDED`, expected fields/periods, and reconciled sample metrics before accepting results.
@@ -33,6 +33,8 @@ separate from profiling. Existing installations need only the additive
 `setup/07_apply_excel_config.sql` upgrade. Read
 [Excel configuration instructions](EXCEL_CONFIGURATION.md) for exact steps.
 Excel configuration input is available; Excel report generation remains deferred.
+Users maintain project/source/field/settings values in Excel. The ten metric
+definitions installed by file 00 are fixed engine metadata, not user settings.
 
 ## Current Enterprise Guide connection and first test
 
@@ -90,10 +92,9 @@ There is no Extended execution mode yet. Future modules will add calls inside th
 | `setup/07_apply_excel_config.sql` | Atomic database configuration upsert |
 | `tests/test_config_apply.sql` | Isolated-test configuration load/rollback checks |
 | `tools/build_config_workbook.mjs` | Developer-only initial workbook packaging |
-| `setup/00_create_config_tables.sql` | Projects, fields, settings, future PSI interface, staging and metric definitions |
+| `setup/00_create_config_tables.sql` | Configuration schema and ten fixed Numeric Basic metric definitions |
 | `setup/01_create_result_tables.sql` | Long-format metric storage and captured numeric field selection |
 | `setup/02_create_log_tables.sql` | Run and per-attempt/per-batch logs |
-| `setup/03_seed_rds_config.sql` | Workbook-derived initial RDS configuration |
 | `modules/10_numeric_basic.sql` | Batched source aggregation and metric persistence |
 | `modules/00_run_engine.sql` | Shared run ownership, retries and completion |
 | `results/90_colour_classification.sql` | One shared count-based classification rule |

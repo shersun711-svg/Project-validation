@@ -13,8 +13,16 @@ assert.equal(new Set(fields.map(f=>f.name)).size,589);
 assert.deepEqual(Object.fromEntries(['NUMERIC','CATEGORICAL','DATE','IDENTIFIER'].map(t=>[t,fields.filter(f=>f.type===t).length])),{NUMERIC:415,CATEGORICAL:125,DATE:35,IDENTIFIER:14});
 for(const f of fields){
     assert.match(f.name,/^[A-Za-z_][A-Za-z0-9_]*$/);
-    assert.ok(read('teradata/setup/03_seed_rds_config.sql').includes(`('RDS','${f.name}','${f.type}','Y','${f.type==='NUMERIC'?'Y':'N'}')`));
 }
+/* A fresh installation provides fixed metrics but leaves project configuration
+   empty for the Excel loader. No SQL seed is needed for a new project. */
+assert.ok(!fs.existsSync(path.join(root,'teradata/setup/03_seed_rds_config.sql')));
+const schema=read('teradata/setup/00_create_config_tables.sql');
+const catalog=[...schema.matchAll(/INSERT INTO DQ_DB\.DQ_METRIC_DEFINITION VALUES \('NUMERIC_BASIC',(\d+),'([^']+)','([YN])'\);/g)]
+    .map(([,ordinal,name,percentage])=>({ordinal:+ordinal,name,percentage}));
+const metricNames=['TOTAL_COUNT','NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE_PCT','ZERO_COUNT','ZERO_RATE_PCT','MINIMUM','MAXIMUM','MEAN','STDDEV_SAMP'];
+assert.deepEqual(catalog,metricNames.map((name,i)=>({ordinal:i+1,name,percentage:[4,6].includes(i+1)?'Y':'N'})));
+assert.ok(!/INSERT INTO DQ_DB\.DQ_(PROJECT_CONFIG|FIELD_CONFIG|ENGINE_SETTINGS)\b/.test(schema));
 const audit=read('config/rds_ddl_validation.csv').trim().split('\n').slice(1);
 assert.equal(audit.length,589);
 assert.ok(audit.every(l=>l.endsWith(',PRESENT,UNVERIFIED')));

@@ -63,6 +63,26 @@ Checks executed for this revision:
 - `git diff --check`: passed. Existing profiling modules, result SQL and
   SAS run/controller files were unchanged by this revision.
 
+## Excel replaces project seed configuration
+
+Removed `setup/03_seed_rds_config.sql`. Its project/field/settings values were
+already present in the editable three-sheet workbook. The ten fixed Numeric
+Basic metric definitions moved unchanged into the one-time file 00 table setup.
+Fresh installs leave project configuration empty; the first workbook load creates
+the project and its own settings, without a global row. Existing installations
+retain their previously loaded
+metadata, settings and results; no live migration or deletion was performed.
+
+Test fixtures now provide settings for every synthetic project. Ten database
+assertions use aggregate anchors so that an absent global settings row cannot
+silently skip their checks. Local checks cover the fixed metric catalog, workbook
+mapping and SQL/SAS structure; fresh-install SAS/Teradata execution is unverified.
+
+Executed `check_static.mjs` (23 SQL/SAS files), `check_config_workbook.mjs` and
+`git diff --check`: passed. Compared the ten moved metric INSERT statements
+with the former seed: identical. The workbook, profiling modules, result SQL
+and active SAS controller/Excel loader were unchanged by this revision.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.

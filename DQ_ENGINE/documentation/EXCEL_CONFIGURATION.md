@@ -27,8 +27,9 @@ projects; leave that cell blank if not applicable.
 Settings default to green threshold 1, red threshold 5, SQL batch size 25 and
 reserved outlier multiplier 3. Thresholds are **percentage points**: enter 1 and
 5, not Excel percentages `1%` and `5%`. Enter plain numbers without percentage
-or currency formatting. Settings are stored as a project override; the global
-`*` row is retained. Outlier multiplier is reserved and does not enable outliers.
+or currency formatting. Settings are stored as the workbook project's row. A
+legacy global `*` row, if present, is retained but is not required or created by
+new installations. Outlier multiplier is reserved and does not enable outliers.
 Batch size must be an integer from 1 through 30. Thresholds and multiplier use
 DECIMAL(9,4); source identifiers/field names support 128 ASCII identifier characters,
 project IDs 30, flags one character, logical types 16. The workbook is assumed
@@ -51,8 +52,23 @@ copies of these **two new files**:
 Use Teradata session mode; the apply CALL must not be enclosed in another
 transaction. Existing Numeric Basic/controller procedures do not need recompiling.
 A new installation can follow the original deployment guide and add these files.
-The original seed script remains a one-time bootstrap; it is not the normal
-configuration update process. The legacy CSV loader is still available.
+The former `03_seed_rds_config.sql` has been removed. Project, field and settings
+configuration comes from Excel on both the first load and later updates.
+The legacy CSV field loader is still available for compatibility.
+
+For a **new installation**, file 00 creates empty project/field/settings tables
+and installs the ten fixed metric definitions. Then deploy files 01, 02, 06 and
+07 plus the profiling procedures/views as described in README.md. Load the
+workbook before profiling the project. These fixed metric names/ordinals are
+engine implementation metadata and are not workbook settings.
+
+For **your existing installation**, the ten metric definitions were already
+installed by the old seed script. Keep them and your existing configuration;
+do not rerun file 00 or delete the old data. Only the Excel loader's 06/07
+upgrade is needed. If an older installation stopped before loading metric
+metadata, install just the ten DQ_METRIC_DEFINITION INSERT statements at the
+end of file 00 once, without rerunning its CREATE statements. Confirm ten
+NUMERIC_BASIC definitions exist before running profiling.
 
 ## Load from Enterprise Guide 8.2
 

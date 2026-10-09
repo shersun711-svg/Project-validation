@@ -1,4 +1,5 @@
-/* Optional configuration refresh. Initial deployment uses 03_seed_rds_config.sql.
+/* Legacy CSV configuration refresh. Normal initial/updated configuration uses
+   the three-sheet Excel workbook and 04_load_dq_config.sas.
    Use CSV columns FIELD_NAME,FIELD_TYPE, exported from the approved workbook.
    The checked-in RDS CSV is the exact book2.xlsx mapping, case normalised.
    Requires 01_dq_controller.sas and its connection settings to be included.
