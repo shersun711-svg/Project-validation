@@ -1,0 +1,228 @@
+/* Teradata SPL. Deploy as ONE procedure statement, using a client supporting
+   SPL delimiters. Requires Teradata-session mode (see deployment guide).
+   No WHERE clause is added to the configured source: its filters are retained.
+   One source aggregation per field batch; the subsequent INSERTs only read
+   a tiny volatile aggregate table. No account-level data leaves Teradata. */
+REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_BASIC
+    (IN P_RUN_ID CHAR(36), IN P_PROJECT_ID VARCHAR(30))
+SQL SECURITY INVOKER
+main: BEGIN
+    DECLARE V_DB VARCHAR(128);
+    DECLARE V_SOURCE VARCHAR(128);
+    DECLARE V_DATE VARCHAR(128);
+    DECLARE V_SQL VARCHAR(32000);
+    DECLARE V_PROJECTION VARCHAR(20000);
+    DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
+    DECLARE V_SUFFIX VARCHAR(12);
+    DECLARE V_FIELD VARCHAR(260);
+    DECLARE V_GREEN DECIMAL(9,4);
+    DECLARE V_RED DECIMAL(9,4);
+    DECLARE V_SIZE INTEGER;
+    DECLARE V_COUNT INTEGER;
+    DECLARE V_FIELDS INTEGER;
+    DECLARE V_BATCH INTEGER DEFAULT 0;
+    DECLARE V_FIRST INTEGER;
+    DECLARE V_LAST INTEGER;
+    DECLARE V_ATTEMPT INTEGER DEFAULT 1;
+    DECLARE V_OWNED INTEGER DEFAULT 0;
+    DECLARE V_VT_EXISTS INTEGER DEFAULT 0;
+    DECLARE V_ERROR VARCHAR(2048) CHARACTER SET UNICODE;
+    DECLARE V_ERROR_CODE INTEGER;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        GET DIAGNOSTICS EXCEPTION 1 V_ERROR = MESSAGE_TEXT;
+        SET V_ERROR_CODE = SQLCODE;
+        /* Do not alter an existing successful or concurrently running run. */
+        IF V_OWNED = 1 THEN
+            DELETE FROM DQ_DB.DQ_METRIC_RESULT
+             WHERE RUN_ID = P_RUN_ID AND MODULE_NAME = 'NUMERIC_BASIC';
+            UPDATE DQ_DB.DQ_MODULE_LOG
+               SET STATUS = 'FAILED', END_TIME = CURRENT_TIMESTAMP(6),
+                   ERROR_CODE = V_ERROR_CODE, ERROR_INFORMATION = V_ERROR
+             WHERE RUN_ID = P_RUN_ID AND MODULE_NAME = 'NUMERIC_BASIC'
+               AND ATTEMPT_NO = V_ATTEMPT AND STATUS = 'RUNNING';
+            UPDATE DQ_DB.DQ_RUN_LOG
+               SET STATUS = 'FAILED', END_TIME = CURRENT_TIMESTAMP(6),
+                   ERROR_CODE = V_ERROR_CODE, ERROR_INFORMATION = V_ERROR
+             WHERE RUN_ID = P_RUN_ID;
+            IF V_VT_EXISTS = 1 THEN
+                CALL DBC.SysExecSQL('DROP TABLE DQ_NB_AGG');
+            END IF;
+        ELSE
+            RESIGNAL;
+        END IF;
+    END;
+
+    IF REGEXP_SIMILAR(TRIM(P_RUN_ID),
+       '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$','c') <> 1
+       OR REGEXP_SIMILAR(TRIM(P_PROJECT_ID),'^[A-Za-z_][A-Za-z0-9_]{0,29}$','c') <> 1 THEN
+        SIGNAL SQLSTATE 'U0001' SET MESSAGE_TEXT = 'Invalid run UUID or project identifier';
+    END IF;
+
+    /* Run lifecycle belongs to the shared orchestrator, so later modules can
+       join the same run without changing this module's aggregation contract. */
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_LOG
+     WHERE RUN_ID = P_RUN_ID AND PROJECT_ID = P_PROJECT_ID AND STATUS = 'RUNNING';
+    IF V_COUNT <> 1 THEN
+        SIGNAL SQLSTATE 'U0002' SET MESSAGE_TEXT = 'Module requires an active run from SP_DQ_RUN_ENGINE';
+    END IF;
+    SELECT ATTEMPT_NO INTO V_ATTEMPT FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID = P_RUN_ID;
+    INSERT INTO DQ_DB.DQ_MODULE_LOG
+        (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS)
+    VALUES (P_RUN_ID,'NUMERIC_BASIC',V_ATTEMPT,0,CURRENT_TIMESTAMP(6),'RUNNING');
+    SET V_OWNED = 1;
+
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_PROJECT_CONFIG
+     WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y';
+    IF V_COUNT <> 1 THEN
+        SIGNAL SQLSTATE 'U0003' SET MESSAGE_TEXT = 'Active project configuration not found';
+    END IF;
+    SELECT SOURCE_DATABASE,SOURCE_TABLE,REPORTING_DATE_FIELD
+      INTO V_DB,V_SOURCE,V_DATE
+      FROM DQ_DB.DQ_PROJECT_CONFIG WHERE PROJECT_ID = P_PROJECT_ID;
+    IF REGEXP_SIMILAR(V_DB,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1
+       OR REGEXP_SIMILAR(V_SOURCE,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1
+       OR REGEXP_SIMILAR(V_DATE,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1 THEN
+        SIGNAL SQLSTATE 'U0004' SET MESSAGE_TEXT = 'Unsafe source or reporting date identifier';
+    END IF;
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_ENGINE_SETTINGS
+     WHERE PROJECT_ID IN ('*',P_PROJECT_ID);
+    IF V_COUNT = 0 THEN
+        SIGNAL SQLSTATE 'U0007' SET MESSAGE_TEXT = 'Engine settings not configured';
+    END IF;
+    SELECT GREEN_THRESHOLD,RED_THRESHOLD,SQL_BATCH_SIZE
+      INTO V_GREEN,V_RED,V_SIZE
+      FROM DQ_DB.DQ_ENGINE_SETTINGS WHERE PROJECT_ID IN ('*',P_PROJECT_ID)
+      QUALIFY ROW_NUMBER() OVER
+        (ORDER BY CASE WHEN PROJECT_ID = P_PROJECT_ID THEN 0 ELSE 1 END) = 1;
+
+    /* Workbook FIELD_TYPE is authoritative. No dictionary/type lookup.
+       Missing columns, unsupported operations and range errors are handled
+       by the existing SQL exception handler when the batch executes. */
+    SELECT COUNT(*) INTO V_FIELDS FROM DQ_DB.DQ_FIELD_CONFIG
+     WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y'
+       AND FIELD_TYPE = 'NUMERIC' AND NUMERIC_BASIC_IND = 'Y';
+    IF V_FIELDS = 0 THEN
+        SIGNAL SQLSTATE 'U0009' SET MESSAGE_TEXT = 'No eligible numeric fields; zero-field run rejected';
+    END IF;
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_DEFINITION
+     WHERE MODULE_NAME = 'NUMERIC_BASIC' AND METRIC_ORDINAL BETWEEN 1 AND 10;
+    IF V_COUNT <> 10 THEN
+        SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT = 'Numeric metric definitions incomplete';
+    END IF;
+    UPDATE DQ_DB.DQ_RUN_LOG
+       SET SOURCE_DATABASE = V_DB,SOURCE_TABLE = V_SOURCE,REPORTING_DATE_FIELD = V_DATE,
+           GREEN_THRESHOLD = V_GREEN,RED_THRESHOLD = V_RED,SQL_BATCH_SIZE = V_SIZE
+     WHERE RUN_ID = P_RUN_ID;
+    /* A failed attempt is replayed from scratch; history of attempts is kept.
+       Completed run IDs are refused above; create a new UUID for a new run. */
+    DELETE FROM DQ_DB.DQ_METRIC_RESULT
+     WHERE RUN_ID = P_RUN_ID AND MODULE_NAME = 'NUMERIC_BASIC';
+    DELETE FROM DQ_DB.DQ_RUN_FIELD_CONFIG WHERE RUN_ID = P_RUN_ID;
+    INSERT INTO DQ_DB.DQ_RUN_FIELD_CONFIG
+    SELECT P_RUN_ID,FIELD_NAME,FIELD_TYPE,
+           ROW_NUMBER() OVER (ORDER BY FIELD_NAME)
+      FROM DQ_DB.DQ_FIELD_CONFIG
+     WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y'
+       AND FIELD_TYPE = 'NUMERIC' AND NUMERIC_BASIC_IND = 'Y';
+
+    /* Validate captured identifiers, including concurrent configuration edits,
+       while keeping the approved workbook classifications unchanged. */
+    SELECT COUNT(*) INTO V_FIELDS FROM DQ_DB.DQ_RUN_FIELD_CONFIG WHERE RUN_ID = P_RUN_ID;
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+     WHERE RUN_ID = P_RUN_ID
+       AND REGEXP_SIMILAR(FIELD_NAME,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1;
+    IF V_COUNT > 0 OR V_FIELDS = 0 THEN
+        SIGNAL SQLSTATE 'U0011' SET MESSAGE_TEXT = 'Captured numeric identifiers invalid or selection empty';
+    END IF;
+    SET V_FIRST = 1;
+    WHILE V_FIRST <= V_FIELDS DO
+        SET V_BATCH = V_BATCH + 1;
+        SET V_LAST = LEAST(V_FIRST + V_SIZE - 1,V_FIELDS);
+        INSERT INTO DQ_DB.DQ_MODULE_LOG
+            (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS,FIELD_COUNT)
+        VALUES (P_RUN_ID,'NUMERIC_BASIC',V_ATTEMPT,V_BATCH,
+                CURRENT_TIMESTAMP(6),'RUNNING',V_LAST - V_FIRST + 1);
+        SET V_PROJECTION = '';
+        SET V_SOURCE_PROJECTION = '"' || V_DATE || '" AS DQ_DT';
+        FOR F AS FIELDS_CURSOR CURSOR FOR
+            SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+             WHERE RUN_ID = P_RUN_ID AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST
+             ORDER BY FIELD_ORDINAL
+        DO
+            SET V_SUFFIX = TRIM(CAST(F.FIELD_ORDINAL AS VARCHAR(12)));
+            SET V_SOURCE_PROJECTION = V_SOURCE_PROJECTION || ',"' || TRIM(F.FIELD_NAME)
+                || '" AS DQ_F' || V_SUFFIX;
+            SET V_FIELD = 'S.DQ_F' || V_SUFFIX;
+            SET V_PROJECTION = V_PROJECTION
+             || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
+             || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' = 0 THEN 1 ELSE 0 END AS BIGINT)),0) AS Z' || V_SUFFIX
+             || ',MIN(' || V_FIELD || ') AS LO' || V_SUFFIX
+             || ',MAX(' || V_FIELD || ') AS HI' || V_SUFFIX
+             || ',AVG(CAST(' || V_FIELD || ' AS FLOAT)) AS AV' || V_SUFFIX
+             || ',STDDEV_SAMP(CAST(' || V_FIELD || ' AS FLOAT)) AS SD' || V_SUFFIX;
+        END FOR;
+        /* GROUPING distinguishes an actual NULL date bucket from rolled-up
+           NULLs. An empty source still emits its OVERALL aggregate row. */
+        SET V_SQL = 'CREATE VOLATILE TABLE DQ_NB_AGG AS ('
+          || 'SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
+          || 'EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,'
+          || 'GROUPING(EXTRACT(YEAR FROM S.DQ_DT)) AS GY,'
+          || 'GROUPING(EXTRACT(MONTH FROM S.DQ_DT)) AS GM,'
+          || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+          || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
+          || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+          || ' GROUP BY GROUPING SETS ((),(EXTRACT(YEAR FROM S.DQ_DT)),'
+          || '(EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)))'
+          || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
+        UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT = V_SQL
+         WHERE RUN_ID = P_RUN_ID AND MODULE_NAME = 'NUMERIC_BASIC'
+           AND ATTEMPT_NO = V_ATTEMPT AND BATCH_ID = V_BATCH;
+        CALL DBC.SysExecSQL(V_SQL);
+        SET V_VT_EXISTS = 1;
+
+        FOR R AS RESULTS_CURSOR CURSOR FOR
+            SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+             WHERE RUN_ID = P_RUN_ID AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST
+             ORDER BY FIELD_ORDINAL
+        DO
+            SET V_SUFFIX = TRIM(CAST(R.FIELD_ORDINAL AS VARCHAR(12)));
+            SET V_SQL = 'INSERT INTO DQ_DB.DQ_METRIC_RESULT '
+              || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,'
+              || 'PERIOD_VALUE,METRIC_NAME,METRIC_VALUE,IS_PERCENTAGE,RATE_NUMERATOR,'
+              || 'RATE_DENOMINATOR,EXECUTION_TIMESTAMP) SELECT ''' || P_RUN_ID || ''','''
+              || P_PROJECT_ID || ''',''' || TRIM(R.FIELD_NAME) || ''',''NUMERIC'',''NUMERIC_BASIC'','
+              || 'CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END,'
+              || 'CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
+              || 'WHEN A.GM=1 THEN TRIM(CAST(A.DQ_YEAR AS CHAR(4))) ELSE '
+              || 'TRIM(CAST(A.DQ_YEAR AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))),'
+              || 'CHARACTER_LENGTH(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))))-1,2) END,'
+              || 'M.METRIC_NAME,CASE M.METRIC_ORDINAL '
+              || 'WHEN 1 THEN CAST(A.TOTAL_N AS DECIMAL(38,10)) WHEN 2 THEN CAST(A.N' || V_SUFFIX || ' AS DECIMAL(38,10))'
+              || ' WHEN 3 THEN CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS DECIMAL(38,10))'
+              || ' WHEN 4 THEN CAST(100.0*CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))'
+              || ' WHEN 5 THEN CAST(A.Z' || V_SUFFIX || ' AS DECIMAL(38,10))'
+              || ' WHEN 6 THEN CAST(100.0*CAST(A.Z' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))'
+              || ' WHEN 7 THEN CAST(A.LO' || V_SUFFIX || ' AS DECIMAL(38,10)) WHEN 8 THEN CAST(A.HI' || V_SUFFIX || ' AS DECIMAL(38,10))'
+              || ' WHEN 9 THEN CAST(A.AV' || V_SUFFIX || ' AS DECIMAL(38,10)) WHEN 10 THEN CAST(A.SD' || V_SUFFIX || ' AS DECIMAL(38,10))'
+              || ' END,M.IS_PERCENTAGE,'
+              || 'CASE M.METRIC_ORDINAL WHEN 4 THEN A.TOTAL_N-A.N' || V_SUFFIX
+              || ' WHEN 6 THEN A.Z' || V_SUFFIX || ' ELSE NULL END,'
+              || 'CASE WHEN M.IS_PERCENTAGE=''Y'' THEN A.TOTAL_N ELSE NULL END,'
+              || 'CURRENT_TIMESTAMP(6) FROM DQ_NB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
+              || 'WHERE M.MODULE_NAME=''NUMERIC_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 10';
+            CALL DBC.SysExecSQL(V_SQL);
+        END FOR;
+        CALL DBC.SysExecSQL('DROP TABLE DQ_NB_AGG');
+        SET V_VT_EXISTS = 0;
+        UPDATE DQ_DB.DQ_MODULE_LOG SET STATUS = 'SUCCEEDED',END_TIME = CURRENT_TIMESTAMP(6)
+         WHERE RUN_ID = P_RUN_ID AND MODULE_NAME = 'NUMERIC_BASIC'
+           AND ATTEMPT_NO = V_ATTEMPT AND BATCH_ID = V_BATCH;
+        SET V_FIRST = V_LAST + 1;
+    END WHILE;
+    UPDATE DQ_DB.DQ_MODULE_LOG
+       SET STATUS = 'SUCCEEDED',END_TIME = CURRENT_TIMESTAMP(6),FIELD_COUNT = V_FIELDS
+     WHERE RUN_ID = P_RUN_ID AND MODULE_NAME = 'NUMERIC_BASIC'
+       AND ATTEMPT_NO = V_ATTEMPT AND BATCH_ID = 0;
+END main;
