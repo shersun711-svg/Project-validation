@@ -57,7 +57,7 @@ main: BEGIN
     IF REGEXP_SIMILAR(TRIM(P_RUN_ID),
        '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$','c') <> 1
        OR REGEXP_SIMILAR(TRIM(P_PROJECT_ID),'^[A-Za-z_][A-Za-z0-9_]{0,29}$','c') <> 1 THEN
-        SIGNAL SQLSTATE '75001' SET MESSAGE_TEXT = 'Invalid run UUID or project identifier';
+        SIGNAL SQLSTATE 'U0001' SET MESSAGE_TEXT = 'Invalid run UUID or project identifier';
     END IF;
 
     /* Run lifecycle belongs to the shared orchestrator, so later modules can
@@ -65,7 +65,7 @@ main: BEGIN
     SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_LOG
      WHERE RUN_ID = P_RUN_ID AND PROJECT_ID = P_PROJECT_ID AND STATUS = 'RUNNING';
     IF V_COUNT <> 1 THEN
-        SIGNAL SQLSTATE '75002' SET MESSAGE_TEXT = 'Module requires an active run from SP_DQ_RUN_ENGINE';
+        SIGNAL SQLSTATE 'U0002' SET MESSAGE_TEXT = 'Module requires an active run from SP_DQ_RUN_ENGINE';
     END IF;
     SELECT ATTEMPT_NO INTO V_ATTEMPT FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID = P_RUN_ID;
     INSERT INTO DQ_DB.DQ_MODULE_LOG
@@ -76,7 +76,7 @@ main: BEGIN
     SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_PROJECT_CONFIG
      WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y';
     IF V_COUNT <> 1 THEN
-        SIGNAL SQLSTATE '75003' SET MESSAGE_TEXT = 'Active project configuration not found';
+        SIGNAL SQLSTATE 'U0003' SET MESSAGE_TEXT = 'Active project configuration not found';
     END IF;
     SELECT SOURCE_DATABASE,SOURCE_TABLE,REPORTING_DATE_FIELD
       INTO V_DB,V_SOURCE,V_DATE
@@ -84,12 +84,12 @@ main: BEGIN
     IF REGEXP_SIMILAR(V_DB,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1
        OR REGEXP_SIMILAR(V_SOURCE,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1
        OR REGEXP_SIMILAR(V_DATE,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1 THEN
-        SIGNAL SQLSTATE '75004' SET MESSAGE_TEXT = 'Unsafe source or reporting date identifier';
+        SIGNAL SQLSTATE 'U0004' SET MESSAGE_TEXT = 'Unsafe source or reporting date identifier';
     END IF;
     SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_ENGINE_SETTINGS
      WHERE PROJECT_ID IN ('*',P_PROJECT_ID);
     IF V_COUNT = 0 THEN
-        SIGNAL SQLSTATE '75007' SET MESSAGE_TEXT = 'Engine settings not configured';
+        SIGNAL SQLSTATE 'U0007' SET MESSAGE_TEXT = 'Engine settings not configured';
     END IF;
     SELECT GREEN_THRESHOLD,RED_THRESHOLD,SQL_BATCH_SIZE
       INTO V_GREEN,V_RED,V_SIZE
@@ -104,12 +104,12 @@ main: BEGIN
      WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y'
        AND FIELD_TYPE = 'NUMERIC' AND NUMERIC_BASIC_IND = 'Y';
     IF V_FIELDS = 0 THEN
-        SIGNAL SQLSTATE '75009' SET MESSAGE_TEXT = 'No eligible numeric fields; zero-field run rejected';
+        SIGNAL SQLSTATE 'U0009' SET MESSAGE_TEXT = 'No eligible numeric fields; zero-field run rejected';
     END IF;
     SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_DEFINITION
      WHERE MODULE_NAME = 'NUMERIC_BASIC' AND METRIC_ORDINAL BETWEEN 1 AND 10;
     IF V_COUNT <> 10 THEN
-        SIGNAL SQLSTATE '75010' SET MESSAGE_TEXT = 'Numeric metric definitions incomplete';
+        SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT = 'Numeric metric definitions incomplete';
     END IF;
     UPDATE DQ_DB.DQ_RUN_LOG
        SET SOURCE_DATABASE = V_DB,SOURCE_TABLE = V_SOURCE,REPORTING_DATE_FIELD = V_DATE,
@@ -134,7 +134,7 @@ main: BEGIN
      WHERE RUN_ID = P_RUN_ID
        AND REGEXP_SIMILAR(FIELD_NAME,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1;
     IF V_COUNT > 0 OR V_FIELDS = 0 THEN
-        SIGNAL SQLSTATE '75011' SET MESSAGE_TEXT = 'Captured numeric identifiers invalid or selection empty';
+        SIGNAL SQLSTATE 'U0011' SET MESSAGE_TEXT = 'Captured numeric identifiers invalid or selection empty';
     END IF;
     SET V_FIRST = 1;
     WHILE V_FIRST <= V_FIELDS DO

@@ -50,6 +50,9 @@ for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
         assert.equal((clean.match(/%macro\b/gi)||[]).length,(clean.match(/%mend\b/gi)||[]).length,`${p}: macros`);
         assert.equal((clean.match(/%do\b/gi)||[]).length,(clean.match(/%end\b/gi)||[]).length,`${p}: macro blocks`);
     }
+    for(const match of text.matchAll(/SIGNAL\s+SQLSTATE\s+'([^']+)'/gi)){
+        assert.match(match[1],/^U[0-9A-Z]{4}$/,p+': Teradata user-defined SQLSTATE must use class U');
+    }
     if(/REPLACE PROCEDURE/i.test(clean)){
         assert.equal((clean.match(/\bIF\b/g)||[]).length,2*(clean.match(/\bEND IF\b/g)||[]).length,`${p}: IF blocks`);
     }

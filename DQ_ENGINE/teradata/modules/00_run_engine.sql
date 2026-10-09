@@ -32,7 +32,7 @@ main: BEGIN
     IF REGEXP_SIMILAR(TRIM(P_RUN_ID),
        '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$','c') <> 1
        OR REGEXP_SIMILAR(TRIM(P_PROJECT_ID),'^[A-Za-z_][A-Za-z0-9_]{0,29}$','c') <> 1 THEN
-        SIGNAL SQLSTATE '75001' SET MESSAGE_TEXT = 'Invalid run UUID or project identifier';
+        SIGNAL SQLSTATE 'U0001' SET MESSAGE_TEXT = 'Invalid run UUID or project identifier';
     END IF;
     SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID = P_RUN_ID;
     IF V_COUNT = 0 THEN
@@ -46,7 +46,7 @@ main: BEGIN
                ERROR_INFORMATION = NULL,ATTEMPT_NO = ATTEMPT_NO + 1
          WHERE RUN_ID = P_RUN_ID AND PROJECT_ID = P_PROJECT_ID AND STATUS = 'FAILED';
         IF ACTIVITY_COUNT <> 1 THEN
-            SIGNAL SQLSTATE '75002' SET MESSAGE_TEXT = 'Run is completed, active, or belongs to another project';
+            SIGNAL SQLSTATE 'U0002' SET MESSAGE_TEXT = 'Run is completed, active, or belongs to another project';
         END IF;
         SET V_OWNED = 1;
     END IF;

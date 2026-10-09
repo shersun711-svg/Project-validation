@@ -22,6 +22,14 @@ node DQ_ENGINE/tools/check_static.mjs /path/book2.xlsx /path/2.1._final_RDS_view
 
 The user reported that view physical types were NULL in DBC.ColumnsV and requested removal of that check. The runtime now follows the workbook classifications without a metadata lookup. The configuration validation view was removed, the SAS controller reads DQ_FIELD_CONFIG directly, and missing/incompatible field fixtures exercise SQL execution failure and recovery. Configuration identifier and selection checks remain. The current static checker covers 19 SQL/SAS files; database/SAS execution remains unverified.
 
+## Teradata SQLSTATE correction
+
+The user reported SPL020 during Numeric Basic compilation: SQLSTATE 75001
+was invalid. All custom SIGNAL codes in both procedures now use Teradata's
+user-defined class U (U0001 through U0011). The completed-run rejection test
+expects U0002. Static checks validate these codes; live compilation of this
+revision remains unverified.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.
