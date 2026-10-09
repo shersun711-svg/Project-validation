@@ -23,6 +23,24 @@ The deployment account needs create-table/view/procedure privileges in the DQ da
 
 The engine database is not automatically created, scripts are not automatically submitted, and no live credentials are supplied by this repository. The SQL and SAS files are actual source code; live compilation/execution and performance acceptance remain deployment gates.
 
+## Current Enterprise Guide connection and first test
+
+The entry program now uses the user-provided non-secret connection settings:
+server `dwhprod`, AUTHDOMAIN `TeraAuth`, engine database
+`LAB_T_ORION_MVT`. It defaults to `project=DQ_TEST`, Numeric Basic=Y,
+and all deferred switches=N. No password or customer data is included.
+
+In EG 8.2 connected to a SAS server, open the latest local
+`sas/01_dq_controller.sas` and run it first to define the macros in that
+session. Then open/run `sas/00_run_dq_engine.sas`. Its engine_root is blank
+for this workflow; it uses the loaded controller and does not INCLUDE a PC
+Downloads path on the server. If the controller is missing, it stops with an
+instruction to run that file first. If files are later uploaded, set
+engine_root to the actual SAS server DQ_ENGINE folder for automatic INCLUDE.
+
+After the SAS fixture test succeeds, change project to RDS deliberately.
+This connection setup has not been executed from this workspace.
+
 ## Run and retry
 
 The single entry program calls `%run_dq_engine`. A direct controller invocation after setting connection variables is:
