@@ -1,9 +1,10 @@
-/* Read-only RDS preflight. Use after seed + dictionary validation view.
+/* Read-only RDS preflight. Use after configuration seed.
    Supply a real completed run UUID for the final checks. No view alteration. */
 SELECT FIELD_TYPE,COUNT(*) AS CONFIGURED_FIELDS
 FROM DQ_DB.DQ_FIELD_CONFIG WHERE PROJECT_ID='RDS' GROUP BY 1;
-SELECT * FROM DQ_DB.DQ_CONFIG_VALIDATION
-WHERE PROJECT_ID='RDS' AND (VALIDATION_STATUS<>'VALID' OR VALIDATION_NOTE IS NOT NULL)
+/* Workbook classifications are authoritative; no metadata comparison. */
+SELECT PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND,NUMERIC_BASIC_IND
+FROM DQ_DB.DQ_FIELD_CONFIG WHERE PROJECT_ID='RDS'
 ORDER BY FIELD_TYPE,FIELD_NAME;
 
 /* Verify candidate account-month key. Nonzero duplicates are an observation,

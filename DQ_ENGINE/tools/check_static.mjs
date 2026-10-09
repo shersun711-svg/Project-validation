@@ -60,6 +60,13 @@ assert.ok(!files.some(p=>/\/(11_numeric_percentiles|12_numeric_outliers|20_categ
 /* Evaluate only the concatenation expressions used to build SQL in SPL.
    This tests the actual template strings, including quotes and parentheses. */
 const module=read('teradata/modules/10_numeric_basic.sql');
+assert.ok(!files.some(p=>p.endsWith('/04_config_validation.sql')));
+for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
+    const text=fs.readFileSync(p,'utf8');
+    assert.ok(!/DBC\.ColumnsV|DQ_CONFIG_VALIDATION/i.test(text),'Removed metadata dependency in '+p);
+}
+assert.ok(module.includes("REGEXP_SIMILAR(FIELD_NAME,"),'Retain captured identifier validation');
+assert.ok(read('sas/01_dq_controller.sas').includes('DQ_FIELD_CONFIG'),'Read workbook-derived config directly');
 function assignment(name,startAt=0){
     const start=module.indexOf(`SET ${name} =`,startAt);assert.ok(start>=0,name);
     let quote=false;

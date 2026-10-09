@@ -79,5 +79,5 @@
         disconnect from dq;
     quit;
     %if &_rc ne 0 %then %put ERROR: Configuration merge failed. Inspect the SAS SQL log.;
-    %else %put NOTE: Loaded &_n approved field mappings for &project. Run DQ_CONFIG_VALIDATION next.;
+    %else %put NOTE: Loaded &_n approved field mappings for &project. Review DQ_FIELD_CONFIG before profiling.;
 %mend;

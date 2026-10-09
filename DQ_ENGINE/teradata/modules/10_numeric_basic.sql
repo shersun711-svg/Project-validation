@@ -10,7 +10,6 @@ main: BEGIN
     DECLARE V_DB VARCHAR(128);
     DECLARE V_SOURCE VARCHAR(128);
     DECLARE V_DATE VARCHAR(128);
-    DECLARE V_ACCOUNT VARCHAR(128);
     DECLARE V_SQL VARCHAR(32000);
     DECLARE V_PROJECTION VARCHAR(20000);
     DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
@@ -79,29 +78,13 @@ main: BEGIN
     IF V_COUNT <> 1 THEN
         SIGNAL SQLSTATE '75003' SET MESSAGE_TEXT = 'Active project configuration not found';
     END IF;
-    SELECT SOURCE_DATABASE,SOURCE_TABLE,REPORTING_DATE_FIELD,ACCOUNT_ID_FIELD
-      INTO V_DB,V_SOURCE,V_DATE,V_ACCOUNT
+    SELECT SOURCE_DATABASE,SOURCE_TABLE,REPORTING_DATE_FIELD
+      INTO V_DB,V_SOURCE,V_DATE
       FROM DQ_DB.DQ_PROJECT_CONFIG WHERE PROJECT_ID = P_PROJECT_ID;
     IF REGEXP_SIMILAR(V_DB,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1
        OR REGEXP_SIMILAR(V_SOURCE,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1
        OR REGEXP_SIMILAR(V_DATE,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1 THEN
         SIGNAL SQLSTATE '75004' SET MESSAGE_TEXT = 'Unsafe source or reporting date identifier';
-    END IF;
-    SELECT COUNT(*) INTO V_COUNT FROM DBC.ColumnsV
-     WHERE UPPER(TRIM(DatabaseName)) = UPPER(V_DB)
-       AND UPPER(TRIM(TableName)) = UPPER(V_SOURCE)
-       AND UPPER(TRIM(ColumnName)) = UPPER(V_DATE) AND ColumnType IN ('DA','TS','TZ');
-    IF V_COUNT <> 1 THEN
-        SIGNAL SQLSTATE '75005' SET MESSAGE_TEXT = 'Reporting date missing or not DATE/TIMESTAMP';
-    END IF;
-    IF V_ACCOUNT IS NOT NULL THEN
-        SELECT COUNT(*) INTO V_COUNT FROM DBC.ColumnsV
-         WHERE UPPER(TRIM(DatabaseName)) = UPPER(V_DB)
-           AND UPPER(TRIM(TableName)) = UPPER(V_SOURCE)
-           AND UPPER(TRIM(ColumnName)) = UPPER(V_ACCOUNT);
-        IF V_COUNT <> 1 THEN
-            SIGNAL SQLSTATE '75006' SET MESSAGE_TEXT = 'Configured account identifier is missing';
-        END IF;
     END IF;
     SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_ENGINE_SETTINGS
      WHERE PROJECT_ID IN ('*',P_PROJECT_ID);
@@ -114,15 +97,9 @@ main: BEGIN
       QUALIFY ROW_NUMBER() OVER
         (ORDER BY CASE WHEN PROJECT_ID = P_PROJECT_ID THEN 0 ELSE 1 END) = 1;
 
-    /* Fail closed for every selected numeric field. Non-numeric problems are
-       included in the configuration report, but do not block this module. */
-    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_CONFIG_VALIDATION
-     WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y'
-       AND FIELD_TYPE = 'NUMERIC' AND NUMERIC_BASIC_IND = 'Y'
-       AND VALIDATION_STATUS <> 'VALID';
-    IF V_COUNT > 0 THEN
-        SIGNAL SQLSTATE '75008' SET MESSAGE_TEXT = 'Selected numeric configuration invalid; query DQ_CONFIG_VALIDATION';
-    END IF;
+    /* Workbook FIELD_TYPE is authoritative. No dictionary/type lookup.
+       Missing columns, unsupported operations and range errors are handled
+       by the existing SQL exception handler when the batch executes. */
     SELECT COUNT(*) INTO V_FIELDS FROM DQ_DB.DQ_FIELD_CONFIG
      WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y'
        AND FIELD_TYPE = 'NUMERIC' AND NUMERIC_BASIC_IND = 'Y';
@@ -150,21 +127,14 @@ main: BEGIN
      WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y'
        AND FIELD_TYPE = 'NUMERIC' AND NUMERIC_BASIC_IND = 'Y';
 
-    /* Validate the captured selection as well: a concurrent configuration
-       edit between preflight and INSERT must not introduce unsafe SQL. */
+    /* Validate captured identifiers, including concurrent configuration edits,
+       while keeping the approved workbook classifications unchanged. */
     SELECT COUNT(*) INTO V_FIELDS FROM DQ_DB.DQ_RUN_FIELD_CONFIG WHERE RUN_ID = P_RUN_ID;
-    SELECT COUNT(*) INTO V_COUNT
-      FROM DQ_DB.DQ_RUN_FIELD_CONFIG F LEFT JOIN DBC.ColumnsV C
-        ON UPPER(TRIM(C.DatabaseName)) = UPPER(V_DB)
-       AND UPPER(TRIM(C.TableName)) = UPPER(V_SOURCE)
-       AND UPPER(TRIM(C.ColumnName)) = UPPER(F.FIELD_NAME)
-     WHERE F.RUN_ID = P_RUN_ID AND
-       (REGEXP_SIMILAR(F.FIELD_NAME,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1
-        OR C.ColumnName IS NULL OR C.ColumnType NOT IN ('I1','I2','I','I8','D','F')
-        OR (C.ColumnType = 'D' AND
-            (C.DecimalFractionalDigits > 10 OR C.DecimalTotalDigits-C.DecimalFractionalDigits > 28)));
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+     WHERE RUN_ID = P_RUN_ID
+       AND REGEXP_SIMILAR(FIELD_NAME,'^[A-Za-z_][A-Za-z0-9_]*$','c') <> 1;
     IF V_COUNT > 0 OR V_FIELDS = 0 THEN
-        SIGNAL SQLSTATE '75011' SET MESSAGE_TEXT = 'Captured numeric selection invalid or empty';
+        SIGNAL SQLSTATE '75011' SET MESSAGE_TEXT = 'Captured numeric identifiers invalid or selection empty';
     END IF;
     SET V_FIRST = 1;
     WHILE V_FIRST <= V_FIELDS DO

@@ -102,11 +102,12 @@
         %end;
         create table work.dq_configuration_report as
         select * from connection to dq
-            (select * from &dq_database..DQ_CONFIG_VALIDATION
+            (select PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND,NUMERIC_BASIC_IND
+             from &dq_database..DQ_FIELD_CONFIG
              where PROJECT_ID='&project' order by FIELD_NAME);
         %let _rc=&sqlxrc;
         %if &_rc ne 0 %then %do;
-            %let dq_error=Configuration report failed. Check metadata permissions and deployment.;
+            %let dq_error=Configuration read failed. Check configuration table access and deployment.;
             disconnect from dq;
             quit;
             %goto invalid;

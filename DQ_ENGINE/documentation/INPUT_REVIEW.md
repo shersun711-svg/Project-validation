@@ -9,7 +9,7 @@ The master specification refers to `book2(1).xlsx`; the supplied file is `book2.
 | DATE | 35 |
 | IDENTIFIER | 14 |
 
-There are no duplicate configuration field names and no unknown classifications. The outer SELECT of `2.1._final_RDS_view_ddl.sql` has 589 distinct output names. Its output-name set exactly matches the workbook. `config/rds_ddl_validation.csv` reports PRESENT for every field and UNVERIFIED for every physical type. Underlying table definitions are not supplied, so no incompatible physical column types can be established from these files alone. `DQ_CONFIG_VALIDATION` produces the live missing/type/precision report after deployment.
+There are no duplicate configuration field names and no unknown classifications. The outer SELECT of `2.1._final_RDS_view_ddl.sql` has 589 distinct output names. Its output-name set exactly matches the workbook. `config/rds_ddl_validation.csv` reports PRESENT for every field and UNVERIFIED for every physical type. Underlying table definitions are not supplied, so no incompatible physical column types can be established from these files alone. The workbook classifications are authoritative by user decision. The database type-validation step was removed after the user reported NULL view types in DBC.ColumnsV. Source compatibility is assumed; SQL execution errors are logged without reclassifying fields.
 
 Source: `LAB_T_ORION_MVT.VW_RDS_PHASE2_FACT`. Reporting period: `FACT_DT`, never an opening date. `AGMT_ID` is configured as the candidate identifier, without a uniqueness assumption. `BALANCE_AMT` and `ARREARS_AMT` are approved NUMERIC examples.
 

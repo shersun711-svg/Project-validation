@@ -1,6 +1,6 @@
 # DQ Engine: Phase 1–2 prototype
 
-This implementation uses SAS as the controller and Teradata for all numeric calculations. It implements Numeric Basic only: ten metrics, three reporting levels, persistent aggregate results, shared percentage classification, configuration validation and run/batch logging. The supplied workbook and view DDL were reviewed. No source view changes are required.
+This implementation uses SAS as the controller and Teradata for all numeric calculations. It implements Numeric Basic only: ten metrics, three reporting levels, persistent aggregate results, shared percentage classification, configuration reads and run/batch logging. The supplied workbook and view DDL were reviewed. No source view changes are required.
 
 Percentiles, outliers, categorical profiling, PSI, date/identifier profiling and Excel export are deferred. Their switches must remain `N`; selecting a deferred feature raises an error before connecting. No placeholder implementation pretends to execute a deferred test.
 
@@ -8,14 +8,14 @@ Percentiles, outliers, categorical profiling, PSI, date/identifier profiling and
 
 Prerequisites are SAS 9.4 with SAS/ACCESS to Teradata, an approved SAS authentication domain, and an approved Teradata database separate from the RDS source. Target Teradata 16.20 or Vantage with SPL, dynamic SQL, `GROUPING SETS`, `GROUPING`, `STDDEV_SAMP`, `REGEXP_SIMILAR`, diagnostics and volatile CTAS support. This target has not been compiled or executed here; verify the installed release first.
 
-The deployment account needs create-table/view/procedure privileges in the DQ database. The runtime account needs SELECT on the source and `DBC.ColumnsV`, configuration reads, results/log/snapshot DML, EXECUTE on the engine procedures and supported access to `DBC.SysExecSQL`. Verify dynamic-SQL privileges with the DBA. Volatile aggregates require spool space. Grant only approved project source access: procedures use `SQL SECURITY INVOKER`.
+The deployment account needs create-table/view/procedure privileges in the DQ database. The runtime account needs SELECT on the source, configuration reads, results/log/snapshot DML, EXECUTE on the engine procedures and supported access to `DBC.SysExecSQL`. Verify dynamic-SQL privileges with the DBA. Volatile aggregates require spool space. Grant only approved project source access: procedures use `SQL SECURITY INVOKER`.
 
 1. Make deployment copies of the SQL files and replace **every** `DQ_DB` token with the approved DQ database name, including tokens inside dynamic SQL strings and configuration values. Use an ordinary identifier, maximum 128 characters. Do not execute the supplied RDS source-view DDL.
 2. In a Teradata-mode session, deploy `setup/00_create_config_tables.sql`, `01_create_result_tables.sql`, then `02_create_log_tables.sql`. These are one-time creates; do not drop existing tables to rerun deployment.
 3. Run `setup/03_seed_rds_config.sql` once on the new schema. It loads all 589 approved workbook fields and ten metric definitions. Repeated seed inserts deliberately fail uniqueness checks rather than resetting existing configuration.
-4. Deploy `setup/04_config_validation.sql`, then `results/90_colour_classification.sql` and `91_dq_summary_views.sql`. Submit each `REPLACE PROCEDURE` as a complete SPL statement in a supported client; ordinary semicolon splitting will break a procedure body. With BTEQ, extract the procedure statement to its own file and use the site's approved `.COMPILE FILE` workflow.
+4. Deploy `results/90_colour_classification.sql` and `91_dq_summary_views.sql`. Database type validation has been removed; skip the former `04_config_validation.sql` step. Submit each `REPLACE PROCEDURE` as a complete SPL statement in a supported client; ordinary semicolon splitting will break a procedure body. With BTEQ, extract the procedure statement to its own file and use the site's approved `.COMPILE FILE` workflow.
 5. Compile `modules/10_numeric_basic.sql`, then `modules/00_run_engine.sql`. The latter depends on the former. Inspect compiler errors and warnings; a client accepting a file is insufficient evidence.
-6. Run `tests/validate_rds.sql` preflight queries. Review every non-VALID physical type or FLOAT note. No missing columns were found in the supplied DDL, but the live database dictionary is authoritative. A selected numeric field with incompatible type or precision stops the run. Resolve incorrect configuration explicitly; do not silently cast text or reclassify fields.
+6. Run `tests/validate_rds.sql` configuration/population queries. Workbook FIELD_TYPE is authoritative, with no database metadata comparison. Missing columns or incompatible numeric/date operations will fail during SQL execution and be logged. No missing columns were found in the supplied DDL; no live physical type compatibility is claimed.
 7. In a **test environment**, render and run `tests/00_create_numeric_fixture.sql`, `test_numeric.sql`, `test_colour.sql` and `test_failure_restart.sql`, in that order. CALL/DDL errors fail the test. Each assertion SELECT must return zero rows. Fixture names/UUIDs are synthetic and reserved by these scripts. Run once on a fresh fixture deployment; new repeated test runs need new UUIDs and restored fixtures, not deletion of production history.
 8. Edit the labelled settings in `sas/00_run_dq_engine.sas`: `engine_root`, `td_server`, `td_authdomain`, `dq_database`, `project`, switches and optional retry UUID. Have SAS resolve credentials through the organisation-approved AUTHDOMAIN. No passwords, raw tokens or account-level extracts are needed. Ensure the client uses the approved encrypted Teradata connection configuration.
 9. Include the controller in a SAS test session with those connection settings. Run `tests/test_full_execution.sas`, then `test_sas_reconciliation.sas`. Stop on any SAS error or assertion failure. These exercise the synthetic fixture, not production RDS rows.
@@ -58,7 +58,6 @@ There is no Extended execution mode yet. Future modules will add calls inside th
 | `setup/01_create_result_tables.sql` | Long-format metric storage and captured numeric field selection |
 | `setup/02_create_log_tables.sql` | Run and per-attempt/per-batch logs |
 | `setup/03_seed_rds_config.sql` | Workbook-derived initial RDS configuration |
-| `setup/04_config_validation.sql` | Live field/type compatibility report |
 | `modules/10_numeric_basic.sql` | Batched source aggregation and metric persistence |
 | `modules/00_run_engine.sql` | Shared run ownership, retries and completion |
 | `results/90_colour_classification.sql` | One shared count-based classification rule |
