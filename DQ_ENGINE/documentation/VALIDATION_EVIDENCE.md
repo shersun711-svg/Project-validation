@@ -99,6 +99,17 @@ workbook checks passed locally. SAS macro expansion and the corrected live CALL
 have not been executed here. No Teradata procedure, field mapping, workbook or
 profiling calculation was changed.
 
+## SAS datatype diagnostic
+
+The user reported an unsupported DBMS datatype followed by PROC SQL NOEXEC,
+without the failed query. A read-only SAS diagnostic now describes all four
+controller result shapes with WHERE 1=0, then compares module-log projections
+with/without its long Unicode SQL text and a summary with numeric casts. Each
+probe starts a fresh PROC SQL and records both SAS SQLRC and DBMS SQLXRC.
+No profiling procedure is called. The failing live datatype remains unidentified;
+neither the long-text nor numeric-cast workaround is claimed verified. The
+diagnostic has passed local source checks but has not been executed in SAS.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.

@@ -63,6 +63,13 @@ alone does not replace a macro already loaded in the session. The SAS-only fix
 does not require recompiling Teradata procedures; execution still needs checking
 on the user's SAS server.
 
+For `At least one of the columns ... has a datatype that is not supported`,
+run `tests/diagnose_sas_reads.sas` in that same session. Its seven zero-row,
+read-only probes identify the failing result shape and compare bounded log text
+and summary count casts. Each probe uses a fresh PROC SQL to isolate NOEXEC.
+Inspect every `NOTE: DQ READ PROBE` result; this checks datatype conversion,
+not calculation correctness. It does not call profiling or modify Teradata data.
+
 ## Run and retry
 
 The single entry program calls `%run_dq_engine`. A direct controller invocation after setting connection variables is:
@@ -116,6 +123,7 @@ There is no Extended execution mode yet. Future modules will add calls inside th
 | `tests/test_failure_restart.sql` | Invalid configuration, runtime overflow and recovery |
 | `tests/test_full_execution.sas` | Controller switches, successful execution and protected history |
 | `tests/test_sas_reconciliation.sas` | Ten metrics compared with SAS sample calculations |
+| `tests/diagnose_sas_reads.sas` | Read-only, zero-row SAS datatype probes for configuration/logs/summary |
 | `tests/validate_rds.sql` | Configuration, key uniqueness, nulls and baseline checks |
 | `tests/benchmark_numeric.sql` | EXPLAIN and timing queries |
 | `tools/check_static.mjs` | Developer-only template/input checks; not required to deploy |
