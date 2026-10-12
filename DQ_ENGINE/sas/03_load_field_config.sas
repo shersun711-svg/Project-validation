@@ -6,7 +6,7 @@
    Existing ACTIVE_IND/module overrides are retained; absent rows are retained.
    No implicit reclassification, deactivation or deletion. */
 %macro load_dq_field_config(project=RDS,config_csv=);
-    %local _load_id _bad _n _distinct _rc _project_count;
+    %local _load_id _bad _n _distinct _rc _project_count _project_sql _load_sql;
     %dq_validate_context;
     %if &dq_context_ok ne 1 %then %return;
     %if %length(%superq(project))=0 or %length(%superq(config_csv))=0 %then %do;
@@ -16,6 +16,8 @@
         %put ERROR: Invalid project identifier.; %return;
     %end;
     %let _load_id=%sysfunc(uuidgen());
+    %let _project_sql=%sysfunc(quote(%superq(project),%str(%')));
+    %let _load_sql=%sysfunc(quote(%superq(_load_id),%str(%')));
     data work.dq_config_upload;
         length load_id $36 project_id $30 field_name $128 field_type $16
                _raw_name _raw_type $256;
@@ -44,7 +46,7 @@
         %dq_connect;
         select N into :_project_count trimmed from connection to dq
             (select count(*) as N from &dq_database..DQ_PROJECT_CONFIG
-             where PROJECT_ID='&project');
+             where PROJECT_ID=&_project_sql);
         %let _rc=&sqlxrc;
         disconnect from dq;
     quit;
@@ -67,7 +69,7 @@
         %dq_connect;
         execute (merge into &dq_database..DQ_FIELD_CONFIG as T
           using (select PROJECT_ID,FIELD_NAME,FIELD_TYPE
-                 from &dq_database..DQ_FIELD_CONFIG_STAGE where LOAD_ID='&_load_id') as S
+                 from &dq_database..DQ_FIELD_CONFIG_STAGE where LOAD_ID=&_load_sql) as S
           on T.PROJECT_ID=S.PROJECT_ID and T.FIELD_NAME=S.FIELD_NAME
           when matched then update set FIELD_TYPE=S.FIELD_TYPE
           when not matched then insert
@@ -76,7 +78,7 @@
                   case when S.FIELD_TYPE='NUMERIC' then 'Y' else 'N' end)) by dq;
         %let _rc=&sqlxrc;
         execute (delete from &dq_database..DQ_FIELD_CONFIG_STAGE
-                 where LOAD_ID='&_load_id') by dq;
+                 where LOAD_ID=&_load_sql) by dq;
         disconnect from dq;
     quit;
     %if &_rc ne 0 %then %put ERROR: Configuration merge failed. Inspect the SAS SQL log.;

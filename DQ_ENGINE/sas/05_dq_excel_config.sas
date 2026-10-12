@@ -4,7 +4,7 @@
    The database merges the three tables in one transaction; no profiling runs.
    Requires 01_dq_controller.sas connection macros in the same SAS session. */
 %macro load_dq_config(config_workbook=);
-    %local _rc _load_id _status;
+    %local _rc _load_id _status _load_sql;
     %global dq_config_status dq_config_load_id;
     %let dq_config_status=FAILED;
     %let dq_config_load_id=;
@@ -25,6 +25,7 @@
         %put ERROR: Cannot open workbook. Check server path and XLSX engine availability.; %return;
     %end;
     %let _load_id=%sysfunc(uuidgen());
+    %let _load_sql=%sysfunc(quote(%superq(_load_id),%str(%')));
     %let dq_config_load_id=&_load_id;
     data work.dq_stage_project;
         set dqbook.Project(rename=(PROJECT_ID=_in_project SOURCE_DATABASE=_in_db
@@ -104,11 +105,11 @@
             %return;
         %end;
         /* Only the generated UUID enters SQL; workbook strings stay in tables. */
-        execute (call &dq_database..SP_DQ_APPLY_CONFIG('&_load_id')) by dq;
+        execute (call &dq_database..SP_DQ_APPLY_CONFIG(&_load_sql)) by dq;
         %let _rc=&sqlxrc;
         %if &_rc=0 %then %do;
             create table work.dq_config_load_status as select * from connection to dq
-                (select * from &dq_database..DQ_CONFIG_LOAD_LOG where LOAD_ID='&_load_id');
+                (select * from &dq_database..DQ_CONFIG_LOAD_LOG where LOAD_ID=&_load_sql);
             %let _rc=&sqlxrc;
         %end;
         disconnect from dq;

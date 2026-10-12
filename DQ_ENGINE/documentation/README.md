@@ -54,6 +54,15 @@ engine_root to the actual SAS server DQ_ENGINE folder for automatic INCLUDE.
 After the SAS fixture test succeeds, change project to RDS deliberately.
 This connection setup has not been executed from this workspace.
 
+If the CALL reports U0001 for an invalid run UUID/project, update and rerun
+`01_dq_controller.sas` in the same EG server session before running file 00.
+The corrected controller resolves IDs first and then uses single-quoted SQL
+literals. Its `NOTE: DQ CALL:` log line should contain a 36-character UUID and
+the selected project, not unresolved macro-variable names. Replacing a file
+alone does not replace a macro already loaded in the session. The SAS-only fix
+does not require recompiling Teradata procedures; execution still needs checking
+on the user's SAS server.
+
 ## Run and retry
 
 The single entry program calls `%run_dq_engine`. A direct controller invocation after setting connection variables is:

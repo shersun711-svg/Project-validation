@@ -39,10 +39,20 @@ function lex(text,label){
         if(c==='-'&&text[i+1]==='-'){
             const end=text.indexOf('\n',i+2);i=end<0?text.length:end-1;clean+=' ';continue;
         }
+        /* SAS masks the unmatched quote in %str(%'). It is a macro-function
+           argument, not the beginning of a quoted SAS/SQL string. */
+        if(label.endsWith('.sas')&&text.slice(i,i+8).toLowerCase()==="%str(%')"){
+            i+=7;clean+=' ';continue;
+        }
         if(c==="'"||c==='"'){
+            const start=i;
             let closed=false;
             for(i++;i<text.length;i++){if(text[i]===c){if(text[i+1]===c){i++;continue;}closed=true;break;}}
-            assert.ok(closed,`${label}: unclosed quote`);clean+=' ';continue;
+            assert.ok(closed,`${label}: unclosed quote`);
+            if(label.endsWith('.sas')&&c==="'"){
+                assert.ok(!/&[A-Za-z_]/.test(text.slice(start+1,i)),`${label}: unresolved macro reference inside single quotes`);
+            }
+            clean+=' ';continue;
         }
         if(c==='(')depth++;
         if(c===')'){depth--;assert.ok(depth>=0,`${label}: excess closing parenthesis`);}
@@ -50,6 +60,9 @@ function lex(text,label){
     }
     assert.equal(depth,0,`${label}: unclosed parenthesis`);return clean;
 }
+/* Regression: reject the CALL shape that sent literal macro-variable names.
+   This checks source text only; it does not execute SAS macro expansion. */
+assert.throws(()=>lex("execute (call DQ_DB.SP_DQ_RUN_ENGINE('&dq_run_id','&project')) by dq;",'single_quote_regression.sas'),/unresolved macro reference/);
 function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)]);}
 const files=walk(root);
 for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){

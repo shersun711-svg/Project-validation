@@ -3,6 +3,8 @@
    Run after test_full_execution.sas in the same session, or set
    fixture_run_id to a completed DQ_TEST run UUID. */
 %macro test_reconciliation;
+%local _fixture_sql;
+%let _fixture_sql=%sysfunc(quote(%superq(fixture_run_id),%str(%')));
 data work.sas_fixture;
     do row_id=1 to 100;
         if row_id=1 then x=.;
@@ -24,7 +26,7 @@ proc sql noprint;
     select * from connection to dq
         (select METRIC_NAME,METRIC_VALUE,DQ_COLOUR
          from &dq_database..DQ_COMPLETED_RESULT
-         where RUN_ID='&fixture_run_id' and PROJECT_ID='DQ_TEST'
+         where RUN_ID=&_fixture_sql and PROJECT_ID='DQ_TEST'
            and FIELD_NAME='X' and PERIOD_LEVEL='OVERALL');
     %let reconciliation_rc=&sqlxrc;
     disconnect from dq;

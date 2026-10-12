@@ -35,7 +35,7 @@
 %macro run_dq_engine(project=RDS,numeric_basic=Y,numeric_percentiles=N,
     numeric_outliers=N,categorical_basic=N,categorical_psi=N,date_basic=N,
     identifier_basic=N,export_excel=N,retry_run_id=);
-    %local _switches _i _name _value _rc _call_rc _msg;
+    %local _switches _i _name _value _rc _call_rc _msg _project_sql _run_sql;
     %global dq_run_id dq_status dq_error;
     %let dq_run_id=;
     %let dq_status=FAILED;
@@ -87,6 +87,11 @@
         %let dq_error=retry_run_id must be a UUID.;
         %goto invalid;
     %end;
+    /* Resolve values before adding SQL quotes. A literal '&name' in SAS SQL
+       does not resolve the macro variable. Inputs above are identifier/UUID
+       checked; QUOTE supplies single quotes for Teradata string literals. */
+    %let _project_sql=%sysfunc(quote(%superq(project),%str(%')));
+    %let _run_sql=%sysfunc(quote(%superq(dq_run_id),%str(%')));
     /* Clear our previous aggregate outputs so stale WORK data cannot be read
        as the result of a connection failure. */
     proc datasets library=work nolist;
@@ -104,7 +109,7 @@
         select * from connection to dq
             (select PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND,NUMERIC_BASIC_IND
              from &dq_database..DQ_FIELD_CONFIG
-             where PROJECT_ID='&project' order by FIELD_NAME);
+             where PROJECT_ID=&_project_sql order by FIELD_NAME);
         %let _rc=&sqlxrc;
         %if &_rc ne 0 %then %do;
             %let dq_error=Configuration read failed. Check configuration table access and deployment.;
@@ -112,14 +117,16 @@
             quit;
             %goto invalid;
         %end;
-        execute (call &dq_database..SP_DQ_RUN_ENGINE('&dq_run_id','&project')) by dq;
+        /* Safe diagnostic: only the database, run UUID and project ID. */
+        %put NOTE: DQ CALL: call &dq_database..SP_DQ_RUN_ENGINE(&_run_sql,&_project_sql);
+        execute (call &dq_database..SP_DQ_RUN_ENGINE(&_run_sql,&_project_sql)) by dq;
         %let _call_rc=&sqlxrc;
         %if &_call_rc ne 0 %then %do;
             %let dq_error=Numeric CALL failed. Check the SAS SQLXMSG and database run log.;
         %end;
         create table work.dq_run_status as
         select * from connection to dq
-            (select * from &dq_database..DQ_RUN_LOG where RUN_ID='&dq_run_id');
+            (select * from &dq_database..DQ_RUN_LOG where RUN_ID=&_run_sql);
         %let _rc=&sqlxrc;
         %if &_rc ne 0 %then %do;
             %let dq_error=Cannot read run status; success is unconfirmed.;
@@ -129,7 +136,7 @@
         %end;
         create table work.dq_module_status as
         select * from connection to dq
-            (select * from &dq_database..DQ_MODULE_LOG where RUN_ID='&dq_run_id'
+            (select * from &dq_database..DQ_MODULE_LOG where RUN_ID=&_run_sql
              order by ATTEMPT_NO,BATCH_ID);
         %let _rc=&sqlxrc;
         %if &_rc ne 0 %then %do;
@@ -141,7 +148,7 @@
         /* SQL_TEXT is aggregate SQL, not source observations. */
         create table work.dq_summary as
         select * from connection to dq
-            (select * from &dq_database..DQ_RUN_SUMMARY where RUN_ID='&dq_run_id');
+            (select * from &dq_database..DQ_RUN_SUMMARY where RUN_ID=&_run_sql);
         %let _rc=&sqlxrc;
         disconnect from dq;
     quit;

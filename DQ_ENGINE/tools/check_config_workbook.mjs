@@ -25,7 +25,7 @@ assert.deepEqual(settings[1],[1,5,25,3]);
 for(let i=1;i<=3;i++){assert.ok(!/<f[ >]/.test(xml(`xl/worksheets/sheet${i}.xml`)),'No formulas in starter workbook');}
 const sas=fs.readFileSync(path.join(root,'sas/05_dq_excel_config.sas'),'utf8');
 assert.ok(!/validate_dq_config|apply=N|APPLY=Y/i.test(sas),'No SAS workbook validation/preview phase');
-assert.ok(sas.includes("SP_DQ_APPLY_CONFIG('&_load_id')"),'Only generated load UUID is interpolated into CALL');
+assert.ok(sas.includes('SP_DQ_APPLY_CONFIG(&_load_sql)'),'Only the quoted generated load UUID is interpolated into CALL');
 const sql=fs.readFileSync(path.join(root,'teradata/setup/07_apply_excel_config.sql'),'utf8');
 assert.equal((sql.match(/MERGE INTO/g)||[]).length,3);
 assert.ok(sql.indexOf('BEGIN TRANSACTION;')<sql.indexOf('MERGE INTO'));

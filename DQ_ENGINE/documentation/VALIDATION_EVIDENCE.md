@@ -83,6 +83,22 @@ Executed `check_static.mjs` (23 SQL/SAS files), `check_config_workbook.mjs` and
 with the former seed: identical. The workbook, profiling modules, result SQL
 and active SAS controller/Excel loader were unchanged by this revision.
 
+## SAS SQL literal correction
+
+The user reported U0001 (invalid run UUID) after restoring the SAS connection.
+The controller contained single-quoted macro references in its CALL and read
+filters; these can reach Teradata as literal variable names. It now uses SAS
+QUOTE with a single-quote delimiter to construct resolved SQL literals before
+issuing the statements. The same correction covers both configuration loaders
+and the synthetic SAS reconciliation query. A safe `NOTE: DQ CALL:` diagnostic
+records only the database, run UUID and project.
+
+The static checker rejects unresolved macro references inside SAS single-quoted
+strings and includes the failing CALL shape as a regression example. Source and
+workbook checks passed locally. SAS macro expansion and the corrected live CALL
+have not been executed here. No Teradata procedure, field mapping, workbook or
+profiling calculation was changed.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.
