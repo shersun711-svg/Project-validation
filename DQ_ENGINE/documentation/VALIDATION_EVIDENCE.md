@@ -122,6 +122,22 @@ Local source/workbook checks passed; the bounded-text read has not been executed
 in SAS here or confirmed on the user's server. Teradata tables, procedures,
 calculations and workbook mappings were unchanged.
 
+## SQL text exclusion and EG submission encoding
+
+The full-execution test later failed on its success case. The user then supplied
+an EG error converting U_UTF8_CE to U_LATIN9_CE, with a source excerpt beginning
+LOG_START_INDICATOR/title. That points to code-submission transcoding; it does
+not establish a failed database read or identify the offending character.
+All eight checked-in SAS files were checked locally and contain ASCII only.
+
+Independently, the controller now omits SQL_TEXT entirely from module-log reads
+instead of returning the earlier bounded preview. Full text stays in Teradata.
+The loader prints a controller version and SAS encoding, reads print stage
+markers, and a summary-read failure has an explicit error message. No failed
+test assertion was removed. Local source/workbook checks passed; this latest
+controller change and EG submission check have not been verified on the server.
+The earlier failed full-execution run is not claimed as a pass.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.

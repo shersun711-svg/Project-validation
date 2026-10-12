@@ -2,6 +2,11 @@
    logs and summaries only. Error policy: stop at the first required failure.
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
+%global dq_controller_version;
+%let dq_controller_version=20261012_NO_SQL_TEXT;
+%put NOTE: DQ controller loaded: &dq_controller_version;
+%put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
+
 %macro dq_validate_context;
     %global dq_context_ok;
     %let dq_context_ok=0;
@@ -105,6 +110,7 @@
             quit;
             %goto invalid;
         %end;
+        %put NOTE: DQ READ: configuration;
         create table work.dq_configuration_report as
         select * from connection to dq
             (select PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND,NUMERIC_BASIC_IND
@@ -124,6 +130,7 @@
         %if &_call_rc ne 0 %then %do;
             %let dq_error=Numeric CALL failed. Check the SAS SQLXMSG and database run log.;
         %end;
+        %put NOTE: DQ READ: run status;
         create table work.dq_run_status as
         select * from connection to dq
             (select * from &dq_database..DQ_RUN_LOG where RUN_ID=&_run_sql);
@@ -134,17 +141,13 @@
             quit;
             %goto invalid;
         %end;
-        /* The long Unicode SQL_TEXT column cannot be read directly by the
-           user's SAS engine. Bound the result metadata as well as the value.
-           Full SQL remains in Teradata; expose length/truncation for diagnosis. */
+        /* Read status/diagnostic metadata only. Keep the full SQL_TEXT in
+           Teradata, avoiding the user's unsupported long-text column. */
+        %put NOTE: DQ READ: module status;
         create table work.dq_module_status as
         select * from connection to dq
             (select RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,END_TIME,
-                    STATUS,ERROR_CODE,ERROR_INFORMATION,FIELD_COUNT,
-                    CAST(SUBSTR(SQL_TEXT,1,8000) AS VARCHAR(8000)) AS SQL_TEXT,
-                    CAST(CHAR_LENGTH(SQL_TEXT) AS INTEGER) AS SQL_TEXT_CHAR_COUNT,
-                    CAST(CASE WHEN CHAR_LENGTH(SQL_TEXT)>8000 THEN 'Y' ELSE 'N' END
-                         AS CHAR(1)) AS SQL_TEXT_TRUNCATED
+                    STATUS,ERROR_CODE,ERROR_INFORMATION,FIELD_COUNT
              from &dq_database..DQ_MODULE_LOG where RUN_ID=&_run_sql
              order by ATTEMPT_NO,BATCH_ID);
         /* SAS datatype/CREATE errors may set SQLRC without setting SQLXRC. */
@@ -155,10 +158,14 @@
             quit;
             %goto invalid;
         %end;
+        %put NOTE: DQ READ: run summary;
         create table work.dq_summary as
         select * from connection to dq
             (select * from &dq_database..DQ_RUN_SUMMARY where RUN_ID=&_run_sql);
         %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
+        %if &_rc ne 0 %then %do;
+            %let dq_error=Cannot read run summary; success is unconfirmed.;
+        %end;
         disconnect from dq;
     quit;
     %if &_call_rc ne 0 or &_rc ne 0 %then %goto invalid;

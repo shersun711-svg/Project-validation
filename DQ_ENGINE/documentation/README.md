@@ -71,11 +71,31 @@ Inspect every `NOTE: DQ READ PROBE` result; this checks datatype conversion,
 not calculation correctness. It does not call profiling or modify Teradata data.
 
 The user identified the module log's SQL_TEXT column as the unsupported field.
-The controller now reads an 8,000-character, VARCHAR(8000) preview with original
-character count and a truncation flag. Full SQL stays in Teradata. Update and
-rerun file 01 in the EG session, then run file 00 with a new run UUID. No table
-alteration or procedure recompile is needed. This read-format fix remains
-unverified on the user's server.
+The controller now leaves SQL_TEXT in Teradata entirely and reads only the
+module's status, errors, counts and timings. It no longer imports a SQL preview
+or preview-length/truncation fields. No table alteration or procedure recompile
+is needed. This read-format change remains unverified on the user's server.
+Rerunning file 01 should print `DQ controller loaded: 20261012_NO_SQL_TEXT` and
+the SAS session encoding. Each database read also prints a `NOTE: DQ READ:`
+stage so a remaining error can be located without rerunning the datatype probes.
+
+If EG reports `Failed to transcode data from U_UTF8_CE to U_LATIN9_CE` with a
+source excerpt such as `LOG_START_INDICATOR` or `title`, code submission is
+failing. This is separate from reading the SQL_TEXT database column. All
+checked-in SAS files are ASCII. Create a new blank EG program named `dq_check`
+and type this ASCII statement to test submission:
+
+```sas
+%put NOTE: SAS encoding=%sysfunc(getoption(encoding));
+```
+
+If it works, inspect the original program and EG-generated titles/labels for
+characters that LATIN9 cannot represent, and use the downloaded ASCII SAS files
+in plainly named programs. If the fresh program fails too, collect the complete
+error for the SAS/EG administrator to inspect the generated submission wrapper.
+Do not change the encoding of stored data to suppress this error. Session
+ENCODING is chosen at SAS startup; an actual UTF-8 server session requires the
+site's supported server configuration, not a runtime OPTIONS statement.
 
 ## Run and retry
 
@@ -89,8 +109,8 @@ The single entry program calls `%run_dq_engine`. A direct controller invocation 
 The macro generates a UUID and calls `SP_DQ_RUN_ENGINE`. The orchestrator registers the run, invokes Numeric Basic, applies the shared colour rules, and marks the run successful only after these steps succeed. The numeric procedure aggregates configured fields in batches, captures the selected field list, and writes only aggregate results. SAS reads the configuration report, logs and run summary.
 
 On a database profiling failure, inspect `ERROR_INFORMATION` and the failed
-batch's `SQL_TEXT`; fix the underlying issue. SAS has only a bounded SQL preview;
-if SQL_TEXT_TRUNCATED=Y, read the full SQL from DQ_MODULE_LOG in Teradata.
+batch's `SQL_TEXT` directly in Teradata; fix the underlying issue. SAS does not
+import SQL_TEXT from DQ_MODULE_LOG.
 A SAS read failure can occur after the database completed successfully. Check
 DQ_RUN_LOG before deciding whether to retry: only FAILED database runs accept
 a retry UUID. Retry a failed database run with its UUID:
