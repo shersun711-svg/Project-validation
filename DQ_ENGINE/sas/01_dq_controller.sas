@@ -3,7 +3,7 @@
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
 %global dq_controller_version;
-%let dq_controller_version=20261012_SQLRC_GUARD;
+%let dq_controller_version=20261012_SUMMARY_FLOAT;
 %put NOTE: DQ controller loaded: &dq_controller_version;
 %put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
 
@@ -159,7 +159,7 @@
         %dq_check_sql;
         %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
-            %let dq_error=Cannot read run status; success is unconfirmed.;
+            %let dq_error=Cannot read run status. Success is unconfirmed.;
             disconnect from dq;
             quit;
             %goto invalid;
@@ -177,19 +177,28 @@
         %dq_check_sql;
         %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
-            %let dq_error=Cannot read module log; inspect the database directly.;
+            %let dq_error=Cannot read module log. Inspect the database directly.;
             disconnect from dq;
             quit;
             %goto invalid;
         %end;
         %put NOTE: DQ READ: run summary;
+        /* Aggregate count types from the view are unsupported by the user's
+           SAS engine. Export them as SAS-compatible double-precision numbers.
+           Exact counts and all profiling/classification remain in Teradata. */
         create table work.dq_summary as
         select * from connection to dq
-            (select * from &dq_database..DQ_RUN_SUMMARY where RUN_ID=&_run_sql);
+            (select RUN_ID,PROJECT_ID,MODULE_NAME,FIELD_TYPE,
+                    CAST(FIELDS_TESTED AS FLOAT) AS FIELDS_TESTED,
+                    CAST(METRIC_RESULT_COUNT AS FLOAT) AS METRIC_RESULT_COUNT,
+                    CAST(GREEN_COUNT AS FLOAT) AS GREEN_COUNT,
+                    CAST(AMBER_COUNT AS FLOAT) AS AMBER_COUNT,
+                    CAST(RED_COUNT AS FLOAT) AS RED_COUNT
+             from &dq_database..DQ_RUN_SUMMARY where RUN_ID=&_run_sql);
         %dq_check_sql;
         %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
-            %let dq_error=Cannot read run summary; success is unconfirmed.;
+            %let dq_error=Cannot read run summary. Success is unconfirmed.;
         %end;
         disconnect from dq;
     quit;

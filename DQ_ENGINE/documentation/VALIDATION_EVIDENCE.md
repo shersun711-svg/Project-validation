@@ -162,6 +162,21 @@ diagnostics. Original system statuses, SQL_TEXT exclusion and test assertions
 are preserved. Local source/workbook checks passed; live execution remains
 unverified. This identifies a specific macro error, not a new datatype failure.
 
+## SAS run-summary datatype correction
+
+The uploaded full log confirmed controller version 20261012_SQLRC_GUARD,
+successful configuration (5 rows), run-status (1 row) and module-status (4 rows)
+reads, then an unsupported datatype at the run-summary read. The new SAS
+projection casts its five numeric count columns to FLOAT; the Teradata view and
+stored results are unchanged. Compatibility of this projection remains to be
+verified on the user's server. SAS summary integers above 2^53 may round.
+
+That log also exposed error 180 caused by an unescaped semicolon inside a
+%LET error-message assignment. The three affected read-error messages now use
+periods, keeping each message within its assignment. Local static/workbook and
+ASCII checks passed. The user's failed full-execution test is not a pass, and
+its status/result-count/completed-ID assertions remain unchanged.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.

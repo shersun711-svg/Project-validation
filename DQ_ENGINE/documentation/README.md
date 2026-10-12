@@ -84,13 +84,20 @@ The controller now leaves SQL_TEXT in Teradata entirely and reads only the
 module's status, errors, counts and timings. It no longer imports a SQL preview
 or preview-length/truncation fields. No table alteration or procedure recompile
 is needed. This read-format change remains unverified on the user's server.
-Rerunning file 01 should print `DQ controller loaded: 20261012_SQLRC_GUARD` and
+Rerunning file 01 should print `DQ controller loaded: 20261012_SUMMARY_FLOAT` and
 the SAS session encoding. Each database read also prints a `NOTE: DQ READ:`
 stage so a remaining error can be located without rerunning the datatype probes.
 
 The status helper checks SAS SQLRC after CONNECT, since SQLXRC may be undefined
 or stale at that point. After pass-through statements it also checks SQLXRC
 when available. It does not reset or manufacture SAS system return codes.
+
+The user's full log subsequently showed successful configuration/run/module
+reads, followed by an unsupported datatype in the run summary. The controller
+now explicitly casts all five summary counts to FLOAT for SAS. The database
+view and its exact aggregates are unchanged. This affects the SAS summary
+representation only; no Teradata recompile is needed. After loading the latest
+file 01, rerun the existing full-execution test in the same SAS server session.
 
 If EG reports `Failed to transcode data from U_UTF8_CE to U_LATIN9_CE` with a
 source excerpt such as `LOG_START_INDICATOR` or `title`, code submission is

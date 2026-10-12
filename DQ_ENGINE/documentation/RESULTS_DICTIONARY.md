@@ -38,3 +38,9 @@ timings, status, error code/information and field count. SQL_TEXT stays in
 Teradata; neither a preview nor preview-length/truncation fields are imported.
 Read the full SQL from Teradata DQ_MODULE_LOG for EXPLAIN or failure analysis.
 This SAS projection does not alter the stored log or result data.
+
+`WORK.DQ_SUMMARY` has the same summary columns as DQ_RUN_SUMMARY, with its five
+numeric count columns cast to FLOAT on the Teradata read for SAS compatibility.
+SAS uses double-precision numeric values: integer counts through 2^53 are exact;
+larger integers may round. Use the database view for exact large counts. Stored
+metric values and count-based percentage classifications are unaffected.
