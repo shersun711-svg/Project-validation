@@ -16,6 +16,9 @@ SAS tests require the current controller loaded in the same server session.
 | `test_full_execution.sas` | Runs controller selection and lifecycle tests |
 | `test_sas_reconciliation.sas` | Compares synthetic metrics with SAS calculations |
 | `test_config_apply.sql` | Checks configuration commit/rollback and load guards |
+| `01_create_other_basic_fixture.sql` | Creates synthetic mixed-type and empty/failure sources |
+| `test_other_basic.sql` | Checks new modules, date review, switches, retries and numbering |
+| `test_other_basic.sas` | Checks non-numeric-only SAS execution and summaries |
 
 Run fixture creation, numeric, colour and failure/restart SQL in that order,
 then the full SAS execution and SAS reconciliation checks. Use an isolated
@@ -23,6 +26,10 @@ test engine: these scripts create and modify synthetic objects/configuration,
 and their fixed UUIDs require a fresh fixture deployment. CALL/DDL errors fail
 the test; each assertion SELECT must return zero rows. An aborted, skipped or
 zero-test execution is not a pass.
+
+After the basic upgrade, run fixture 01, test_other_basic.sql and
+ test_other_basic.sas in that order. Independently rerun the existing tests for
+compatibility. New suite UUIDs/project names are reserved and synthetic.
 
 The configuration-apply test requires the Excel setup 06/07 and numeric fixtures.
 It temporarily adds a constraint to DQ_ENGINE_SETTINGS; never run it against a
@@ -34,7 +41,13 @@ Developer-only checks (Node and unzip; no SAS/Teradata execution):
 ```sh
 node DQ_ENGINE/tools/check_static.mjs
 node DQ_ENGINE/tools/check_config_workbook.mjs
+node DQ_ENGINE/tools/check_review_views.mjs
 ```
+
+The review check uses Node 24's built-in SQLite to execute adapted view SELECT
+logic on synthetic rows. It checks pivoting, period separation, date-only
+summaries, run numbers and completed-run filtering; it does not compile
+Teradata SQL or execute SPL.
 
 The workbook check verifies the repository's starter workbook against the
 original input audit CSV. It is not part of the SAS loader and is not intended

@@ -1,14 +1,17 @@
 # Data Quality Engine - SAS and Teradata
 
-This repository contains the Phase 1-2 Data Quality Engine in [DQ_ENGINE](DQ_ENGINE/).
+This repository contains the basic Data Quality Engine in [DQ_ENGINE](DQ_ENGINE/).
 Users maintain configuration in Excel, SAS loads it and starts profiling, and
 Teradata stores the configuration and calculates the results.
 
 Numeric Basic is implemented: total, non-missing, missing and zero counts,
 missing/zero percentages, minimum, maximum, mean and sample standard deviation.
-Results cover overall, yearly and monthly periods, with green/amber/red
-classifications for percentages. Percentiles, outliers, PSI, other profiling
-modules and Excel report export are not implemented yet.
+Categorical and identifier basics add missing counts/percentages and distinct
+counts. Date basics show earliest/latest values only in the final review.
+All field types support overall, yearly and monthly periods; percentages use
+the shared green/amber/red rules. Percentiles, outliers, PSI and Excel report
+export remain deferred. [Upgrade an existing engine](DQ_ENGINE/documentation/BASIC_PROFILING_UPGRADE.md)
+before enabling the new modules.
 
 ## Start here
 
@@ -37,14 +40,17 @@ No passwords belong in the workbook or repository.
 The [starter workbook](DQ_ENGINE/config/DQ_RDS_config.xlsx) contains 589 RDS
 field mappings and enables all 415 numeric fields. To test fewer fields, set
 NUMERIC_BASIC_IND=Y only for the desired numeric fields, keep their ACTIVE_IND=Y,
-then reload Excel. In file 00 use project=RDS, numeric_basic=Y, other switches=N
-and a blank retry_run_id for a new run.
+then reload Excel. In file 00 use project=RDS, numeric_basic=Y, new basic switches selected as needed and a blank retry_run_id for a new run.
+Non-numeric fields use FIELD_TYPE and ACTIVE_IND; NUMERIC_BASIC_IND affects only
+numeric fields. See [field selection and module switches](DQ_ENGINE/documentation/BASIC_PROFILING_UPGRADE.md#choose-fields-and-modules).
 
 ## Final results
 
-Review `DQ_NUMERIC_REVIEW`: one row per field and period, with all ten metrics
-as columns and the missing/zero percentage classifications. It includes only
-successful runs. Filter by your project's RUN_ID to select the correct results.
+Review DQ_BASIC_REVIEW: one row per field and period across all four types,
+with applicable metrics, classifications and date extrema as columns.
+DQ_NUMERIC_REVIEW remains available for numeric-only review. Both include only
+successful runs. Filter by PROJECT_ID and the short RUN_NUMBER (1, 2, 3...) to
+select the correct results. UUIDs remain internal RUN_ID values.
 See [review query and view deployment](DQ_ENGINE/documentation/README.md#review-the-final-result).
 
 | Teradata object | Purpose |
@@ -54,7 +60,10 @@ See [review query and view deployment](DQ_ENGINE/documentation/README.md#review-
 | `DQ_RUN_LOG` / `DQ_MODULE_LOG` | Run status, progress and errors |
 | `DQ_METRIC_RESULT` | Stored results, one row per metric |
 | `DQ_COMPLETED_RESULT` | Successful results, one row per metric |
-| `DQ_NUMERIC_REVIEW` | Final review, metrics as columns |
+| `DQ_NUMERIC_REVIEW` | Numeric-only review, metrics as columns |
+| `DQ_DATE_REVIEW` | Stored date extrema for final review |
+| `DQ_BASIC_REVIEW` | Final review across all four field types |
+| `DQ_RUN_NUMBER` | Short number mapped to each internal run UUID |
 
 ## Repository map
 

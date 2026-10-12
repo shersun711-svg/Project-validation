@@ -41,6 +41,14 @@ WHERE PROJECT_ID='RDS' ORDER BY FIELD_TYPE,FIELD_NAME;
 
 Workbook classifications are assumed correct. No DBC.ColumnsV or validation-view dependency remains. Numeric values are expected to fit the existing DECIMAL(38,10) result representation. Additional fractional digits round at storage; values outside the integral range fail during execution. No numeric precision preflight or automatic reclassification is performed. Missing source columns or incompatible operations are logged as module/run failures. A zero-test run is still rejected.
 
+## Other basic modules
+
+CATEGORICAL, IDENTIFIER and DATE fields are selected by FIELD_TYPE and
+ACTIVE_IND only. Enable categorical_basic, identifier_basic or date_basic in
+file 00 after deploying the upgrade. NUMERIC_BASIC_IND applies only to NUMERIC.
+Date extrema go to final review; categorical/identifier missing and distinct
+metrics go to DQ_METRIC_RESULT. The three-sheet Excel layout is unchanged.
+
 ## Add a project
 
 Copy the three-sheet workbook. Edit its Project row to point to the approved

@@ -13,7 +13,7 @@ remain separate. The view reads aggregates, not the source dataset.
 
 `DQ_METRIC_RESULT` stores numeric metrics as DECIMAL(38,10): 28 integral digits, 10 fractional digits. Exact supported source min/max and counts are cast independently before CASE evaluation, avoiding implicit FLOAT promotion. Counts/rate denominators are also preserved as BIGINT where applicable. Mean, sample standard deviation and reported rates use FLOAT arithmetic before storage, consistent with SAS floating-point statistical calculations; they require numeric tolerances in reconciliation. Tiny differences and rates below storage scale can round. Colours use exact count comparisons, not the stored rounded rate. FLOAT source min/max already have source floating-point precision.
 
-`DATE_METRIC_VALUE` is a TIMESTAMP(6) slot reserved for a later date module. No date metrics are emitted in Phase 2. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
+`DATE_METRIC_VALUE` remains reserved and unused. Date Basic writes extrema directly to DQ_DATE_REVIEW; no date rows are emitted into DQ_METRIC_RESULT. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
 
 | Numeric Basic metric | Definition |
 |---|---|
@@ -53,3 +53,24 @@ numeric count columns cast to FLOAT on the Teradata read for SAS compatibility.
 SAS uses double-precision numeric values: integer counts through 2^53 are exact;
 larger integers may round. Use the database view for exact large counts. Stored
 metric values and count-based percentage classifications are unaffected.
+
+
+## Other basic results and short run numbers
+
+CATEGORICAL_BASIC and IDENTIFIER_BASIC each emit MISSING_COUNT,
+MISSING_RATE_PCT and DISTINCT_COUNT. Distinct excludes NULL and follows source
+comparison semantics. Missing percentage uses the total row population; blanks
+are not automatically NULL. No category/identifier values or frequencies are
+saved. Their review population counts are derived from saved rate counts.
+
+DATE_BASIC saves only EARLIEST_DATE/LATEST_DATE in the final DQ_DATE_REVIEW
+store, as TIMESTAMP(6), with no date profiling metrics or percentage colours.
+DQ_BASIC_REVIEW combines successful results from all four types. Date fields
+appear in DQ_RUN_SUMMARY with fields tested and zero metric/colour counts.
+
+RUN_NUMBER is a BIGINT mapping in DQ_RUN_NUMBER and is exposed in completed
+and review views. It is global across projects and includes failed runs.
+Retries retain it. RUN_ID remains the original internal UUID; mapping numbers
+are never reset/reused. DQ_RUN_FIELD_CONFIG now captures selected fields for
+all basic types, with FIELD_ORDINAL numbered separately within FIELD_TYPE.
+See [upgrade semantics and verification](BASIC_PROFILING_UPGRADE.md).

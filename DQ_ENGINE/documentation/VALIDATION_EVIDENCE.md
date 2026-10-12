@@ -8,7 +8,8 @@
   test passed on their server.
 - The user later reported a successful Excel load and a 50-field RDS run;
   they confirmed field counts, result counts and sample metrics.
-- Teradata deployment of the new DQ_NUMERIC_REVIEW view has not been confirmed.
+- Teradata deployment of the new basic modules, run-number allocation and
+  review views has not been confirmed.
 - Full RDS reconciliation, performance benchmarking and configuration-rollback
   tests are not claimed complete.
 
@@ -262,3 +263,39 @@ The SQL fixture tests cover missing/zero counts and rates, min/max/mean/sample d
 10. Per-attempt field/config capture is checked, but data is not locked into a source snapshot across batches. Recovery after session cancellation requires an operator to confirm the old request has ended before changing RUNNING status.
 
 Do not treat a zero-row, skipped or failed test run as a pass. Inspect every assertion query, client return code and SAS log. Keep live validation evidence alongside the run UUID and deployment version when these steps are executed.
+
+
+## New basic modules and readable run numbers
+
+The user approved categorical/identifier missing counts, missing percentages
+and distinct counts, excluding category frequencies. Date scope is limited to
+earliest/latest dates in final review, without date rows in DQ_METRIC_RESULT.
+They also chose short run numbers while preserving internal UUIDs.
+
+The implementation adds batched shared aggregation with public type-specific
+procedures, a persisted date review store, independent SAS switches, a combined
+completed-only review view and a transaction-protected number mapping/counter.
+The original Numeric Basic SQL interface remains as a two-argument wrapper.
+The numeric snapshot queries now isolate numeric fields; numerical calculations
+are unchanged. Existing workbook structure, field classifications, numeric
+metadata and colour rules are preserved. Historical results are not rewritten.
+
+Local checks executed:
+
+- check_static.mjs passed for 35 SQL/SAS files and reconstructed both numeric
+  and new dynamic aggregate/insert templates. Thirty maximum-length field names
+  generate 8,800-character categorical/identifier statements and 7,330-character
+  date statements, below the 32,000-character buffer.
+- check_config_workbook.mjs passed for the unchanged starter workbook.
+- check_review_views.mjs executed adapted checked-in view SELECT logic using
+  Node SQLite on synthetic rows. Pivoting, period separation, date-only summary,
+  preserved timestamp strings, short-number filtering and exclusion of
+  RUNNING/FAILED rows passed. This is not Teradata compilation or a precision,
+  SPL, transaction, source-aggregation or SAS compatibility test.
+
+New SQL/SAS fixture tests are supplied but have not been executed here. Verify
+multiple DISTINCT aggregates with GROUPING SETS, aggregate count range,
+TIMESTAMP conversion, serialized counter locking, grants and SAS reads on the
+user's server before accepting the upgrade. Concurrent numbering requires a
+separate two-session test. No customer data, credentials or live results were
+added to the repository, and no SAS/Teradata deployment was performed.

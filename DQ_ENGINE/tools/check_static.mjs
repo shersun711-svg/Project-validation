@@ -79,7 +79,7 @@ for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
     }
 }
 assert.equal(files.filter(p=>p.endsWith('10_numeric_basic.sql')).length,1);
-assert.ok(!files.some(p=>/\/(11_numeric_percentiles|12_numeric_outliers|20_categorical_basic|21_categorical_psi|30_date_basic|40_identifier_basic|02_dq_excel_export)\./.test(p)));
+assert.ok(!files.some(p=>/\/(11_numeric_percentiles|12_numeric_outliers|21_categorical_psi|02_dq_excel_export)\./.test(p)));
 
 /* Evaluate only the concatenation expressions used to build SQL in SPL.
    This tests the actual template strings, including quotes and parentheses. */
@@ -91,12 +91,13 @@ for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
 }
 assert.ok(module.includes("REGEXP_SIMILAR(FIELD_NAME,"),'Retain captured identifier validation');
 assert.ok(read('sas/01_dq_controller.sas').includes('DQ_FIELD_CONFIG'),'Read workbook-derived config directly');
-function assignment(name,startAt=0){
-    const start=module.indexOf(`SET ${name} =`,startAt);assert.ok(start>=0,name);
+assert.match(read('sas/01_dq_controller.sas'),/execute\s*\(call &dq_database\.\.SP_DQ_RUN_BASIC\(&_run_sql,&_project_sql,\s*&_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql\)\) by dq;/,'Controller actually executes all selected module switches');
+function assignment(name,startAt=0,source=module){
+    const start=source.indexOf(`SET ${name} =`,startAt);assert.ok(start>=0,name);
     let quote=false;
-    for(let i=module.indexOf('=',start)+1;i<module.length;i++){
-        if(module[i]==="'"){if(quote&&module[i+1]==="'"){i++;continue;}quote=!quote;}
-        if(module[i]===';'&&!quote)return module.slice(module.indexOf('=',start)+1,i).trim();
+    for(let i=source.indexOf('=',start)+1;i<source.length;i++){
+        if(source[i]==="'"){if(quote&&source[i+1]==="'"){i++;continue;}quote=!quote;}
+        if(source[i]===';'&&!quote)return source.slice(source.indexOf('=',start)+1,i).trim();
     }throw new Error('Unterminated assignment '+name);
 }
 function evaluate(expression,variables){
@@ -134,6 +135,40 @@ for(const batch of [fields.filter(f=>f.type==='NUMERIC').slice(0,25),Array.from(
     }
     console.log(`SQL template checks passed: ${batch.length} fields, ${query.length} characters`);
 }
+
+/* Exercise the actual new dynamic templates across all supported types.
+   This checks generated SQL text/limits only, never Teradata semantics. */
+const other=read('teradata/modules/15_other_basic.sql').replace(/SET (\w+)=/g,'SET $1 =');
+for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
+    const v={P_RUN_ID:'20000000-0000-4000-8000-000000000001',P_PROJECT_ID:'RDS',
+        P_TYPE:type,V_MODULE:type+'_BASIC',V_DB:'LAB_T_ORION_MVT',V_SOURCE:'VW_RDS_PHASE2_FACT',
+        V_DATE:'FACT_DT',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT'};
+    v.V_PERIOD_LEVEL=evaluate(assignment('V_PERIOD_LEVEL',0,other),v);
+    v.V_PERIOD_VALUE=evaluate(assignment('V_PERIOD_VALUE',0,other),v);
+    const cursor=other.indexOf('FOR F AS');
+    const projectionStart=type==='DATE'?cursor:other.indexOf('ELSE',cursor);
+    for(let i=1;i<=30;i++){
+        v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_F'+i;v['F.FIELD_NAME']='F'+String(i).padStart(127,'X');
+        v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cursor,other),v);
+        v.V_PROJECTION=evaluate(assignment('V_PROJECTION',projectionStart,other),v);
+    }
+    assert.ok(v.V_SOURCE_PROJECTION.length<=8000);
+    assert.ok(v.V_PROJECTION.length<=20000);
+    const query=evaluate(assignment('V_SQL',other.indexOf('WHILE V_FIRST'),other),v);
+    lex(query,'generated '+type+' aggregate');assert.ok(query.length<32000);
+    assert.equal((query.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,1);
+    assert.ok(query.includes('GROUP BY GROUPING SETS ((),'));
+    v['R.FIELD_NAME']='TEST_FIELD';v.V_SUFFIX='30';
+    const resultsCursor=other.indexOf('FOR R AS');
+    const insertStart=type==='DATE'?resultsCursor:other.indexOf('ELSE',resultsCursor);
+    const insert=evaluate(assignment('V_SQL',insertStart,other),v);
+    lex(insert,'generated '+type+' insert');assert.ok(insert.length<32000);
+    assert.ok(insert.includes(type==='DATE'?'INSERT INTO DQ_DB.DQ_DATE_REVIEW':'INSERT INTO DQ_DB.DQ_METRIC_RESULT'));
+    console.log(type+' SQL template checks passed: 30 max-length fields, '+query.length+' characters');
+}
+assert.ok(read('teradata/modules/10_numeric_basic.sql').includes("WHERE RUN_ID = P_RUN_ID AND FIELD_TYPE = 'NUMERIC'"),'Numeric module isolates its own snapshots');
+assert.ok(read('teradata/results/93_dq_basic_review.sql').includes("WHERE L.STATUS='SUCCEEDED'"),'Date review excludes unfinished runs');
+assert.ok(read('teradata/modules/00_run_engine.sql').includes('DELETE FROM DQ_DB.DQ_DATE_REVIEW'),'All partial date output is cleaned up');
 
 /* Optional authoritative input reconciliation; no Excel package dependency. */
 if(process.argv.length>2){

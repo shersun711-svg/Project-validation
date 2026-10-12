@@ -3,7 +3,7 @@
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
 %global dq_controller_version;
-%let dq_controller_version=20261012_SUMMARY_FLOAT;
+%let dq_controller_version=20261012_BASIC_RUN_NUMBER;
 %put NOTE: DQ controller loaded: &dq_controller_version;
 %put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
 
@@ -59,9 +59,11 @@
 %macro run_dq_engine(project=RDS,numeric_basic=Y,numeric_percentiles=N,
     numeric_outliers=N,categorical_basic=N,categorical_psi=N,date_basic=N,
     identifier_basic=N,export_excel=N,retry_run_id=);
-    %local _switches _i _name _value _rc _call_rc _msg _project_sql _run_sql;
-    %global dq_run_id dq_status dq_error;
+    %local _switches _i _name _value _rc _call_rc _msg _project_sql _run_sql
+        _numeric_sql _categorical_sql _date_sql _identifier_sql;
+    %global dq_run_id dq_run_number dq_status dq_error;
     %let dq_run_id=;
+    %let dq_run_number=;
     %let dq_status=FAILED;
     %let dq_error=;
     %let _switches=numeric_basic numeric_percentiles numeric_outliers
@@ -83,13 +85,14 @@
         %end;
         %let &_name=&_value;
     %end;
-    %if &numeric_percentiles=Y or &numeric_outliers=Y or &categorical_basic=Y
-        or &categorical_psi=Y or &date_basic=Y or &identifier_basic=Y or &export_excel=Y %then %do;
-        %let dq_error=Only Numeric Basic is implemented in Phase 2. Set deferred switches to N.;
+    %if &numeric_percentiles=Y or &numeric_outliers=Y
+        or &categorical_psi=Y or &export_excel=Y %then %do;
+        %let dq_error=Percentiles, outliers, PSI and Excel export are deferred. Set their switches to N.;
         %goto invalid;
     %end;
-    %if &numeric_basic=N %then %do;
-        %let dq_error=No implemented module selected. Set numeric_basic=Y.;
+    %if &numeric_basic=N and &categorical_basic=N and &date_basic=N
+        and &identifier_basic=N %then %do;
+        %let dq_error=No implemented module selected. Enable at least one basic module.;
         %goto invalid;
     %end;
     %if %length(%superq(project))=0 %then %do;
@@ -116,6 +119,10 @@
        checked; QUOTE supplies single quotes for Teradata string literals. */
     %let _project_sql=%sysfunc(quote(%superq(project),%str(%')));
     %let _run_sql=%sysfunc(quote(%superq(dq_run_id),%str(%')));
+    %let _numeric_sql=%sysfunc(quote(&numeric_basic,%str(%')));
+    %let _categorical_sql=%sysfunc(quote(&categorical_basic,%str(%')));
+    %let _date_sql=%sysfunc(quote(&date_basic,%str(%')));
+    %let _identifier_sql=%sysfunc(quote(&identifier_basic,%str(%')));
     /* Clear our previous aggregate outputs so stale WORK data cannot be read
        as the result of a connection failure. */
     proc datasets library=work nolist;
@@ -145,17 +152,21 @@
             %goto invalid;
         %end;
         /* Safe diagnostic: only the database, run UUID and project ID. */
-        %put NOTE: DQ CALL: call &dq_database..SP_DQ_RUN_ENGINE(&_run_sql,&_project_sql);
-        execute (call &dq_database..SP_DQ_RUN_ENGINE(&_run_sql,&_project_sql)) by dq;
+        %put NOTE: DQ CALL: call &dq_database..SP_DQ_RUN_BASIC(&_run_sql,&_project_sql,&_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql);
+        execute (call &dq_database..SP_DQ_RUN_BASIC(&_run_sql,&_project_sql,
+                 &_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql)) by dq;
         %dq_check_sql;
         %let _call_rc=&dq_sql_failed;
         %if &_call_rc ne 0 %then %do;
-            %let dq_error=Numeric CALL failed. Check the SAS SQLXMSG and database run log.;
+            %let dq_error=Profiling CALL failed. Check the SAS SQLXMSG and database run log.;
         %end;
         %put NOTE: DQ READ: run status;
         create table work.dq_run_status as
         select * from connection to dq
-            (select * from &dq_database..DQ_RUN_LOG where RUN_ID=&_run_sql);
+            (select L.*,CAST(N.RUN_NUMBER AS VARCHAR(19)) AS RUN_NUMBER
+             from &dq_database..DQ_RUN_LOG L
+             left join &dq_database..DQ_RUN_NUMBER N on L.RUN_ID=N.RUN_ID
+             where L.RUN_ID=&_run_sql);
         %dq_check_sql;
         %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
@@ -188,7 +199,8 @@
            Exact counts and all profiling/classification remain in Teradata. */
         create table work.dq_summary as
         select * from connection to dq
-            (select RUN_ID,PROJECT_ID,MODULE_NAME,FIELD_TYPE,
+            (select RUN_ID,CAST(RUN_NUMBER AS VARCHAR(19)) AS RUN_NUMBER,
+                    PROJECT_ID,MODULE_NAME,FIELD_TYPE,
                     CAST(FIELDS_TESTED AS FLOAT) AS FIELDS_TESTED,
                     CAST(METRIC_RESULT_COUNT AS FLOAT) AS METRIC_RESULT_COUNT,
                     CAST(GREEN_COUNT AS FLOAT) AS GREEN_COUNT,
@@ -204,14 +216,18 @@
     quit;
     %if &_call_rc ne 0 or &_rc ne 0 %then %goto invalid;
     proc sql noprint;
-        select STATUS into :dq_status trimmed from work.dq_run_status;
+        select STATUS,RUN_NUMBER into :dq_status trimmed,:dq_run_number trimmed
+        from work.dq_run_status;
     quit;
     %if &dq_status ne SUCCEEDED %then %do;
-        %let dq_error=Numeric profiling did not succeed. Inspect WORK.DQ_RUN_STATUS and WORK.DQ_MODULE_STATUS.;
+        %let dq_error=Profiling did not succeed. Inspect WORK.DQ_RUN_STATUS and WORK.DQ_MODULE_STATUS.;
         %goto invalid;
     %end;
-    %put NOTE: DQ run &dq_run_id completed successfully.;
-    proc print data=work.dq_summary noobs; run;
+    %put NOTE: DQ run number &dq_run_number completed successfully.;
+    proc print data=work.dq_summary noobs;
+        var RUN_NUMBER PROJECT_ID MODULE_NAME FIELD_TYPE FIELDS_TESTED
+            METRIC_RESULT_COUNT GREEN_COUNT AMBER_COUNT RED_COUNT;
+    run;
     %return;
 %invalid:
     %let dq_status=FAILED;

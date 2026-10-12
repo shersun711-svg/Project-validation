@@ -17,3 +17,15 @@ In an approved test schema, materialise the configured numeric fields plus FACT_
 Create a separate test project pointing to that retained stage and copy the same field/settings configuration; do not mutate the production RDS source project to benchmark it. Profile both paths in Teradata, compare all aggregate metrics with documented tolerances, then compare total elapsed cost, not just the profiling portion. A permanent stage survives the independent SAS sessions used for configuration; a manually created volatile stage does not. A fully managed staging lifecycle is deferred until this comparison justifies it.
 
 Changing source data between batches can invalidate cross-field/count reconciliation. Use a stable source window or approved stage. Profiling a moving view is not guaranteed to observe one consistent snapshot.
+
+
+## Other basic modules
+
+Categorical and identifier batches calculate missing counts and distinct counts
+for all reporting periods; distinct aggregation may require additional sorting
+and spool. Verify multiple COUNT(DISTINCT) with GROUPING SETS on the installed
+release and benchmark the configured batch size. Date batches calculate only
+extrema and persist period/field review rows. Different types execute as separate
+modules, so a mixed run can scan the source separately for each type and batch.
+The short run-number counter is locked only during number allocation, before
+profiling starts. No new parallel sessions or source staging are introduced.
