@@ -70,6 +70,13 @@ and summary count casts. Each probe uses a fresh PROC SQL to isolate NOEXEC.
 Inspect every `NOTE: DQ READ PROBE` result; this checks datatype conversion,
 not calculation correctness. It does not call profiling or modify Teradata data.
 
+The user identified the module log's SQL_TEXT column as the unsupported field.
+The controller now reads an 8,000-character, VARCHAR(8000) preview with original
+character count and a truncation flag. Full SQL stays in Teradata. Update and
+rerun file 01 in the EG session, then run file 00 with a new run UUID. No table
+alteration or procedure recompile is needed. This read-format fix remains
+unverified on the user's server.
+
 ## Run and retry
 
 The single entry program calls `%run_dq_engine`. A direct controller invocation after setting connection variables is:
@@ -81,7 +88,12 @@ The single entry program calls `%run_dq_engine`. A direct controller invocation 
 
 The macro generates a UUID and calls `SP_DQ_RUN_ENGINE`. The orchestrator registers the run, invokes Numeric Basic, applies the shared colour rules, and marks the run successful only after these steps succeed. The numeric procedure aggregates configured fields in batches, captures the selected field list, and writes only aggregate results. SAS reads the configuration report, logs and run summary.
 
-On failure, inspect `ERROR_INFORMATION` and the failed batch's `SQL_TEXT`; fix the underlying issue. Retry with the failed UUID:
+On a database profiling failure, inspect `ERROR_INFORMATION` and the failed
+batch's `SQL_TEXT`; fix the underlying issue. SAS has only a bounded SQL preview;
+if SQL_TEXT_TRUNCATED=Y, read the full SQL from DQ_MODULE_LOG in Teradata.
+A SAS read failure can occur after the database completed successfully. Check
+DQ_RUN_LOG before deciding whether to retry: only FAILED database runs accept
+a retry UUID. Retry a failed database run with its UUID:
 
 ```sas
 %run_dq_engine(project=RDS,numeric_basic=Y,

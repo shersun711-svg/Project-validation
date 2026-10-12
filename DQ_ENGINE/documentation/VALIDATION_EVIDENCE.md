@@ -106,9 +106,21 @@ without the failed query. A read-only SAS diagnostic now describes all four
 controller result shapes with WHERE 1=0, then compares module-log projections
 with/without its long Unicode SQL text and a summary with numeric casts. Each
 probe starts a fresh PROC SQL and records both SAS SQLRC and DBMS SQLXRC.
-No profiling procedure is called. The failing live datatype remains unidentified;
-neither the long-text nor numeric-cast workaround is claimed verified. The
+No profiling procedure is called. At that point the failing live datatype was
+unidentified; neither workaround was claimed verified. The
 diagnostic has passed local source checks but has not been executed in SAS.
+
+## SAS module-log text compatibility
+
+The user subsequently identified DQ_MODULE_LOG.SQL_TEXT as the unsupported
+column. The controller now explicitly selects module log fields and casts the
+first 8,000 SQL text characters to VARCHAR(8000), with original length and a
+truncation flag. Full Unicode SQL text remains stored in Teradata. Every required
+controller read checks both SQLRC and SQLXRC so a SAS conversion/CREATE failure
+cannot be accepted as a successful read merely because SQLXRC stayed zero.
+Local source/workbook checks passed; the bounded-text read has not been executed
+in SAS here or confirmed on the user's server. Teradata tables, procedures,
+calculations and workbook mappings were unchanged.
 
 ## Supplied but not executed
 

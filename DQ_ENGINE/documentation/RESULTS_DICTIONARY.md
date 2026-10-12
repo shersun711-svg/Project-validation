@@ -32,3 +32,10 @@ A source with no rows produces ten OVERALL results per eligible field: counts ar
 Green is strictly below 1%, amber is at least 1% but below 5%, and red is at least 5%, unless an approved project settings override applies. Exact thresholds are compared using numerator × 100 against denominator × threshold in DECIMAL arithmetic. A display that rounds up to 1% can therefore remain GREEN. Non-percentage metrics have NULL DQ_COLOUR. Colours are screening classifications, not proof of invalid data.
 
 `DQ_RUN_LOG` records first start, latest end, status, source/date, thresholds, batch size and attempt number. Its elapsed time can include time between failed attempts. `DQ_MODULE_LOG` preserves attempt/batch timings, field count, errors and aggregate SQL; batch 0 is the module summary. Successful earlier batches in an ultimately failed attempt remain marked successful in history, but their partial metric rows are removed. Actual run/module failure messages are retained; SAS status variables alone are not the audit store. `DQ_RUN_FIELD_CONFIG` holds the latest attempt's captured numeric selection; historical SQL_TEXT records retain prior batch expressions.
+
+`WORK.DQ_MODULE_STATUS` retains those log fields but reads SQL_TEXT as an
+8,000-character preview to avoid the SAS engine's unsupported long Unicode
+column. SQL_TEXT_CHAR_COUNT gives the original character count (NULL when no
+SQL was logged); SQL_TEXT_TRUNCATED is Y when the original exceeds 8,000 and N
+otherwise. Read the full SQL from Teradata DQ_MODULE_LOG for EXPLAIN or failure
+analysis. This SAS projection does not alter the stored log or result data.

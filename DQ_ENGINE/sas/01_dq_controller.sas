@@ -99,7 +99,7 @@
     quit;
     proc sql;
         %dq_connect;
-        %let _rc=&sqlxrc;
+        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
         %if &_rc ne 0 %then %do;
             %let dq_error=Teradata connection failed. Check the SAS log and AUTHDOMAIN.;
             quit;
@@ -110,7 +110,7 @@
             (select PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND,NUMERIC_BASIC_IND
              from &dq_database..DQ_FIELD_CONFIG
              where PROJECT_ID=&_project_sql order by FIELD_NAME);
-        %let _rc=&sqlxrc;
+        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
         %if &_rc ne 0 %then %do;
             %let dq_error=Configuration read failed. Check configuration table access and deployment.;
             disconnect from dq;
@@ -120,36 +120,45 @@
         /* Safe diagnostic: only the database, run UUID and project ID. */
         %put NOTE: DQ CALL: call &dq_database..SP_DQ_RUN_ENGINE(&_run_sql,&_project_sql);
         execute (call &dq_database..SP_DQ_RUN_ENGINE(&_run_sql,&_project_sql)) by dq;
-        %let _call_rc=&sqlxrc;
+        %let _call_rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
         %if &_call_rc ne 0 %then %do;
             %let dq_error=Numeric CALL failed. Check the SAS SQLXMSG and database run log.;
         %end;
         create table work.dq_run_status as
         select * from connection to dq
             (select * from &dq_database..DQ_RUN_LOG where RUN_ID=&_run_sql);
-        %let _rc=&sqlxrc;
+        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
         %if &_rc ne 0 %then %do;
             %let dq_error=Cannot read run status; success is unconfirmed.;
             disconnect from dq;
             quit;
             %goto invalid;
         %end;
+        /* The long Unicode SQL_TEXT column cannot be read directly by the
+           user's SAS engine. Bound the result metadata as well as the value.
+           Full SQL remains in Teradata; expose length/truncation for diagnosis. */
         create table work.dq_module_status as
         select * from connection to dq
-            (select * from &dq_database..DQ_MODULE_LOG where RUN_ID=&_run_sql
+            (select RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,END_TIME,
+                    STATUS,ERROR_CODE,ERROR_INFORMATION,FIELD_COUNT,
+                    CAST(SUBSTR(SQL_TEXT,1,8000) AS VARCHAR(8000)) AS SQL_TEXT,
+                    CAST(CHAR_LENGTH(SQL_TEXT) AS INTEGER) AS SQL_TEXT_CHAR_COUNT,
+                    CAST(CASE WHEN CHAR_LENGTH(SQL_TEXT)>8000 THEN 'Y' ELSE 'N' END
+                         AS CHAR(1)) AS SQL_TEXT_TRUNCATED
+             from &dq_database..DQ_MODULE_LOG where RUN_ID=&_run_sql
              order by ATTEMPT_NO,BATCH_ID);
-        %let _rc=&sqlxrc;
+        /* SAS datatype/CREATE errors may set SQLRC without setting SQLXRC. */
+        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
         %if &_rc ne 0 %then %do;
             %let dq_error=Cannot read module log; inspect the database directly.;
             disconnect from dq;
             quit;
             %goto invalid;
         %end;
-        /* SQL_TEXT is aggregate SQL, not source observations. */
         create table work.dq_summary as
         select * from connection to dq
             (select * from &dq_database..DQ_RUN_SUMMARY where RUN_ID=&_run_sql);
-        %let _rc=&sqlxrc;
+        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
         disconnect from dq;
     quit;
     %if &_call_rc ne 0 or &_rc ne 0 %then %goto invalid;
