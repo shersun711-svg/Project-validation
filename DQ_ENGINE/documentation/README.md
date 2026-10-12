@@ -13,7 +13,7 @@ The deployment account needs create-table/view/procedure privileges in the DQ da
 1. Make deployment copies of the SQL files and replace **every** `DQ_DB` token with the approved DQ database name, including tokens inside dynamic SQL strings and configuration values. Use an ordinary identifier, maximum 128 characters. Do not execute the supplied RDS source-view DDL.
 2. In a Teradata-mode session, deploy `setup/00_create_config_tables.sql`, `01_create_result_tables.sql`, then `02_create_log_tables.sql`. File 00 also installs the ten fixed Numeric Basic metric definitions. Project, field and settings tables stay empty until Excel is loaded. These are one-time creates; do not drop existing tables to rerun deployment.
 3. Deploy `setup/06_create_excel_config_tables.sql`, then compile `setup/07_apply_excel_config.sql` as one complete procedure statement. The former project seed file has been removed; no project configuration needs editing in SQL.
-4. Deploy `results/90_colour_classification.sql` and `91_dq_summary_views.sql`. Database type validation has been removed; skip the former `04_config_validation.sql` step. Submit each `REPLACE PROCEDURE` as a complete SPL statement in a supported client; ordinary semicolon splitting will break a procedure body. With BTEQ, extract the procedure statement to its own file and use the site's approved `.COMPILE FILE` workflow.
+4. Deploy `results/90_colour_classification.sql`, `91_dq_summary_views.sql`, then `92_dq_numeric_review.sql`. Database type validation has been removed; skip the former `04_config_validation.sql` step. Submit each `REPLACE PROCEDURE` as a complete SPL statement in a supported client; ordinary semicolon splitting will break a procedure body. With BTEQ, extract the procedure statement to its own file and use the site's approved `.COMPILE FILE` workflow.
 5. Compile `modules/10_numeric_basic.sql`, then `modules/00_run_engine.sql`. The latter depends on the former. Inspect compiler errors and warnings; a client accepting a file is insufficient evidence.
 6. Edit `config/DQ_RDS_config.xlsx` and load it using `sas/04_load_dq_config.sas`, following [Excel configuration instructions](EXCEL_CONFIGURATION.md). The first load creates the RDS project, all field mappings and its settings row. Require load status APPLIED, then run `tests/validate_rds.sql` configuration/population queries. Workbook FIELD_TYPE is authoritative, with no database metadata comparison. Missing columns or incompatible numeric/date operations will fail during SQL execution and be logged. No missing columns were found in the supplied DDL; no live physical type compatibility is claimed.
 7. In a **test environment**, render and run `tests/00_create_numeric_fixture.sql`, `test_numeric.sql`, `test_colour.sql` and `test_failure_restart.sql`, in that order. Fixtures provide their own project settings and do not need an RDS/global seed. CALL/DDL errors fail the test. Each assertion SELECT must return zero rows. Fixture names/UUIDs are synthetic and reserved by these scripts. Run once on a fresh fixture deployment; new repeated test runs need new UUIDs and restored fixtures, not deletion of production history. The additional `tests/test_config_apply.sql` exercises Excel configuration application and rollback; its temporary constraint requires an isolated test engine.
@@ -146,6 +146,43 @@ A lost session may leave a `RUNNING` record. An operator must verify that its da
 
 There is no Extended execution mode yet. Future modules will add calls inside the shared orchestration boundary and extend controller selection. They can reuse project/field settings, run IDs, period conventions, results and colour metadata. Future non-percentage indices such as PSI must use `IS_PERCENTAGE='N'`.
 
+## Final results for review
+
+Use `DQ_NUMERIC_REVIEW` for the final Numeric Basic review: one row per run,
+field and reporting period, with the ten metrics as columns and the stored
+missing/zero percentage classifications alongside them. It exposes only
+SUCCEEDED runs. Numeric values retain the stored DECIMAL(38,10) precision;
+NULL statistics and NOT_EVALUATED classifications retain their meaning.
+
+For an existing installation, deploy only
+`teradata/results/92_dq_numeric_review.sql`, replacing every `DQ_DB` with your
+engine database (currently `LAB_T_ORION_MVT`). It depends on the existing
+`DQ_COMPLETED_RESULT` view from file 91. The deployment account needs view
+creation privileges and the required grantable access to its referenced objects;
+grant reviewers SELECT on the new view using your site's approved process.
+No table/procedure changes, Excel reload, or profiling rerun are needed.
+Existing completed results are immediately available.
+
+```sql
+SELECT *
+FROM LAB_T_ORION_MVT.DQ_NUMERIC_REVIEW
+WHERE PROJECT_ID = 'RDS'
+  AND RUN_ID = '<your successful run UUID>'
+  AND PERIOD_LEVEL = 'OVERALL'
+ORDER BY FIELD_NAME;
+```
+
+For the user's completed 50-field run, the OVERALL selection should return
+50 rows. Remove the PERIOD_LEVEL filter to review yearly/monthly rows too;
+order by FIELD_NAME, PERIOD_LEVEL, PERIOD_VALUE. Always filter by RUN_ID so
+historical runs are not combined. The new view has no default row order.
+For a complete Numeric Basic run, the number of rows across all periods
+should be its ten-metric source row count divided by ten (139,000 becomes
+13,900 for the reported run). The review groups stored results only and never
+reads the RDS source. Local static checks do not establish Teradata compilation;
+verify this new view on your server. SAS continues to read the existing run
+summary; the final detailed review is available directly in Teradata.
+
 ## File responsibilities
 
 | File | Purpose |
@@ -167,6 +204,7 @@ There is no Extended execution mode yet. Future modules will add calls inside th
 | `modules/00_run_engine.sql` | Shared run ownership, retries and completion |
 | `results/90_colour_classification.sql` | One shared count-based classification rule |
 | `results/91_dq_summary_views.sql` | Completed-only results and run summaries |
+| `results/92_dq_numeric_review.sql` | Completed-only Numeric Basic review with metrics as columns |
 | `config/rds_fields.csv` | All 589 workbook field/type mappings |
 | `config/rds_ddl_validation.csv` | Per-field DDL presence review; physical types unverified |
 | `tests/00_create_numeric_fixture.sql` | Synthetic null/zero/constant/precision/empty/failure fixtures |

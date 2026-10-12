@@ -1,0 +1,42 @@
+/* Final Numeric Basic review layout. Deploy after 91_dq_summary_views.sql.
+   Replace DQ_DB with the approved engine database, as for other SQL files.
+   One row per run, field and period; only SUCCEEDED runs are visible.
+   Filter by PROJECT_ID and RUN_ID when reviewing a particular run.
+   Reads stored aggregates only; no source scan or profiling is performed.
+   Quote metric aliases because some names are Teradata keywords. */
+REPLACE VIEW DQ_DB.DQ_NUMERIC_REVIEW AS
+SELECT R.RUN_ID,
+       R.PROJECT_ID,
+       R.FIELD_NAME,
+       R.FIELD_TYPE,
+       R.MODULE_NAME,
+       R.PERIOD_LEVEL,
+       R.PERIOD_VALUE,
+       MAX(CASE WHEN R.METRIC_NAME = 'TOTAL_COUNT'
+           THEN R.METRIC_VALUE END) AS "TOTAL_COUNT",
+       MAX(CASE WHEN R.METRIC_NAME = 'NON_MISSING_COUNT'
+           THEN R.METRIC_VALUE END) AS "NON_MISSING_COUNT",
+       MAX(CASE WHEN R.METRIC_NAME = 'MISSING_COUNT'
+           THEN R.METRIC_VALUE END) AS "MISSING_COUNT",
+       MAX(CASE WHEN R.METRIC_NAME = 'MISSING_RATE_PCT'
+           THEN R.METRIC_VALUE END) AS "MISSING_RATE_PCT",
+       MAX(CASE WHEN R.METRIC_NAME = 'MISSING_RATE_PCT'
+           THEN R.DQ_COLOUR END) AS "MISSING_RATE_COLOUR",
+       MAX(CASE WHEN R.METRIC_NAME = 'ZERO_COUNT'
+           THEN R.METRIC_VALUE END) AS "ZERO_COUNT",
+       MAX(CASE WHEN R.METRIC_NAME = 'ZERO_RATE_PCT'
+           THEN R.METRIC_VALUE END) AS "ZERO_RATE_PCT",
+       MAX(CASE WHEN R.METRIC_NAME = 'ZERO_RATE_PCT'
+           THEN R.DQ_COLOUR END) AS "ZERO_RATE_COLOUR",
+       MAX(CASE WHEN R.METRIC_NAME = 'MINIMUM'
+           THEN R.METRIC_VALUE END) AS "MINIMUM",
+       MAX(CASE WHEN R.METRIC_NAME = 'MAXIMUM'
+           THEN R.METRIC_VALUE END) AS "MAXIMUM",
+       MAX(CASE WHEN R.METRIC_NAME = 'MEAN'
+           THEN R.METRIC_VALUE END) AS "MEAN",
+       MAX(CASE WHEN R.METRIC_NAME = 'STDDEV_SAMP'
+           THEN R.METRIC_VALUE END) AS "STDDEV_SAMP"
+FROM DQ_DB.DQ_COMPLETED_RESULT R
+WHERE R.MODULE_NAME = 'NUMERIC_BASIC'
+GROUP BY R.RUN_ID, R.PROJECT_ID, R.FIELD_NAME, R.FIELD_TYPE,
+         R.MODULE_NAME, R.PERIOD_LEVEL, R.PERIOD_VALUE;

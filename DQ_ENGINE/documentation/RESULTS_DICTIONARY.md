@@ -2,6 +2,15 @@
 
 One logical result is `(RUN_ID, FIELD_NAME, MODULE_NAME, PERIOD_LEVEL, PERIOD_VALUE, METRIC_NAME)`, enforced by a unique secondary index. RUN_ID identifies exactly one project; a completed run cannot be overwritten. `DQ_COMPLETED_RESULT` exposes only successful runs. `DQ_RUN_SUMMARY` counts fields separately from metric rows and groups by module/type.
 
+`DQ_NUMERIC_REVIEW` is the final Numeric Basic review layout over
+`DQ_COMPLETED_RESULT`: one row per run, project, field/type, module and period.
+The ten metric names become columns, with MISSING_RATE_COLOUR and
+ZERO_RATE_COLOUR copied from the corresponding stored percentage results.
+Values remain DECIMAL(38,10), including the original NULL statistics. Colours
+are not recalculated from rounded rates or current configuration. Filter by
+RUN_ID and optionally PERIOD_LEVEL; historical runs and different periods
+remain separate. The view reads aggregates, not the source dataset.
+
 `DQ_METRIC_RESULT` stores numeric metrics as DECIMAL(38,10): 28 integral digits, 10 fractional digits. Exact supported source min/max and counts are cast independently before CASE evaluation, avoiding implicit FLOAT promotion. Counts/rate denominators are also preserved as BIGINT where applicable. Mean, sample standard deviation and reported rates use FLOAT arithmetic before storage, consistent with SAS floating-point statistical calculations; they require numeric tolerances in reconciliation. Tiny differences and rates below storage scale can round. Colours use exact count comparisons, not the stored rounded rate. FLOAT source min/max already have source floating-point precision.
 
 `DATE_METRIC_VALUE` is a TIMESTAMP(6) slot reserved for a later date module. No date metrics are emitted in Phase 2. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
