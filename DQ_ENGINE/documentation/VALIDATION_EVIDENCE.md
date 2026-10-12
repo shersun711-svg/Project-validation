@@ -177,9 +177,33 @@ periods, keeping each message within its assignment. Local static/workbook and
 ASCII checks passed. The user's failed full-execution test is not a pass, and
 its status/result-count/completed-ID assertions remain unchanged.
 
-## Supplied but not executed
+## User-server controller validation, 2026-10-12
 
-All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.
+The user supplied a full SAS log ending with
+`NOTE: SAS controller switch and lifecycle checks passed.` This is evidence
+from the user's server; the test was not executed in this workspace.
+
+The log and its displayed test source show:
+
+- Invalid switch, deferred-module selection and no-module selection were
+  rejected intentionally without allocating a run UUID.
+- Lowercase Numeric Basic selection ran the synthetic DQ_TEST project
+  successfully. Configuration, run-status, module-status and summary reads
+  all completed; the summary contained one row and nine columns.
+- The test's five-field/400-metric-result assertions completed without abort.
+- Reusing the successful run UUID was rejected with Teradata SQLSTATE U0002.
+  SAS then entered NOEXEC and reported unconfirmed status for that rejected
+  request; the test correctly expected FAILED and reached its final passing NOTE.
+
+The successful PROC SQL step took 11.09 seconds in this synthetic run. This
+does not establish RDS runtime, source correctness, Excel loading or the other
+database test suites. The submitted test source was the earlier minimal harness;
+it exercises the same core cases/assertions but does not independently validate
+the later connection-initialisation and diagnostic additions.
+
+## Not executed in this workspace
+
+All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks remain unrun here. There is no SAS executable, Teradata client/session or database connection in this workspace. The user-server evidence above is separate; no local Teradata compilation or SAS execution is claimed.
 
 The SQL fixture tests cover missing/zero counts and rates, min/max/mean/sample deviation, eight overall/year/month/UNKNOWN periods, count reconciliation, all-NULL/constant/singleton fields, large exact decimal extrema, empty sources, exact/adjacent 1% and 5% boundaries, non-percentage colours, invalid configuration, runtime overflow cleanup, retries, historical attempts and protected completed IDs. SAS tests cover switch validation, success-status reads, repeated completed-ID rejection and ten synthetic overall metrics compared with VARDEF=DF calculations. Remaining module tests are deliberately absent.
 
