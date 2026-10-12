@@ -11,7 +11,8 @@
     proc datasets library=work nolist;
         delete dq_config_load_status;
     quit;
-    %if not %sysmacexist(dq_connect) or not %sysmacexist(dq_validate_context) %then %do;
+    %if not %sysmacexist(dq_connect) or not %sysmacexist(dq_validate_context)
+        or not %sysmacexist(dq_check_sql) %then %do;
         %put ERROR: Open/run 01_dq_controller.sas first.; %return;
     %end;
     /* This checks connection settings, not workbook contents. */
@@ -98,7 +99,8 @@
     %end;
     proc sql;
         %dq_connect;
-        %let _rc=&sqlxrc;
+        %dq_check_sql(dbms=N);
+        %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
             quit;
             %put ERROR: Apply connection failed. Staged LOAD_ID=&_load_id remains for diagnosis.;
@@ -106,11 +108,13 @@
         %end;
         /* Only the generated UUID enters SQL; workbook strings stay in tables. */
         execute (call &dq_database..SP_DQ_APPLY_CONFIG(&_load_sql)) by dq;
-        %let _rc=&sqlxrc;
+        %dq_check_sql;
+        %let _rc=&dq_sql_failed;
         %if &_rc=0 %then %do;
             create table work.dq_config_load_status as select * from connection to dq
                 (select * from &dq_database..DQ_CONFIG_LOAD_LOG where LOAD_ID=&_load_sql);
-            %let _rc=&sqlxrc;
+            %dq_check_sql;
+            %let _rc=&dq_sql_failed;
         %end;
         disconnect from dq;
     quit;

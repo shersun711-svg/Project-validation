@@ -7,6 +7,9 @@
    No implicit reclassification, deactivation or deletion. */
 %macro load_dq_field_config(project=RDS,config_csv=);
     %local _load_id _bad _n _distinct _rc _project_count _project_sql _load_sql;
+    %if not %sysmacexist(dq_check_sql) %then %do;
+        %put ERROR: Run the latest 01_dq_controller.sas first.; %return;
+    %end;
     %dq_validate_context;
     %if &dq_context_ok ne 1 %then %return;
     %if %length(%superq(project))=0 or %length(%superq(config_csv))=0 %then %do;
@@ -47,7 +50,8 @@
         select N into :_project_count trimmed from connection to dq
             (select count(*) as N from &dq_database..DQ_PROJECT_CONFIG
              where PROJECT_ID=&_project_sql);
-        %let _rc=&sqlxrc;
+        %dq_check_sql;
+        %let _rc=&dq_sql_failed;
         disconnect from dq;
     quit;
     %if &_rc ne 0 or %superq(_project_count) ne 1 %then %do;
@@ -76,7 +80,8 @@
             (PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND,NUMERIC_BASIC_IND)
           values (S.PROJECT_ID,S.FIELD_NAME,S.FIELD_TYPE,'Y',
                   case when S.FIELD_TYPE='NUMERIC' then 'Y' else 'N' end)) by dq;
-        %let _rc=&sqlxrc;
+        %dq_check_sql;
+        %let _rc=&dq_sql_failed;
         execute (delete from &dq_database..DQ_FIELD_CONFIG_STAGE
                  where LOAD_ID=&_load_sql) by dq;
         disconnect from dq;

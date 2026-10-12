@@ -54,6 +54,15 @@ engine_root to the actual SAS server DQ_ENGINE folder for automatic INCLUDE.
 After the SAS fixture test succeeds, change project to RDS deliberately.
 This connection setup has not been executed from this workspace.
 
+For controller tests, run the latest file 01 first, then submit the whole
+`tests/test_full_execution.sas` file in that same EG server session. The test
+now defines its own non-secret `dwhprod`/`TeraAuth`/`LAB_T_ORION_MVT` connection
+settings at the top, so it does not depend on running file 00 first. For another
+test deployment, edit that labelled block. It checks the context before starting
+tests and prints labelled cases plus controller error detail on an unexpected
+status. Only the final lifecycle passing NOTE establishes success; an abort or
+connection/datatype error is a failed test.
+
 If the CALL reports U0001 for an invalid run UUID/project, update and rerun
 `01_dq_controller.sas` in the same EG server session before running file 00.
 The corrected controller resolves IDs first and then uses single-quoted SQL
@@ -75,9 +84,13 @@ The controller now leaves SQL_TEXT in Teradata entirely and reads only the
 module's status, errors, counts and timings. It no longer imports a SQL preview
 or preview-length/truncation fields. No table alteration or procedure recompile
 is needed. This read-format change remains unverified on the user's server.
-Rerunning file 01 should print `DQ controller loaded: 20261012_NO_SQL_TEXT` and
+Rerunning file 01 should print `DQ controller loaded: 20261012_SQLRC_GUARD` and
 the SAS session encoding. Each database read also prints a `NOTE: DQ READ:`
 stage so a remaining error can be located without rerunning the datatype probes.
+
+The status helper checks SAS SQLRC after CONNECT, since SQLXRC may be undefined
+or stale at that point. After pass-through statements it also checks SQLXRC
+when available. It does not reset or manufacture SAS system return codes.
 
 If EG reports `Failed to transcode data from U_UTF8_CE to U_LATIN9_CE` with a
 source excerpt such as `LOG_START_INDICATOR` or `title`, code submission is

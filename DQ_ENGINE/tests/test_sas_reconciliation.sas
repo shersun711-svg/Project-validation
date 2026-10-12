@@ -28,7 +28,8 @@ proc sql noprint;
          from &dq_database..DQ_COMPLETED_RESULT
          where RUN_ID=&_fixture_sql and PROJECT_ID='DQ_TEST'
            and FIELD_NAME='X' and PERIOD_LEVEL='OVERALL');
-    %let reconciliation_rc=&sqlxrc;
+    %dq_check_sql;
+    %let reconciliation_rc=&dq_sql_failed;
     disconnect from dq;
 quit;
 %if &reconciliation_rc ne 0 %then %abort cancel;

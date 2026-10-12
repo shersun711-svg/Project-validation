@@ -4,30 +4,34 @@
    Each probe starts a new PROC SQL so a prior NOEXEC does not skip later probes.
    Paste the NOTE: DQ READ PROBE lines when reporting the results. */
 %macro dq_read_probe(label=,object=,projection=*);
-    %local _sas_rc _db_rc;
+    %local _sas_rc _db_rc _failed;
     %put NOTE: DQ READ PROBE BEGIN &label OBJECT=&object;
     proc sql;
         %dq_connect;
-        %let _sas_rc=&sqlrc;
-        %let _db_rc=&sqlxrc;
-        %if &_sas_rc=0 and &_db_rc=0 %then %do;
+        %dq_check_sql(dbms=N);
+        %let _failed=&dq_sql_failed;
+        %if &_failed=0 %then %do;
             create table work.dq_probe_&label as
             select * from connection to dq
                 (select &projection from &dq_database..&object where 1=0);
-            %let _sas_rc=&sqlrc;
-            %let _db_rc=&sqlxrc;
+            %dq_check_sql;
+            %let _failed=&dq_sql_failed;
         %end;
+        %let _sas_rc=&sqlrc;
+        %let _db_rc=NOT_SET;
+        %if %symexist(sqlxrc) %then %let _db_rc=%superq(sqlxrc);
         /* QUIT ends this connection even if NOEXEC skipped DISCONNECT. */
         disconnect from dq;
     quit;
-    %if &_sas_rc=0 and &_db_rc=0 %then
+    %if &_failed=0 %then
         %put NOTE: DQ READ PROBE PASS &label SAS_SQLRC=&_sas_rc DBMS_SQLXRC=&_db_rc;
     %else
         %put NOTE: DQ READ PROBE FAIL &label SAS_SQLRC=&_sas_rc DBMS_SQLXRC=&_db_rc;
 %mend;
 
 %macro dq_diagnose_reads;
-    %if not %sysmacexist(dq_connect) or not %sysmacexist(dq_validate_context) %then %do;
+    %if not %sysmacexist(dq_connect) or not %sysmacexist(dq_validate_context)
+        or not %sysmacexist(dq_check_sql) %then %do;
         %put ERROR: Run 01_dq_controller.sas in this SAS session first.;
         %return;
     %end;

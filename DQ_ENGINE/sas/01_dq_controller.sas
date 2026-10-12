@@ -3,7 +3,7 @@
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
 %global dq_controller_version;
-%let dq_controller_version=20261012_NO_SQL_TEXT;
+%let dq_controller_version=20261012_SQLRC_GUARD;
 %put NOTE: DQ controller loaded: &dq_controller_version;
 %put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
 
@@ -35,6 +35,25 @@
     connect to teradata as dq
         (server="&td_server" authdomain="&td_authdomain"
          database="&dq_database" mode=teradata);
+%mend;
+
+/* CONNECT need not define SQLXRC and can leave an earlier value unchanged.
+   Use SAS SQLRC for CONNECT (dbms=N). After a pass-through statement, also
+   inspect SQLXRC when SAS has supplied it. Never invent/reset system status.
+   This helper preserves the original return codes for diagnosis. */
+%macro dq_check_sql(dbms=Y);
+    %global dq_sql_failed;
+    %let dq_sql_failed=0;
+    %if not %symexist(sqlrc) %then %let dq_sql_failed=1;
+    %else %if %length(%superq(sqlrc))=0 %then %let dq_sql_failed=1;
+    %else %if %superq(sqlrc) ne 0 %then %let dq_sql_failed=1;
+    %if &dbms=Y %then %do;
+        %if %symexist(sqlxrc) %then %do;
+            %if %length(%superq(sqlxrc))>0 %then %do;
+                %if %superq(sqlxrc) ne 0 %then %let dq_sql_failed=1;
+            %end;
+        %end;
+    %end;
 %mend;
 
 %macro run_dq_engine(project=RDS,numeric_basic=Y,numeric_percentiles=N,
@@ -104,7 +123,8 @@
     quit;
     proc sql;
         %dq_connect;
-        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
+        %dq_check_sql(dbms=N);
+        %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
             %let dq_error=Teradata connection failed. Check the SAS log and AUTHDOMAIN.;
             quit;
@@ -116,7 +136,8 @@
             (select PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND,NUMERIC_BASIC_IND
              from &dq_database..DQ_FIELD_CONFIG
              where PROJECT_ID=&_project_sql order by FIELD_NAME);
-        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
+        %dq_check_sql;
+        %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
             %let dq_error=Configuration read failed. Check configuration table access and deployment.;
             disconnect from dq;
@@ -126,7 +147,8 @@
         /* Safe diagnostic: only the database, run UUID and project ID. */
         %put NOTE: DQ CALL: call &dq_database..SP_DQ_RUN_ENGINE(&_run_sql,&_project_sql);
         execute (call &dq_database..SP_DQ_RUN_ENGINE(&_run_sql,&_project_sql)) by dq;
-        %let _call_rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
+        %dq_check_sql;
+        %let _call_rc=&dq_sql_failed;
         %if &_call_rc ne 0 %then %do;
             %let dq_error=Numeric CALL failed. Check the SAS SQLXMSG and database run log.;
         %end;
@@ -134,7 +156,8 @@
         create table work.dq_run_status as
         select * from connection to dq
             (select * from &dq_database..DQ_RUN_LOG where RUN_ID=&_run_sql);
-        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
+        %dq_check_sql;
+        %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
             %let dq_error=Cannot read run status; success is unconfirmed.;
             disconnect from dq;
@@ -151,7 +174,8 @@
              from &dq_database..DQ_MODULE_LOG where RUN_ID=&_run_sql
              order by ATTEMPT_NO,BATCH_ID);
         /* SAS datatype/CREATE errors may set SQLRC without setting SQLXRC. */
-        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
+        %dq_check_sql;
+        %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
             %let dq_error=Cannot read module log; inspect the database directly.;
             disconnect from dq;
@@ -162,7 +186,8 @@
         create table work.dq_summary as
         select * from connection to dq
             (select * from &dq_database..DQ_RUN_SUMMARY where RUN_ID=&_run_sql);
-        %let _rc=%eval((&sqlrc ne 0) or (&sqlxrc ne 0));
+        %dq_check_sql;
+        %let _rc=&dq_sql_failed;
         %if &_rc ne 0 %then %do;
             %let dq_error=Cannot read run summary; success is unconfirmed.;
         %end;

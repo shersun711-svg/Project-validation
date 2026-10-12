@@ -138,6 +138,30 @@ test assertion was removed. Local source/workbook checks passed; this latest
 controller change and EG submission check have not been verified on the server.
 The earlier failed full-execution run is not claimed as a pass.
 
+## Controller test connection setup
+
+The user's latest complete failure log showed the three intentional switch
+errors followed by missing td_server/td_authdomain/dq_database and an aborted
+success assertion. The test now initialises these public connection settings
+inside the same submitted file and validates the context before its cases.
+Fixture summary variables are local, summary SQLRC is checked, and an unexpected
+status prints the controller's error detail. Existing status, result-count and
+completed-ID assertions remain. Source/workbook checks passed locally; the revised
+test has not been run in SAS here. Further failures require the latest stage/error
+log and are not assumed fixed by this connection-initialisation change.
+
+## Undefined SQLXRC correction
+
+The subsequent full log showed that connection context validation passed, then
+SQLXRC was undefined after CONNECT. The combined numeric EVAL failed before the
+first configuration read. A shared status helper now uses SQLRC for CONNECT
+and checks SQLXRC only when available after pass-through statements. This also
+avoids interpreting a stale previous DBMS return code as a CONNECT failure.
+The same helper is used by configuration loaders and the read/reconciliation
+diagnostics. Original system statuses, SQL_TEXT exclusion and test assertions
+are preserved. Local source/workbook checks passed; live execution remains
+unverified. This identifies a specific macro error, not a new datatype failure.
+
 ## Supplied but not executed
 
 All database fixture tests, live RDS queries, SAS execution/reconciliation and benchmarks are unrun. There is no SAS executable, Teradata client/session or database connection in this workspace. No successful Teradata compilation, data validation, failure recovery, runtime or performance result is claimed.
