@@ -2,8 +2,7 @@
 
 Normal users edit `config/DQ_RDS_config.xlsx` and run `sas/04_load_dq_config.sas`.
 SAS loads Project, Fields and Settings directly to Teradata without a workbook
-validation phase. See [Excel setup and usage](EXCEL_CONFIGURATION.md). The CSV
-workflow below is retained as a legacy option.
+validation phase. See [Excel setup and usage](EXCEL_CONFIGURATION.md).
 
 `DQ_PROJECT_CONFIG` has one active source per project. Database, source and column names must be simple identifiers matching `[A-Za-z_][A-Za-z0-9_]*`, up to 128 characters. Project IDs use the same convention up to 30 characters. SQL quotes validated source names; arbitrary SQL snippets and user-supplied predicates are not configuration inputs.
 
@@ -26,22 +25,12 @@ File `setup/00_create_config_tables.sql` installs the ten fixed metric definitio
 alongside the schema. These names/ordinals belong to the Numeric Basic module
 and are not editable project settings.
 
-## Legacy CSV field refresh
+## Review loaded configuration
 
-The normal workflow uses the three-sheet Excel workbook for both initial and
-updated configuration. The older field-only CSV loader is retained for
-compatibility. To use that optional path, export field/type columns as UTF-8
-CSV with header `FIELD_NAME,FIELD_TYPE`; validate the header and mapping before
-loading. `config/rds_fields.csv` is the supplied workbook's checked export.
-
-```sas
-%include "/approved/path/DQ_ENGINE/sas/01_dq_controller.sas";
-%include "/approved/path/DQ_ENGINE/sas/03_load_field_config.sas";
-%load_dq_field_config(project=RDS,
-    config_csv=/approved/path/DQ_ENGINE/config/rds_fields.csv);
-```
-
-The loader rejects empty files, duplicate field names, invalid identifiers and unknown types. It stages only the small configuration dataset using a unique load UUID, then submits one MERGE. Existing ACTIVE_IND and module overrides are retained; new rows get ACTIVE_IND=Y and Numeric Basic enabled only for NUMERIC fields. A change from non-numeric to numeric therefore needs an explicit eligibility review for an existing row. Rows omitted from an upload are retained; explicitly deactivate retired fields. Failed uploads may leave staging rows: remove only the reported LOAD_ID after diagnosis.
+Excel is the configuration input for initial setup and later changes. Fields
+omitted from a later workbook remain configured; set ACTIVE_IND=N to retire
+them. The CSV files under config are original input audit references used by
+developer checks, not an alternative loader or editable runtime configuration.
 
 After every change review the stored configuration:
 

@@ -54,7 +54,7 @@ transaction. Existing Numeric Basic/controller procedures do not need recompilin
 A new installation can follow the original deployment guide and add these files.
 The former `03_seed_rds_config.sql` has been removed. Project, field and settings
 configuration comes from Excel on both the first load and later updates.
-The legacy CSV field loader is still available for compatibility.
+Excel is the supported configuration input; the legacy CSV loader was removed.
 
 For a **new installation**, file 00 creates empty project/field/settings tables
 and installs the ten fixed metric definitions. Then deploy files 01, 02, 06 and
@@ -70,7 +70,7 @@ metadata, install just the ten DQ_METRIC_DEFINITION INSERT statements at the
 end of file 00 once, without rerunning its CREATE statements. Confirm ten
 NUMERIC_BASIC definitions exist before running profiling.
 
-## Load from Enterprise Guide 8.2
+## Load from Enterprise Guide or VS Code
 
 SAS reads the workbook on the **SAS server**. Opening a local .sas program in EG
 can submit code to the server, but a C: Downloads workbook path is not thereby
@@ -85,7 +85,8 @@ The entry program uses the folder you provided:
 That is a suggested file location, not a claim the workbook has been uploaded.
 Change `config_workbook` to the real server path. It may contain spaces.
 
-In the same EG server session:
+Use the SASApp connection that can access your workbook folder. In the same
+SAS server session, whether submitting from EG or the VS Code SAS extension:
 
 1. Open/run `sas/01_dq_controller.sas` to define the connection macros.
 2. Open/run `sas/05_dq_excel_config.sas` to define the workbook loader.
@@ -140,9 +141,10 @@ the running-project guard. Run it only in an isolated TEST engine: it temporaril
 adds a restrictive test constraint. Check every assertion for zero rows and remove
 the named test constraint if execution stops before its cleanup statement.
 
-These new SAS/SQL operations have not been executed here. Local checks cover
-source structure and the packaged workbook. Your SAS/Teradata connection was
-failing today; restore it and verify XLSX support, compile/run the additive upgrade
-and tests before accepting a real load. On Monday, confirm the usual Teradata
-LIBNAME works first; changing the workbook path cannot repair authentication or
-network connectivity.
+The user has reported a successful Excel load, confirmed all 589 field mappings,
+then reloaded a 50-field Numeric Basic selection and confirmed its stored count.
+The subsequent RDS profiling run was reported successful with sample results
+checked by the user. These are user-server observations; no SAS or Teradata
+execution took place in this workspace. The configuration-rollback test suite
+has not been confirmed executed. See VALIDATION_EVIDENCE.md for the distinction
+between local checks and user-server evidence.

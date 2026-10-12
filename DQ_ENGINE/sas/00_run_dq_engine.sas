@@ -7,7 +7,7 @@
 %let td_server = dwhprod;
 %let td_authdomain = TeraAuth;
 %let dq_database = LAB_T_ORION_MVT;
-%let project = DQ_TEST; /* Change to RDS after the SAS fixture test passes. */
+%let project = RDS; /* Configuration and field selection are loaded from Excel. */
 
 %let numeric_basic = Y;
 %let numeric_percentiles = N;

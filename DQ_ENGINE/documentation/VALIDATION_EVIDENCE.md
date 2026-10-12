@@ -1,5 +1,21 @@
 # Validation evidence and unverified dependencies
 
+## Current status
+
+- Local static and starter-workbook checks passed. They do not compile or run
+  SAS or Teradata.
+- The user's supplied SAS log confirmed the synthetic controller/lifecycle
+  test passed on their server.
+- The user later reported a successful Excel load and a 50-field RDS run;
+  they confirmed field counts, result counts and sample metrics.
+- Teradata deployment of the new DQ_NUMERIC_REVIEW view has not been confirmed.
+- Full RDS reconciliation, performance benchmarking and configuration-rollback
+  tests are not claimed complete.
+
+The sections below are a revision history. Earlier statements about connection
+failures, removed helpers or unverified fixes describe their status at that time;
+use README.md and EXCEL_CONFIGURATION.md for current operating instructions.
+
 ## Executed in this workspace
 
 - Reviewed the full master specification, actual workbook and complete RDS view definition.
@@ -200,6 +216,31 @@ does not establish RDS runtime, source correctness, Excel loading or the other
 database test suites. The submitted test source was the earlier minimal harness;
 it exercises the same core cases/assertions but does not independently validate
 the later connection-initialisation and diagnostic additions.
+
+## Current user-server workflow and repository cleanup
+
+The user subsequently reported a successful Excel configuration load and
+confirmed its 589 field counts (415 NUMERIC, 125 CATEGORICAL, 35 DATE,
+14 IDENTIFIER). They reloaded a 50-field Numeric Basic selection and confirmed
+the selected count. Their RDS run was reported SUCCEEDED with 139,000 metric
+rows, and they checked sample metrics and the period-count breakdown. These
+are user reports, not a locally executed reconciliation or a supplied full RDS
+log. No RDS runtime benchmark or all-metric source reconciliation is claimed.
+
+The repository cleanup removes the retired CSV loader, its staging definition
+from fresh-install SQL, the one-time workbook generator and the temporary SAS
+read diagnostic. Existing deployed tables and data are untouched. Input audit
+CSVs, validation suites and local checks remain. The run entry now defaults to
+RDS, with field selection still controlled by the loaded workbook. The root
+guide and deployment/configuration instructions describe the current workflow.
+Historical evidence above records earlier revisions; it is not an instruction
+to use removed helpers. The new DQ_NUMERIC_REVIEW view has passed local static
+checks, but its Teradata deployment has not been confirmed by the user.
+
+Cleanup verification: check_static.mjs passed for the 23 remaining SQL/SAS
+files, check_config_workbook.mjs passed, all 20 relative documentation links
+resolved, all remaining SAS source was ASCII, and git diff --check passed.
+The workbook, profiling procedures and review view were unchanged by cleanup.
 
 ## Not executed in this workspace
 
