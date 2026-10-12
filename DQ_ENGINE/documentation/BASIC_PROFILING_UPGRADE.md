@@ -145,11 +145,29 @@ date exclusion from profiling metrics and cleanup/retry after a late failure.
 SAS checks exercise non-numeric-only execution, summaries and a short number.
 No local SAS/Teradata execution is claimed.
 
-Validate Teradata support for multiple COUNT(DISTINCT) aggregates combined with
-GROUPING SETS and volatile CTAS on your installed release. The CAST to BIGINT
+Categorical/identifier aggregation now uses separate overall/yearly/monthly
+SELECTs with ordinary GROUP BY, combined by UNION ALL and literal period flags.
+The user's DISTINCT/GROUPING SETS diagnostic returned fourteen rows with all
+flags equal to 1, causing duplicate OVERALL result keys; that combination is
+no longer used for these modules. Numeric/date aggregation retains GROUPING
+SETS. Validate the revised ordinary distinct aggregates and volatile CTAS on
+your installed release. The CAST to BIGINT
 preserves returned distinct counts but does not widen the aggregate's internal
-range; confirm that range accommodates your population. Distinct aggregation
-can need additional sorting/spool. Benchmark batch size against actual workloads.
+range; confirm that range accommodates your population. Distinct aggregation can need additional sorting/spool and references the source
+three times per batch. Keep the source stable across period queries and batches;
+physical scan sharing is optimizer-dependent. Benchmark batch size against actual workloads.
 Verify TIMESTAMP conversions, run-number transaction/locking behaviour, invoker
 permissions and view ownership on the server. Local template/structure checks
 cannot validate these features.
+
+
+## Repair for the reported categorical uniqueness failure
+
+For an installation already upgraded, fetch the latest
+teradata/modules/15_other_basic.sql, replace DQ_DB, and recompile that whole
+procedure. No table/index change or metric-metadata reset is required. Rerun
+ tests/test_other_basic.sas in the same SAS session, with the updated controller
+loaded. It generates a fresh run UUID; the failed run remains logged.
+For the fixture, the successful non-numeric-only run should have 72 metric
+rows, 16 date-review rows and 40 combined review rows, covering five fields.
+The portable aggregation checks do not establish live Teradata correctness.

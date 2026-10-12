@@ -36,7 +36,7 @@ It temporarily adds a constraint to DQ_ENGINE_SETTINGS; never run it against a
 shared or production engine. If interrupted, inspect and remove the named test
 constraint as documented in that script.
 
-Developer-only checks (Node and unzip; no SAS/Teradata execution):
+Developer-only checks (Node 24 and unzip; no SAS/Teradata execution):
 
 ```sh
 node DQ_ENGINE/tools/check_static.mjs
@@ -44,6 +44,9 @@ node DQ_ENGINE/tools/check_config_workbook.mjs
 node DQ_ENGINE/tools/check_review_views.mjs
 ```
 
+The static check also executes the generated categorical/identifier aggregate
+SELECT logic on synthetic rows using Node SQLite, adapting EXTRACT syntax.
+It checks eight unique period keys and the empty-source case.
 The review check uses Node 24's built-in SQLite to execute adapted view SELECT
 logic on synthetic rows. It checks pivoting, period separation, date-only
 summaries, run numbers and completed-run filtering; it does not compile

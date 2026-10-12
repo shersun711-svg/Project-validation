@@ -22,9 +22,12 @@ Changing source data between batches can invalidate cross-field/count reconcilia
 ## Other basic modules
 
 Categorical and identifier batches calculate missing counts and distinct counts
-for all reporting periods; distinct aggregation may require additional sorting
-and spool. Verify multiple COUNT(DISTINCT) with GROUPING SETS on the installed
-release and benchmark the configured batch size. Date batches calculate only
+for all reporting periods. They use three explicit period queries combined by
+UNION ALL, each referencing the configured source, to avoid the user's observed
+DISTINCT/GROUPING SETS flag/duplicate-row failure. Distinct aggregation may
+require additional sorting/spool. There are three source references per batch;
+actual physical scans/reuse depend on the optimizer. Benchmark batch size and
+keep the source stable during all period queries and batches. Date batches calculate only
 extrema and persist period/field review rows. Different types execute as separate
 modules, so a mixed run can scan the source separately for each type and batch.
 The short run-number counter is locked only during number allocation, before

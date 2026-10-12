@@ -2,8 +2,9 @@
    Deploy before the three public wrappers. Invoked only inside an active run.
    Categorical/identifier: three metrics, no category values/frequencies.
    Date: earliest/latest extrema saved directly in DQ_DATE_REVIEW only.
-   Each batch aggregates all fields/periods together; persistence reads the
-   small volatile aggregate, not the source. Logical types come from Excel. */
+   Each batch aggregates fields together. Distinct modules use three explicit
+   period queries combined by UNION ALL; DATE retains GROUPING SETS.
+   Persistence reads the small volatile aggregate, not the source. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_OTHER_BASIC
     (IN P_RUN_ID CHAR(36), IN P_PROJECT_ID VARCHAR(30), IN P_TYPE VARCHAR(16))
 SQL SECURITY INVOKER
@@ -119,7 +120,8 @@ main: BEGIN
                   || ',CAST(COUNT(DISTINCT ' || V_FIELD || ') AS BIGINT) AS D' || V_SUFFIX;
             END IF;
         END FOR;
-        SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS ('
+        IF P_TYPE='DATE' THEN
+            SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS ('
           || 'SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
           || 'EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,'
           || 'GROUPING(EXTRACT(YEAR FROM S.DQ_DT)) AS GY,'
@@ -130,6 +132,31 @@ main: BEGIN
           || ' GROUP BY GROUPING SETS ((),(EXTRACT(YEAR FROM S.DQ_DT)),'
           || '(EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)))'
           || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
+        ELSE
+            /* The user's Teradata DISTINCT/GROUPING SETS query returned
+               duplicate period rows with every GROUPING flag equal to 1.
+               Ordinary GROUP BY and literal flags keep periods unambiguous.
+               This requires three source references per batch; no raw source
+               staging, arbitrary deduplication or relaxed uniqueness index. */
+            SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS ('
+              || 'SELECT CAST(NULL AS INTEGER) AS DQ_YEAR,CAST(NULL AS INTEGER) AS DQ_MONTH,'
+              || '1 AS GY,1 AS GM,COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+              || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
+              || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+              || ' UNION ALL SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
+              || 'CAST(NULL AS INTEGER) AS DQ_MONTH,0 AS GY,1 AS GM,'
+              || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+              || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
+              || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+              || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT)'
+              || ' UNION ALL SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
+              || 'EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,0 AS GY,0 AS GM,'
+              || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+              || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
+              || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+              || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)'
+              || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
+        END IF;
         UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
          WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE
            AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;

@@ -5,6 +5,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {DatabaseSync} from 'node:sqlite';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const fields=read('config/rds_fields.csv').trim().split('\n').slice(1).map(l=>{const [name,type]=l.split(',');return {name,type};});
@@ -154,10 +155,46 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
     }
     assert.ok(v.V_SOURCE_PROJECTION.length<=8000);
     assert.ok(v.V_PROJECTION.length<=20000);
-    const query=evaluate(assignment('V_SQL',other.indexOf('WHILE V_FIRST'),other),v);
+    const dateAggregateStart=other.indexOf("SET V_SQL ='CREATE VOLATILE TABLE DQ_OB_AGG",other.indexOf('WHILE V_FIRST'));
+    assert.ok(dateAggregateStart>=0,'Find the date aggregate template');
+    const aggregateStart=type==='DATE'?dateAggregateStart:other.indexOf('ELSE',dateAggregateStart);
+    const query=evaluate(assignment('V_SQL',aggregateStart,other),v);
     lex(query,'generated '+type+' aggregate');assert.ok(query.length<32000);
-    assert.equal((query.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,1);
-    assert.ok(query.includes('GROUP BY GROUPING SETS ((),'));
+    assert.equal((query.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,type==='DATE'?1:3);
+    if(type==='DATE'){
+        assert.ok(query.includes('GROUP BY GROUPING SETS ((),'));
+    }else{
+        assert.ok(!/GROUPING\s*\(|GROUPING SETS/i.test(query),'Distinct aggregation must use explicit period groups');
+        assert.equal((query.match(/UNION ALL/g)||[]).length,2);
+        /* Execute the generated period SELECT logic on synthetic rows, adapting
+           EXTRACT only. This tests period uniqueness, not Teradata compatibility. */
+        const db=new DatabaseSync(':memory:');
+        db.exec('ATTACH DATABASE \':memory:\' AS "LAB_T_ORION_MVT"');
+        const names=Array.from({length:30},(_,i)=>'F'+String(i+1).padStart(127,'X'));
+        db.exec('CREATE TABLE "LAB_T_ORION_MVT"."VW_RDS_PHASE2_FACT" (FACT_DT TEXT,'+names.map(n=>'"'+n+'" TEXT').join(',')+')');
+        const statement=db.prepare('INSERT INTO "LAB_T_ORION_MVT"."VW_RDS_PHASE2_FACT" VALUES ('+Array(31).fill('?').join(',')+')');
+        for(const [date,value] of [['2000-01-31','A'],['2000-02-29','B'],['2001-01-31',null],[null,'A']]){
+            statement.run(date,value,...Array(29).fill(null));
+        }
+        const select=query.slice('CREATE VOLATILE TABLE DQ_OB_AGG AS ('.length,query.indexOf(') WITH DATA PRIMARY INDEX'))
+            .replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)")
+            .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)");
+        const rows=db.prepare(select).all();
+        assert.equal(rows.length,8,'Fixture must have eight period rows, not the reported fourteen');
+        const key=r=>(r.GY===1?'OVERALL':r.GM===1?'YEARLY':'MONTHLY')+'/'+
+            (r.GY===1?'ALL':r.DQ_YEAR===null?'UNKNOWN':r.GM===1?String(r.DQ_YEAR):r.DQ_YEAR+'-'+String(r.DQ_MONTH).padStart(2,'0'));
+        assert.equal(new Set(rows.map(key)).size,8,'Final period keys must be unique');
+        const overall=rows.find(r=>r.GY===1);
+        assert.equal(overall.TOTAL_N,4);assert.equal(overall.N1,3);assert.equal(overall.D1,2);
+        assert.equal(overall.D2,0);
+        assert.equal(rows.find(r=>r.GY===0&&r.GM===1&&r.DQ_YEAR===2000).D1,2);
+        assert.equal(rows.filter(r=>key(r).endsWith('/UNKNOWN')).length,2);
+        db.exec('DELETE FROM "LAB_T_ORION_MVT"."VW_RDS_PHASE2_FACT"');
+        const empty=db.prepare(select).all();
+        assert.equal(empty.length,1);assert.equal(key(empty[0]),'OVERALL/ALL');
+        assert.equal(empty[0].TOTAL_N,0);assert.equal(empty[0].N1,0);assert.equal(empty[0].D1,0);
+        db.close();
+    }
     v['R.FIELD_NAME']='TEST_FIELD';v.V_SUFFIX='30';
     const resultsCursor=other.indexOf('FOR R AS');
     const insertStart=type==='DATE'?resultsCursor:other.indexOf('ELSE',resultsCursor);

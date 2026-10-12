@@ -299,3 +299,30 @@ TIMESTAMP conversion, serialized counter locking, grants and SAS reads on the
 user's server before accepting the upgrade. Concurrent numbering requires a
 separate two-session test. No customer data, credentials or live results were
 added to the repository, and no SAS/Teradata deployment was performed.
+
+
+## Categorical period-key failure and repair
+
+The user reported a failed non-numeric-only SAS test with secondary-index
+uniqueness errors in DQ_METRIC_RESULT for CATEGORICAL_BASIC. They confirmed the
+three metric definitions matched the expected ordinal/name/percentage catalog.
+Their read-only source aggregation diagnostic returned fourteen rows instead
+of eight, including repeated NULL year/month rows, and every GY/GM flag was 1.
+Those flags label every aggregate as OVERALL/ALL in the result insert, producing
+duplicate unique keys. This is user-server evidence; a full Teradata optimizer
+or version-level defect diagnosis is not claimed.
+
+The shared helper now uses three explicit ordinary GROUP BY queries combined
+with UNION ALL for categorical/identifier fields, with literal grouping flags.
+Date and numeric aggregation are unchanged. No unique index is weakened and
+no arbitrary result deduplication is added. Distinct counts are calculated
+independently at each level. This uses three source references per batch.
+
+The static tool reconstructs these actual dynamic SELECT templates and executes
+adapted SELECT logic using Node SQLite on synthetic rows. It confirms eight
+unique final period keys, distinct counts, NULL-date period separation and the
+single zero-count OVERALL row for an empty source. Maximum-length 30-field
+statements are 25,760 characters for categorical/identifier, below the existing
+32,000-character buffer; date remains 7,330. Static checks passed for 35 SQL/SAS
+files. Portable review checks and diff whitespace checks also passed.
+The repaired procedure has not yet been compiled or executed on Teradata.
