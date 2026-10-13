@@ -50,7 +50,9 @@ for(const field of ['EVENT_DATE','EVENT_TS']){
 }
 for(const file of ['91_dq_summary_views.sql','92_dq_numeric_review.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
-  .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','');
+  .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
+  /* SQLite CAST AS DATE differs from Teradata; adapt date extraction only. */
+  .replace(/CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE\)/g,'date($1)');
  db.exec(sql);
 }
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,152);
@@ -62,7 +64,10 @@ assert.equal(category.DISTINCT_COUNT,2);assert.equal(category.TOTAL_COUNT,4);
 assert.equal(category.NON_MISSING_COUNT,3);assert.equal(category.MISSING_RATE_COLOUR,'RED');
 assert.equal(category.MINIMUM,null);assert.equal(category.EARLIEST_DATE,null);
 const date=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE FIELD_NAME='EVENT_TS' AND RUN_NUMBER=1 AND PERIOD_LEVEL='OVERALL'").get();
-assert.equal(date.EARLIEST_DATE,'1999-12-31 23:59:59.000123');assert.equal(date.MISSING_COUNT,null);
+assert.equal(date.EARLIEST_DATE,'1999-12-31');assert.equal(date.LATEST_DATE,'2002-03-05');
+assert.equal(date.MISSING_COUNT,null);
+assert.equal(db.prepare("SELECT EARLIEST_DATE FROM DQ_DATE_REVIEW WHERE RUN_ID='mixed' AND FIELD_NAME='EVENT_TS' AND PERIOD_LEVEL='OVERALL'").get().EARLIEST_DATE,
+ '1999-12-31 23:59:59.000123','Review formatting must preserve stored timestamp extrema');
 const summary=db.prepare("SELECT * FROM DQ_RUN_SUMMARY WHERE RUN_ID='date-only'").all();
 assert.equal(summary.length,1);assert.equal(summary[0].FIELDS_TESTED,2);
 assert.equal(summary[0].METRIC_RESULT_COUNT,0);assert.equal(summary[0].GREEN_COUNT,0);

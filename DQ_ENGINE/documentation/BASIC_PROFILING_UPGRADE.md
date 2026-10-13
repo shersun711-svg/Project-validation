@@ -30,7 +30,12 @@ to DQ_METRIC_RESULT. The run summary includes date fields but reports zero
 metric rows and zero colours for DATE_BASIC.
 
 Date extrema are stored as TIMESTAMP(6): DATE values appear at midnight;
-ordinary TIMESTAMP values preserve time and microseconds. Numeric date encodings
+ordinary TIMESTAMP values preserve time and microseconds. DQ_BASIC_REVIEW
+casts EARLIEST_DATE and LATEST_DATE to DATE so final review shows only the
+calendar date, without time. Client date formatting determines the display
+order/separator. Existing installations need only replace view 93 for this
+display change; no profiling rerun or storage migration is required.
+Numeric date encodings
 and formatted strings are not automatically parsed. Confirm source DATE fields
 support conversion to TIMESTAMP(6); incompatible values fail and are logged.
 For TIMESTAMP WITH TIME ZONE, agree and verify the conversion/session timezone

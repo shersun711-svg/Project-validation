@@ -344,3 +344,19 @@ declared-width upper bounds. Reconstructed SQL and synthetic period results
 are unchanged. Static checks (35 SQL/SAS files), portable review checks and
 diff checks passed. Compilation and execution of this correction on Teradata
 remain unverified; a failed REPLACE did not deploy the preceding correction.
+
+## User-server basic review and date-only display
+
+The user confirmed compilation of the bounded-part procedure and reported
+run number 18. Their displayed DQ_BASIC_REVIEW output for DQ_BASIC_TEST showed
+five correct overall rows: categorical/identifier missing and distinct metrics,
+all-NULL categorical results and both DATE/TIMESTAMP extrema. They also
+confirmed the expected period row counts (40 total review rows). This verifies
+the supplied sample review on their server, not the full empty/failure/retry
+SQL suite or concurrent run-number allocation.
+
+The user then requested dates without times in final review. View 93 now
+casts both extrema to DATE; the date-review store retains TIMESTAMP(6).
+Existing SQL assertions and the portable view checks were updated for the
+new display contract. Static, portable review and diff checks passed locally.
+The date-only view replacement has not yet been compiled on Teradata.
