@@ -8,7 +8,8 @@ import {DatabaseSync} from 'node:sqlite';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const db=new DatabaseSync(':memory:');
-db.exec(`CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,STATUS TEXT);
+db.exec(`CREATE TABLE DQ_FIELD_AVAILABILITY (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,EARLIEST_DATE TEXT,LATEST_DATE TEXT);
+CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,STATUS TEXT);
 CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT PRIMARY KEY,RUN_NUMBER INTEGER UNIQUE);
 CREATE TABLE DQ_METRIC_RESULT (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,
  FIELD_TYPE TEXT,MODULE_NAME TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,
@@ -41,6 +42,10 @@ for(const period of periods){
    '1999-12-31 23:59:59.000123','2002-03-05 00:00:00.000000');
  }
 }
+for(const field of ['AMOUNT','CATEGORY','NULL_CATEGORY','CUSTOMER_ID','EVENT_DATE','EVENT_TS']){
+ db.prepare('INSERT INTO DQ_FIELD_AVAILABILITY VALUES (?,?,?,?,?)').run('mixed','TEST',field,
+  field==='NULL_CATEGORY'?null:'2000-01-31',field==='NULL_CATEGORY'?null:'2000-02-29');
+}
 for(const run of ['failed','active']){
  metric(run,'CATEGORY','CATEGORICAL',['OVERALL','ALL'],'MISSING_COUNT',1);
  db.prepare('INSERT INTO DQ_DATE_REVIEW VALUES (?,?,?,?,?,?,?)').run(run,'TEST','EVENT_DATE','OVERALL','ALL',null,null);
@@ -52,7 +57,7 @@ for(const file of ['91_dq_summary_views.sql','92_dq_numeric_review.sql','93_dq_b
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
   /* SQLite CAST AS DATE differs from Teradata; adapt date extraction only. */
-  .replace(/CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE\)/g,'date($1)');
+  .replace(/CAST\(CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE FORMAT 'YYYY-MM-DD'\) AS VARCHAR\(64\)\)/g,'date($1)');
  db.exec(sql);
 }
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,152);
@@ -62,9 +67,10 @@ const category=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND 
 assert.equal(category.MISSING_COUNT,1);assert.equal(category.MISSING_RATE_PCT,25);
 assert.equal(category.DISTINCT_COUNT,2);assert.equal(category.TOTAL_COUNT,4);
 assert.equal(category.NON_MISSING_COUNT,3);assert.equal(category.MISSING_RATE_COLOUR,'RED');
-assert.equal(category.MINIMUM,null);assert.equal(category.EARLIEST_DATE,null);
+assert.equal(category.MINIMUM,null);assert.equal(category.EARLIEST_DATE,'2000-01-31');
 const date=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE FIELD_NAME='EVENT_TS' AND RUN_NUMBER=1 AND PERIOD_LEVEL='OVERALL'").get();
-assert.equal(date.EARLIEST_DATE,'1999-12-31');assert.equal(date.LATEST_DATE,'2002-03-05');
+assert.equal(date.MINIMUM,'1999-12-31');assert.equal(date.MAXIMUM,'2002-03-05');
+assert.equal(date.EARLIEST_DATE,'2000-01-31');assert.equal(date.LATEST_DATE,'2000-02-29');
 assert.equal(date.MISSING_COUNT,null);
 assert.equal(db.prepare("SELECT EARLIEST_DATE FROM DQ_DATE_REVIEW WHERE RUN_ID='mixed' AND FIELD_NAME='EVENT_TS' AND PERIOD_LEVEL='OVERALL'").get().EARLIEST_DATE,
  '1999-12-31 23:59:59.000123','Review formatting must preserve stored timestamp extrema');
@@ -74,5 +80,7 @@ assert.equal(summary[0].METRIC_RESULT_COUNT,0);assert.equal(summary[0].GREEN_COU
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER IN (2,3)").get().n,0);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT WHERE FIELD_TYPE='DATE'").get().n,0);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=4 AND EARLIEST_DATE IS NULL AND LATEST_DATE IS NULL").get().n,2);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND PERIOD_LEVEL<>'OVERALL' AND (EARLIEST_DATE IS NOT NULL OR LATEST_DATE IS NOT NULL)").get().n,0);
+assert.equal(db.prepare("SELECT MINIMUM FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get().MINIMUM,'0');
 db.close();
 console.log('Portable review logic checks passed: pivot, period separation, date-only summary, short numbers and completed-run filtering. Teradata/SAS execution NOT tested.');

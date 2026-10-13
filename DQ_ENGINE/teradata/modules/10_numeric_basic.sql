@@ -164,7 +164,9 @@ main: BEGIN
              || ',MIN(' || V_FIELD || ') AS LO' || V_SUFFIX
              || ',MAX(' || V_FIELD || ') AS HI' || V_SUFFIX
              || ',AVG(CAST(' || V_FIELD || ' AS FLOAT)) AS AV' || V_SUFFIX
-             || ',STDDEV_SAMP(CAST(' || V_FIELD || ' AS FLOAT)) AS SD' || V_SUFFIX;
+             || ',STDDEV_SAMP(CAST(' || V_FIELD || ' AS FLOAT)) AS SD' || V_SUFFIX
+             || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
+             || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
         END FOR;
         /* GROUPING distinguishes an actual NULL date bucket from rolled-up
            NULLs. An empty source still emits its OVERALL aggregate row. */
@@ -216,6 +218,13 @@ main: BEGIN
               || 'CASE WHEN M.IS_PERCENTAGE=''Y'' THEN A.TOTAL_N ELSE NULL END,'
               || 'CURRENT_TIMESTAMP(6) FROM DQ_NB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
               || 'WHERE M.MODULE_NAME=''NUMERIC_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 10';
+            CALL DBC.SysExecSQL(V_SQL);
+            /* Coverage is overall-only and depends on this field being non-NULL.
+               NULL reporting dates contribute no availability endpoint. */
+            SET V_SQL = 'INSERT INTO DQ_DB.DQ_FIELD_AVAILABILITY '
+              || '(RUN_ID,PROJECT_ID,FIELD_NAME,EARLIEST_DATE,LATEST_DATE) SELECT ''' || P_RUN_ID || ''','''
+              || P_PROJECT_ID || ''',''' || TRIM(R.FIELD_NAME) || ''',A.FA' || V_SUFFIX || ',A.LA' || V_SUFFIX
+              || ' FROM DQ_NB_AGG A WHERE A.GY=1';
             CALL DBC.SysExecSQL(V_SQL);
         END FOR;
         CALL DBC.SysExecSQL('DROP TABLE DQ_NB_AGG');

@@ -148,7 +148,8 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
     v.V_PERIOD_VALUE=evaluate(assignment('V_PERIOD_VALUE',0,other),v);
     const cursor=other.indexOf('FOR F AS');
     const projectionStart=type==='DATE'?cursor:other.indexOf('ELSE',cursor);
-    for(let i=1;i<=30;i++){
+    const batchSize=type==='DATE'?30:20;
+    for(let i=1;i<=batchSize;i++){
         v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_F'+i;v['F.FIELD_NAME']='F'+String(i).padStart(127,'X');
         v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cursor,other),v);
         v.V_PROJECTION=evaluate(assignment('V_PROJECTION',projectionStart,other),v);
@@ -183,15 +184,16 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
            EXTRACT only. This tests period uniqueness, not Teradata compatibility. */
         const db=new DatabaseSync(':memory:');
         db.exec('ATTACH DATABASE \':memory:\' AS "LAB_T_ORION_MVT"');
-        const names=Array.from({length:30},(_,i)=>'F'+String(i+1).padStart(127,'X'));
+        const names=Array.from({length:batchSize},(_,i)=>'F'+String(i+1).padStart(127,'X'));
         db.exec('CREATE TABLE "LAB_T_ORION_MVT"."VW_RDS_PHASE2_FACT" (FACT_DT TEXT,'+names.map(n=>'"'+n+'" TEXT').join(',')+')');
-        const statement=db.prepare('INSERT INTO "LAB_T_ORION_MVT"."VW_RDS_PHASE2_FACT" VALUES ('+Array(31).fill('?').join(',')+')');
+        const statement=db.prepare('INSERT INTO "LAB_T_ORION_MVT"."VW_RDS_PHASE2_FACT" VALUES ('+Array(batchSize+1).fill('?').join(',')+')');
         for(const [date,value] of [['2000-01-31','A'],['2000-02-29','B'],['2001-01-31',null],[null,'A']]){
-            statement.run(date,value,...Array(29).fill(null));
+            statement.run(date,value,...Array(batchSize-1).fill(null));
         }
         const select=query.slice('CREATE VOLATILE TABLE DQ_OB_AGG AS ('.length,query.indexOf(') WITH DATA PRIMARY INDEX'))
             .replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)")
-            .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)");
+            .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)")
+            .replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)');
         const rows=db.prepare(select).all();
         assert.equal(rows.length,8,'Fixture must have eight period rows, not the reported fourteen');
         const key=r=>(r.GY===1?'OVERALL':r.GM===1?'YEARLY':'MONTHLY')+'/'+
@@ -200,6 +202,8 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
         const overall=rows.find(r=>r.GY===1);
         assert.equal(overall.TOTAL_N,4);assert.equal(overall.N1,3);assert.equal(overall.D1,2);
         assert.equal(overall.D2,0);
+        assert.equal(overall.FA1,'2000-01-31');assert.equal(overall.LA1,'2000-02-29');
+        assert.equal(overall.FA2,null);assert.equal(overall.LA2,null);
         assert.equal(rows.find(r=>r.GY===0&&r.GM===1&&r.DQ_YEAR===2000).D1,2);
         assert.equal(rows.filter(r=>key(r).endsWith('/UNKNOWN')).length,2);
         db.exec('DELETE FROM "LAB_T_ORION_MVT"."VW_RDS_PHASE2_FACT"');
@@ -208,13 +212,13 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
         assert.equal(empty[0].TOTAL_N,0);assert.equal(empty[0].N1,0);assert.equal(empty[0].D1,0);
         db.close();
     }
-    v['R.FIELD_NAME']='TEST_FIELD';v.V_SUFFIX='30';
+    v['R.FIELD_NAME']='TEST_FIELD';v.V_SUFFIX=String(batchSize);
     const resultsCursor=other.indexOf('FOR R AS');
     const insertStart=type==='DATE'?resultsCursor:other.indexOf('ELSE',resultsCursor);
     const insert=evaluate(assignment('V_SQL',insertStart,other),v);
     lex(insert,'generated '+type+' insert');assert.ok(insert.length<32000);
     assert.ok(insert.includes(type==='DATE'?'INSERT INTO DQ_DB.DQ_DATE_REVIEW':'INSERT INTO DQ_DB.DQ_METRIC_RESULT'));
-    console.log(type+' SQL template checks passed: 30 max-length fields, '+query.length+' characters');
+    console.log(type+' SQL template checks passed: '+batchSize+' max-length fields, '+query.length+' characters');
 }
 assert.ok(read('teradata/modules/10_numeric_basic.sql').includes("WHERE RUN_ID = P_RUN_ID AND FIELD_TYPE = 'NUMERIC'"),'Numeric module isolates its own snapshots');
 assert.ok(read('teradata/results/93_dq_basic_review.sql').includes("WHERE L.STATUS='SUCCEEDED'"),'Date review excludes unfinished runs');

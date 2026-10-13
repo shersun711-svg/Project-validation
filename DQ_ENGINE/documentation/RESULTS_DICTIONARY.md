@@ -65,8 +65,11 @@ saved. Their review population counts are derived from saved rate counts.
 
 DATE_BASIC saves only EARLIEST_DATE/LATEST_DATE in the final DQ_DATE_REVIEW
 store, as TIMESTAMP(6), with no date profiling metrics or percentage colours.
-DQ_BASIC_REVIEW exposes the extrema as DATE values, omitting time while keeping
-the stored timestamp precision unchanged.
+DQ_BASIC_REVIEW displays date-value extrema in existing MINIMUM/MAXIMUM text
+columns, formatted YYYY-MM-DD, while retaining stored timestamp precision.
+Its EARLIEST_DATE/LATEST_DATE columns are DATE-valued overall availability for
+every field, using the configured reporting date where that field is non-NULL.
+They are NULL on YEARLY/MONTHLY rows. See [field availability](FIELD_AVAILABILITY.md).
 DQ_BASIC_REVIEW combines successful results from all four types. Date fields
 appear in DQ_RUN_SUMMARY with fields tested and zero metric/colour counts.
 

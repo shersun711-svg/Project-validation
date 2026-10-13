@@ -73,6 +73,11 @@ main: BEGIN
       (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS)
     VALUES (P_RUN_ID,V_MODULE,V_ATTEMPT,0,CURRENT_TIMESTAMP(6),'RUNNING');
     SET V_OWNED=1;
+    /* Coverage expressions increase text size. Keep each distinct UNION part
+       below its 10,000-character bound without changing workbook settings. */
+    IF P_TYPE<>'DATE' THEN
+        SET V_SIZE=LEAST(V_SIZE,20);
+    END IF;
     SELECT COUNT(*) INTO V_FIELDS FROM DQ_DB.DQ_RUN_FIELD_CONFIG
      WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE=P_TYPE;
     IF V_FIELDS=0 THEN
@@ -119,11 +124,15 @@ main: BEGIN
             IF P_TYPE='DATE' THEN
                 SET V_PROJECTION=V_PROJECTION
                   || ',MIN(CAST(' || V_FIELD || ' AS TIMESTAMP(6))) AS LO' || V_SUFFIX
-                  || ',MAX(CAST(' || V_FIELD || ' AS TIMESTAMP(6))) AS HI' || V_SUFFIX;
+                  || ',MAX(CAST(' || V_FIELD || ' AS TIMESTAMP(6))) AS HI' || V_SUFFIX
+             || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
+             || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
             ELSE
                 SET V_PROJECTION=V_PROJECTION
                   || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
-                  || ',CAST(COUNT(DISTINCT ' || V_FIELD || ') AS BIGINT) AS D' || V_SUFFIX;
+                  || ',CAST(COUNT(DISTINCT ' || V_FIELD || ') AS BIGINT) AS D' || V_SUFFIX
+             || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
+             || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
             END IF;
         END FOR;
         IF P_TYPE='DATE' THEN
@@ -202,6 +211,11 @@ main: BEGIN
                   || 'CURRENT_TIMESTAMP(6) FROM DQ_OB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
                   || 'WHERE M.MODULE_NAME=''' || V_MODULE || ''' AND M.METRIC_ORDINAL BETWEEN 1 AND 3';
             END IF;
+            CALL DBC.SysExecSQL(V_SQL);
+            SET V_SQL='INSERT INTO DQ_DB.DQ_FIELD_AVAILABILITY '
+              || '(RUN_ID,PROJECT_ID,FIELD_NAME,EARLIEST_DATE,LATEST_DATE) SELECT ''' || P_RUN_ID || ''','''
+              || P_PROJECT_ID || ''',''' || TRIM(R.FIELD_NAME) || ''',A.FA' || V_SUFFIX || ',A.LA' || V_SUFFIX
+              || ' FROM DQ_OB_AGG A WHERE A.GY=1';
             CALL DBC.SysExecSQL(V_SQL);
         END FOR;
         CALL DBC.SysExecSQL('DROP TABLE DQ_OB_AGG');

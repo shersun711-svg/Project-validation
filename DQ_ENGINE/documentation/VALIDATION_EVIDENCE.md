@@ -360,3 +360,29 @@ casts both extrema to DATE; the date-review store retains TIMESTAMP(6).
 Existing SQL assertions and the portable view checks were updated for the
 new display contract. Static, portable review and diff checks passed locally.
 The date-only view replacement has not yet been compiled on Teradata.
+
+
+## Overall availability and shared date/numeric value-range columns
+
+The user clarified that coverage dates describe availability of every field,
+using non-missing values and the reporting date, only for OVERALL. Date-field
+value extrema should reuse MINIMUM/MAXIMUM without additional review columns.
+
+The change persists overall availability per selected field/run in the additive
+DQ_FIELD_AVAILABILITY table, alongside existing aggregate queries. Orchestrator
+failure/retry cleanup includes those rows. View 93 reuses EARLIEST_DATE and
+LATEST_DATE for coverage on OVERALL rows and shows NULL for other levels.
+Date-value extrema move into existing MINIMUM/MAXIMUM as YYYY-MM-DD text.
+Those two columns are display VARCHAR(64); numeric metric storage and numeric
+view 92 retain their types. Historical coverage cannot be backfilled from
+metrics and is NULL until a new run is performed.
+
+Local static checks passed for 36 SQL/SAS files. Numeric aggregate statements
+are 12,231 characters at the first 25-field batch and 17,962 for 30 maximum-length
+fields. Distinct-module batches cap at 20; maximum-length categorical/identifier
+statements are 26,312 characters. Date statements are 11,794 for 30 fields.
+Portable synthetic checks validate coverage, all-NULL fields, NULL reporting
+dates, empty populations, overall-only review endpoints, shared min/max display
+and preservation of stored timestamps. Teradata compilation, date formatting,
+new storage grants, failure cleanup and source calculations remain unverified
+for this revision. No deployed data or configuration was changed here.

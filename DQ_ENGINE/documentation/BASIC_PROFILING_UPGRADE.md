@@ -31,10 +31,12 @@ metric rows and zero colours for DATE_BASIC.
 
 Date extrema are stored as TIMESTAMP(6): DATE values appear at midnight;
 ordinary TIMESTAMP values preserve time and microseconds. DQ_BASIC_REVIEW
-casts EARLIEST_DATE and LATEST_DATE to DATE so final review shows only the
-calendar date, without time. Client date formatting determines the display
-order/separator. Existing installations need only replace view 93 for this
-display change; no profiling rerun or storage migration is required.
+now displays date-value extrema in the existing MINIMUM/MAXIMUM columns as
+YYYY-MM-DD text. EARLIEST_DATE/LATEST_DATE are instead overall reporting-date
+availability for each non-missing field. The combined min/max columns use
+VARCHAR(64) to display either numbers or dates; numeric storage and numeric-only
+view 92 keep numeric types. Apply the [availability upgrade](FIELD_AVAILABILITY.md)
+for this change; old runs have no saved coverage dates.
 Numeric date encodings
 and formatted strings are not automatically parsed. Confirm source DATE fields
 support conversion to TIMESTAMP(6); incompatible values fail and are logged.
@@ -61,18 +63,20 @@ Use Teradata session mode without an enclosing transaction.
 3. Run setup/10_add_run_numbers.sql once. It creates the number mapping/counter
    and backfills existing runs ordered by START_TIME then UUID. Confirm one
    mapping per historical run and counter equal to the largest assigned number.
-4. Compile modules/01_assign_run_number.sql.
-5. Compile modules/15_other_basic.sql.
-6. Compile modules/20_categorical_basic.sql, 30_date_basic.sql and
+4. Run setup/11_create_field_availability.sql once; the current procedures/view
+   require this table. See FIELD_AVAILABILITY.md for coverage semantics.
+5. Compile modules/01_assign_run_number.sql.
+6. Compile modules/15_other_basic.sql.
+7. Compile modules/20_categorical_basic.sql, 30_date_basic.sql and
    40_identifier_basic.sql, each as a separate complete procedure statement.
-7. Recompile modules/10_numeric_basic.sql. Its numerical calculations are
+8. Recompile modules/10_numeric_basic.sql. Its numerical calculations are
    unchanged; it now isolates numeric field snapshots from other types.
-8. Compile modules/00_run_engine.sql. It contains TWO procedures: submit
+9. Compile modules/00_run_engine.sql. It contains TWO procedures: submit
    SP_DQ_RUN_BASIC first, then the compatibility SP_DQ_RUN_ENGINE separately.
    The latter preserves the original two-argument Numeric Basic SQL interface.
-9. Replace results/91_dq_summary_views.sql and 92_dq_numeric_review.sql,
+10. Replace results/91_dq_summary_views.sql and 92_dq_numeric_review.sql,
    then deploy results/93_dq_basic_review.sql. File 90 is unchanged.
-10. Run the updated sas/01_dq_controller.sas in a new/clean SAS session.
+11. Run the updated sas/01_dq_controller.sas in a new/clean SAS session.
     It prints version 20261012_BASIC_RUN_NUMBER. Use the latest run file 00.
 
 Do not rerun the original table CREATE scripts or change the existing workbook.
@@ -81,7 +85,7 @@ requires the new procedures and views. Plan a maintenance window and retain
 the previous deployed definitions for site-managed rollback.
 
 Runtime needs EXECUTE on the new procedures, SELECT/INSERT/DELETE on date
-review rows, SELECT/INSERT on number mappings, and SELECT/UPDATE on the counter,
+review and field-availability rows, SELECT/INSERT on number mappings, and SELECT/UPDATE on the counter,
 in addition to existing grants. View owners need the required grantable access
 to referenced objects. The number-allocation procedure owns a short transaction;
 its single counter row is write-locked until the mapping commits, then released

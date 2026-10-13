@@ -7,7 +7,9 @@ Teradata stores the configuration and calculates the results.
 Numeric Basic is implemented: total, non-missing, missing and zero counts,
 missing/zero percentages, minimum, maximum, mean and sample standard deviation.
 Categorical and identifier basics add missing counts/percentages and distinct
-counts. Date basics show earliest/latest values only in the final review.
+counts. Date-field value ranges use MINIMUM/MAXIMUM in the final review.
+EARLIEST_DATE/LATEST_DATE describe overall non-missing availability for every
+selected field. [Availability upgrade](DQ_ENGINE/documentation/FIELD_AVAILABILITY.md).
 All field types support overall, yearly and monthly periods; percentages use
 the shared green/amber/red rules. Percentiles, outliers, PSI and Excel report
 export remain deferred. [Upgrade an existing engine](DQ_ENGINE/documentation/BASIC_PROFILING_UPGRADE.md)

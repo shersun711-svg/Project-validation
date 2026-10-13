@@ -50,9 +50,12 @@ are needed. See [upgrade and selection instructions](BASIC_PROFILING_UPGRADE.md)
 
 DQ_METRIC_RESULT stores one row per metric. DQ_COMPLETED_RESULT exposes only
 successful runs in that same layout. DQ_BASIC_REVIEW is the final review view across all four types, including date
-extrema. DQ_NUMERIC_REVIEW retains the ten numeric metrics as columns.
+value ranges and overall field availability. DQ_NUMERIC_REVIEW retains the ten numeric metrics as columns.
 Both contain one row per field and period. Values retain stored precision;
 NULL statistics and NOT_EVALUATED classifications retain their meaning.
+EARLIEST_DATE/LATEST_DATE are overall FACT_DT coverage for each non-missing
+field. Date-field values use MINIMUM/MAXIMUM; those two columns are text in
+this combined layout. Read [availability semantics and upgrade](FIELD_AVAILABILITY.md).
 Both views and DQ_COMPLETED_RESULT include the short RUN_NUMBER.
 
 ```sql
@@ -102,17 +105,18 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 6. `teradata/setup/08_create_date_review.sql`
 7. `teradata/setup/09_add_basic_metrics.sql`
 8. `teradata/setup/10_add_run_numbers.sql`
-9. `teradata/results/90_colour_classification.sql`
-10. `teradata/results/91_dq_summary_views.sql`
-11. `teradata/results/92_dq_numeric_review.sql`
-12. `teradata/results/93_dq_basic_review.sql`
-13. `teradata/modules/01_assign_run_number.sql`
-14. `teradata/modules/10_numeric_basic.sql`
-15. `teradata/modules/15_other_basic.sql`
-16. `teradata/modules/20_categorical_basic.sql`
-17. `teradata/modules/30_date_basic.sql`
-18. `teradata/modules/40_identifier_basic.sql`
-19. `teradata/modules/00_run_engine.sql` (SP_DQ_RUN_BASIC, then SP_DQ_RUN_ENGINE)
+9. `teradata/setup/11_create_field_availability.sql`
+10. `teradata/results/90_colour_classification.sql`
+11. `teradata/results/91_dq_summary_views.sql`
+12. `teradata/results/92_dq_numeric_review.sql`
+13. `teradata/results/93_dq_basic_review.sql`
+14. `teradata/modules/01_assign_run_number.sql`
+15. `teradata/modules/10_numeric_basic.sql`
+16. `teradata/modules/15_other_basic.sql`
+17. `teradata/modules/20_categorical_basic.sql`
+18. `teradata/modules/30_date_basic.sql`
+19. `teradata/modules/40_identifier_basic.sql`
+20. `teradata/modules/00_run_engine.sql` (SP_DQ_RUN_BASIC, then SP_DQ_RUN_ENGINE)
 
 Table CREATE files are one-time operations. Do not rerun them on an existing
 installation. File 00 installs fixed metric definitions; project configuration

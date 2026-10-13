@@ -32,3 +32,11 @@ extrema and persist period/field review rows. Different types execute as separat
 modules, so a mixed run can scan the source separately for each type and batch.
 The short run-number counter is locked only during number allocation, before
 profiling starts. No new parallel sessions or source staging are introduced.
+
+
+Availability adds conditional MIN/MAX of the reporting date alongside each
+field's existing aggregates. No extra source query is added solely for
+availability. Distinct-module batches now cap at 20 fields to fit the bounded
+UNION parts; numeric/date modules keep the configured size. Persisted coverage
+rows are overall-only and indexed by run/field. Actual source workload remains
+unmeasured; use the logged statement for EXPLAIN after upgrading.
