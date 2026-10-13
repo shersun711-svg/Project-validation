@@ -1,4 +1,4 @@
-/* Small run-snapshot -> escaped SQL literal list, shared by basic/percentiles.
+/* Small run-snapshot -> escaped SQL literal list, shared by Basic/Outliers.
    Workbook text is never executed as SQL. Numeric values use a typed DECIMAL;
    categorical literals escape quotes. Empty list uses IN (NULL), which never
    matches; CASE WHEN ... THEN NULL ELSE original END retains all values.

@@ -95,7 +95,7 @@ for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
 }
 assert.ok(module.includes("REGEXP_SIMILAR(FIELD_NAME,"),'Retain captured identifier validation');
 assert.ok(read('sas/01_dq_controller.sas').includes('DQ_FIELD_CONFIG'),'Read workbook-derived config directly');
-assert.match(read('sas/01_dq_controller.sas'),/execute\s*\(call &dq_database\.\.SP_DQ_RUN_EXTENDED\(&_run_sql,&_project_sql,\s*&_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql,&_percentiles_sql,&_outliers_sql\)\) by dq;/,'Controller executes the percentile switch');
+assert.match(read('sas/01_dq_controller.sas'),/execute\s*\(call &dq_database\.\.SP_DQ_RUN_EXTENDED\(&_run_sql,&_project_sql,\s*&_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql,'N',&_outliers_sql\)\) by dq;/,'Controller executes supported switches with retired slot fixed N');
 function assignment(name,startAt=0,source=module){
     const start=source.indexOf(`SET ${name} =`,startAt);assert.ok(start>=0,name);
     let quote=false;
@@ -286,3 +286,8 @@ if(process.argv.length>2){
 console.log(`Static checks passed for ${files.filter(p=>/\.(sql|sas)$/.test(p)).length} SQL/SAS files. Database compilation and execution NOT tested.`);
 
 export {assignment,evaluate,lex};
+
+assert.ok(!files.some(p=>p.endsWith('11_numeric_percentiles.sql')));
+for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
+ assert.ok(!/numeric_percentiles|P_PERCENTILES/i.test(fs.readFileSync(p,'utf8')),'Retired dependency in '+p);
+}

@@ -19,9 +19,9 @@ SAS tests require the current controller loaded in the same server session.
 | `01_create_other_basic_fixture.sql` | Creates synthetic mixed-type and empty/failure sources |
 | `test_other_basic.sql` | Checks new modules, date review, switches, retries and numbering |
 | `test_other_basic.sas` | Checks non-numeric-only SAS execution and summaries |
-| `02_create_extended_fixture.sql` | Creates isolated special-value/percentile test data |
-| `test_extended.sql` | Checks filtered metrics, quantiles, independent switching and empty sources |
-| `test_extended.sas` | Checks the SAS advanced-module call and summary |
+| `02_create_extended_fixture.sql` | Creates isolated special-value test data |
+| `test_extended.sql` | Checks special counts, filtered statistics and empty sources |
+| `test_extended.sas` | Checks the SAS Basic special-value call and summary |
 | `test_extended_config.sql` | Checks special-list replacement, escaped labels and rollback |
 | `03_create_outlier_fixture.sql` | Creates isolated strict-boundary and tail test populations |
 | `test_outliers.sql` | Checks outlier bounds/rates, Basic reuse, dependency and retry |
@@ -52,9 +52,9 @@ node DQ_ENGINE/tools/check_config_workbook.mjs
 node DQ_ENGINE/tools/check_review_views.mjs
 ```
 
-The extended check includes the static check and executes generated percentile
-logic against an independent interpolation reference, plus Basic special-value
-exclusions. These are dialect-adapted queries, not SPL execution.
+The extended check includes the static check and executes generated Basic
+special-value aggregates and all metric insert branches. These are dialect-adapted
+queries, not SPL execution.
 The static check also executes the generated categorical/identifier aggregate
 SELECT logic on synthetic rows using Node SQLite, adapting EXTRACT syntax.
 It checks eight unique period keys and the empty-source case.

@@ -61,9 +61,7 @@ for(const period of periods){
   metric('mixed',field,type,period,'SPECIAL_COUNT',0);
   metric('mixed',field,type,period,'SPECIAL_RATE_PCT',0,'GREEN',0,4);
  }
- for(const [name,value] of Object.entries({P1:0.02,P5:0.1,P25:0.5,P50:1,P75:1.5,P95:1.9,P99:1.98})){
-  insert.run('mixed','TEST','AMOUNT','NUMERIC','NUMERIC_PERCENTILES',...period,name,value,null,null,null);
- }
+
 }
 for(const period of periods){
  for(const [name,value]of Object.entries({OUTLIER_VALID_COUNT:3,OUTLIER_LOWER_BOUND:-2,OUTLIER_UPPER_BOUND:4,OUTLIER_COUNT:0,OUTLIER_RATE_PCT:0})){
@@ -83,7 +81,7 @@ for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
   .replace(/CAST\(CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE FORMAT 'YYYY-MM-DD'\) AS VARCHAR\(64\)\)/g,'date($1)');
  db.exec(sql);
 }
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,373);
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,317);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='NUMERIC'").get().n,8);
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW').get().n,51);
 const category=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='CATEGORY' AND PERIOD_LEVEL='OVERALL'").get();
@@ -107,12 +105,12 @@ assert.equal(db.prepare("SELECT MINIMUM FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='DATE'").get().n,16);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_TYPE='DATE' AND (MINIMUM IS NOT NULL OR MAXIMUM IS NOT NULL OR DISTINCT_COUNT IS NOT NULL OR ZERO_COUNT IS NOT NULL OR ZERO_RATE_PCT IS NOT NULL OR MEAN IS NOT NULL OR STDDEV_SAMP IS NOT NULL)").get().n,0);
 const combined=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get();
-assert.equal(combined.P50,1);assert.equal(combined.MINIMUM,0);assert.equal(combined.SPECIAL_COUNT,0);
-assert.equal(combined.MODULE_NAME,'NUMERIC_BASIC+PCTL+OUTLIERS');
-assert.equal(date.SPECIAL_COUNT,null);assert.equal(date.P50,null);
+assert.equal(combined.MINIMUM,0);assert.equal(combined.SPECIAL_COUNT,0);
+assert.equal(combined.MODULE_NAME,'NUMERIC_BASIC+OUTLIERS');
+assert.equal(date.SPECIAL_COUNT,null);
 assert.equal(combined.OUTLIER_VALID_COUNT,3);assert.equal(combined.OUTLIER_COUNT,0);assert.equal(combined.OUTLIER_RATE_COLOUR,'GREEN');
 assert.equal(date.OUTLIER_COUNT,null);
 const only=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_ID='outlier-only'").get();
-assert.equal(only.OUTLIER_COUNT,2);assert.equal(only.OUTLIER_VALID_COUNT,33);assert.equal(only.TOTAL_COUNT,null);assert.equal(only.P50,null);assert.equal(only.MODULE_NAME,'NUMERIC_OUTLIERS');
+assert.equal(only.OUTLIER_COUNT,2);assert.equal(only.OUTLIER_VALID_COUNT,33);assert.equal(only.TOTAL_COUNT,null);assert.equal(only.MODULE_NAME,'NUMERIC_OUTLIERS');
 db.close();
 console.log('Portable review logic checks passed: pivot, period separation, date-only summary, short numbers and completed-run filtering. Teradata/SAS execution NOT tested.');

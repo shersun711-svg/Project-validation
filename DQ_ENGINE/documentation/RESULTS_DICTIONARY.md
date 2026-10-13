@@ -3,7 +3,7 @@
 One logical result is `(RUN_ID, FIELD_NAME, MODULE_NAME, PERIOD_LEVEL, PERIOD_VALUE, METRIC_NAME)`, enforced by a unique secondary index. RUN_ID identifies exactly one project; a completed run cannot be overwritten. `DQ_COMPLETED_RESULT` exposes only successful runs. `DQ_RUN_SUMMARY` counts fields separately from metric rows and groups by module/type.
 
 `DQ_BASIC_REVIEW` is the common final review layout over
-`DQ_COMPLETED_RESULT`: one row per run, project, field/type and period. Basic and percentile metrics
+`DQ_COMPLETED_RESULT`: one row per run, project, field/type and period. Basic and optional Outlier metrics
 share the same numeric row when both modules are selected.
 Applicable metric names become columns, with MISSING_RATE_COLOUR and
 ZERO_RATE_COLOUR copied from the corresponding stored percentage results.
@@ -83,10 +83,6 @@ are never reset/reused. DQ_RUN_FIELD_CONFIG now captures selected fields for
 all basic types, with FIELD_ORDINAL numbered separately within FIELD_TYPE.
 Use the current deployment sequence in [setup and operation](README.md).
 
-Numeric Percentiles adds P1, P5, P25, P50, P75, P95 and P99, excluding NULL and
-configured numeric specials. These are values, not rates; colours are NULL.
-See [special populations and interpolation methodology](SPECIAL_VALUES_AND_PERCENTILES.md).
-
 ## Field availability
 
 FIRST_AVAILABLE_FACT_DT and LAST_AVAILABLE_FACT_DT are the earliest/latest
@@ -98,10 +94,10 @@ both a non-NULL field and reporting date, both endpoints are NULL.
 
 DQ_FIELD_AVAILABILITY stores one row per field/run alongside Basic aggregation.
 Review never recalculates coverage from live source data. Runs without saved
-coverage, including percentiles-only runs, show NULL availability. Yearly and
+coverage, including Outliers-only runs, show NULL availability. Yearly and
 monthly rows also show NULL. Historical coverage is not backfilled from extrema
 or counts. Date Basic exposes only counts/missing percentage; MINIMUM/MAXIMUM
-and unrelated special/numeric/percentile columns remain NULL for date fields.
+and unrelated special/numeric/outlier columns remain NULL for date fields.
 
 ## Numeric outliers
 

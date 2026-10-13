@@ -3,7 +3,7 @@
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
 %global dq_controller_version;
-%let dq_controller_version=20261013_NUMERIC_OUTLIERS;
+%let dq_controller_version=20261013_BASIC_SPECIAL_OUTLIERS;
 %put NOTE: DQ controller loaded: &dq_controller_version;
 %put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
 
@@ -56,17 +56,17 @@
     %end;
 %mend;
 
-%macro run_dq_engine(project=RDS,numeric_basic=Y,numeric_percentiles=N,
+%macro run_dq_engine(project=RDS,numeric_basic=Y,
     numeric_outliers=N,categorical_basic=N,categorical_psi=N,date_basic=N,
     identifier_basic=N,export_excel=N,retry_run_id=);
     %local _switches _i _name _value _rc _call_rc _msg _project_sql _run_sql
-        _numeric_sql _categorical_sql _date_sql _identifier_sql _percentiles_sql _outliers_sql;
+        _numeric_sql _categorical_sql _date_sql _identifier_sql _outliers_sql;
     %global dq_run_id dq_run_number dq_status dq_error;
     %let dq_run_id=;
     %let dq_run_number=;
     %let dq_status=FAILED;
     %let dq_error=;
-    %let _switches=numeric_basic numeric_percentiles numeric_outliers
+    %let _switches=numeric_basic numeric_outliers
         categorical_basic categorical_psi date_basic identifier_basic export_excel;
     %do _i=1 %to %sysfunc(countw(&_switches));
         %let _name=%scan(&_switches,&_i);
@@ -89,7 +89,7 @@
         %let dq_error=PSI and Excel export are deferred. Set their switches to N.;
         %goto invalid;
     %end;
-    %if &numeric_outliers=N and &numeric_basic=N and &numeric_percentiles=N and &categorical_basic=N and &date_basic=N
+    %if &numeric_outliers=N and &numeric_basic=N and &categorical_basic=N and &date_basic=N
         and &identifier_basic=N %then %do;
         %let dq_error=No implemented module selected. Enable at least one profiling module.;
         %goto invalid;
@@ -119,7 +119,6 @@
     %let _project_sql=%sysfunc(quote(%superq(project),%str(%')));
     %let _run_sql=%sysfunc(quote(%superq(dq_run_id),%str(%')));
     %let _outliers_sql=%sysfunc(quote(&numeric_outliers,%str(%')));
-    %let _percentiles_sql=%sysfunc(quote(&numeric_percentiles,%str(%')));
     %let _numeric_sql=%sysfunc(quote(&numeric_basic,%str(%')));
     %let _categorical_sql=%sysfunc(quote(&categorical_basic,%str(%')));
     %let _date_sql=%sysfunc(quote(&date_basic,%str(%')));
@@ -153,9 +152,9 @@
             %goto invalid;
         %end;
         /* Safe diagnostic: only the database, run UUID and project ID. */
-        %put NOTE: DQ CALL: call &dq_database..SP_DQ_RUN_EXTENDED(&_run_sql,&_project_sql,&_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql,&_percentiles_sql,&_outliers_sql);
+        %put NOTE: DQ CALL: call &dq_database..SP_DQ_RUN_EXTENDED(&_run_sql,&_project_sql,&_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql,'N',&_outliers_sql);
         execute (call &dq_database..SP_DQ_RUN_EXTENDED(&_run_sql,&_project_sql,
-                 &_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql,&_percentiles_sql,&_outliers_sql)) by dq;
+                 &_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql,'N',&_outliers_sql)) by dq;
         %dq_check_sql;
         %let _call_rc=&dq_sql_failed;
         %if &_call_rc ne 0 %then %do;

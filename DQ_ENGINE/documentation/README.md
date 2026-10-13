@@ -4,12 +4,12 @@ SAS loads configuration and controls execution. Teradata calculates Numeric
 Basic metrics and stores configuration, results and logs. The engine supports
 Numeric Basic counts and distribution metrics, categorical/identifier missing and distinct
 metrics, and date counts/missing percentage, across overall/yearly/monthly periods.
-Numeric percentiles and numeric/categorical special-value checks are implemented.
+Numeric/categorical special-value checks are implemented.
 Numeric Outliers is implemented with the agreed +/-3 sample-deviation rule.
 PSI and Excel report generation remain deferred.
 See [outlier deployment for an existing engine](NUMERIC_OUTLIERS.md).
-For this extension, follow [deployment and test instructions](SPECIAL_VALUES_AND_PERCENTILES.md).
-Existing Basic installations adding special values/percentiles should use that
+For this extension, follow [deployment and test instructions](SPECIAL_VALUES.md).
+Existing Basic installations adding special values should use that
 extension guide; current fresh deployments use the one-time sequence below.
 
 ## Everyday use
@@ -74,7 +74,7 @@ Remove the period filter for yearly/monthly results too; order by FIELD_NAME,
 PERIOD_LEVEL, PERIOD_VALUE. Always filter by RUN_NUMBER to keep historical runs
 separate. For 50 numeric fields only, OVERALL returns 50 rows. Categorical/identifier
 fields store five and three metrics per period respectively; date fields store four count/rate metrics.
-Numeric Basic stores twelve, with seven extra metrics when percentiles are selected.
+Numeric Basic stores twelve metrics per field/period.
 Do not divide mixed-module metric counts by ten to infer review row counts.
 
 Existing results and UUIDs are preserved. The views read stored aggregates, not the source dataset.
@@ -118,13 +118,12 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 17. `teradata/modules/02_special_value_list.sql`
 18. `teradata/modules/03_numeric_statistics.sql`
 19. `teradata/modules/10_numeric_basic.sql`
-20. `teradata/modules/11_numeric_percentiles.sql`
-21. `teradata/modules/12_numeric_outliers.sql`
-22. `teradata/modules/15_other_basic.sql`
-23. `teradata/modules/20_categorical_basic.sql`
-24. `teradata/modules/30_date_basic.sql`
-25. `teradata/modules/40_identifier_basic.sql`
-26. `teradata/modules/00_run_engine.sql` (EXTENDED, then PROFILE, BASIC and ENGINE separately)
+20. `teradata/modules/12_numeric_outliers.sql`
+21. `teradata/modules/15_other_basic.sql`
+22. `teradata/modules/20_categorical_basic.sql`
+23. `teradata/modules/30_date_basic.sql`
+24. `teradata/modules/40_identifier_basic.sql`
+25. `teradata/modules/00_run_engine.sql` (EXTENDED, then PROFILE, BASIC and ENGINE separately)
 
 Table CREATE files are one-time operations. Do not rerun them on an existing
 installation. File 00 installs fixed metric definitions; project configuration

@@ -1,66 +1,11 @@
-/* Execute generated percentile SELECT/INSERT logic in SQLite after narrow
-   dialect adaptations. This is not Teradata SPL compilation or SAS execution. */
-import fs from 'node:fs';
-import assert from 'node:assert/strict';
-import {DatabaseSync} from 'node:sqlite';
-import {assignment,evaluate,lex} from './check_static.mjs';
-const sql=fs.readFileSync(new URL('../teradata/modules/11_numeric_percentiles.sql',import.meta.url),'utf8').replace(/SET (\w+)=/g,'SET $1 =');
-const v={V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',V_LIST:'(-999.0000000000,999.9900000000)',
- P_RUN_ID:'30000000-0000-4000-8000-000000000001',P_PROJECT_ID:'DQ_EXT_TEST'};
-v.V_YEAR=evaluate(assignment('V_YEAR',0,sql),v);v.V_MONTH=evaluate(assignment('V_MONTH',0,sql),v);
-const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURRENT_TIMESTAMP')
- .replace(/EXTRACT\(YEAR FROM DQ_DT\)/g,"CAST(strftime('%Y',DQ_DT) AS INTEGER)")
- .replace(/EXTRACT\(MONTH FROM DQ_DT\)/g,"CAST(strftime('%m',DQ_DT) AS INTEGER)")
- .replace(/CAST\("FACT_DT" AS DATE\)/g,'date("FACT_DT")');
-const db=new DatabaseSync(':memory:');db.function('CHARACTER_LENGTH',x=>x?.length??null);db.exec("ATTACH DATABASE ':memory:' AS SOURCE");
-const fields=['AMOUNT','ALL_NULL','ALL_SPECIAL','SINGLE_VALUE','CONSTANT_VALUE'];
-db.exec('CREATE TABLE SOURCE.FIXTURE (FACT_DT TEXT,'+fields.map(f=>'"'+f+'" NUMERIC').join(',')+')');
-db.exec(`CREATE TABLE DQ_METRIC_DEFINITION (MODULE_NAME TEXT,METRIC_ORDINAL INTEGER,METRIC_NAME TEXT);
- CREATE TABLE DQ_METRIC_RESULT (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT,
- MODULE_NAME TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,METRIC_NAME TEXT,METRIC_VALUE NUMERIC,
- IS_PERCENTAGE TEXT,EXECUTION_TIMESTAMP TEXT);`);
-const probs=[.01,.05,.25,.50,.75,.95,.99],names=['P1','P5','P25','P50','P75','P95','P99'];
-names.forEach((n,i)=>db.prepare('INSERT INTO DQ_METRIC_DEFINITION VALUES (?,?,?)').run('NUMERIC_PERCENTILES',i+1,n));
+/* Developer-only generated Basic special-value aggregate and persistence checks.
+   SQLite dialect adaptations do not compile Teradata SPL or execute SAS. */
+import fs from 'node:fs';import assert from 'node:assert/strict';import {DatabaseSync}from'node:sqlite';
+import {assignment,evaluate}from'./check_static.mjs';
+const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURRENT_TIMESTAMP');
 const dates=['2000-01-31','2000-01-31','2000-01-31','2000-01-31','2000-02-29','2000-02-29',null,null];
 const amounts=[-999,0,10,20,999.99,null,10,null];
-const raw=dates.map((d,i)=>[d,amounts[i],null,-999,i===0?5:null,7]);
-const ins=db.prepare('INSERT INTO SOURCE.FIXTURE VALUES (?,?,?,?,?,?)');raw.forEach(r=>ins.run(...r));
-function ctas(q,name){lex(q,'generated '+name);assert.ok(q.length<32000);const begin=q.indexOf(' AS (')+5,end=q.lastIndexOf(') WITH DATA');assert.ok(begin>=5&&end>begin);db.exec('CREATE TABLE '+name+' AS '+adapt(q.slice(begin,end)));}
-const cursor=sql.indexOf('FOR F AS');
-v.V_PROJECTION='CAST("FACT_DT" AS DATE) AS DQ_DT';
-for(const [i,name]of fields.entries()){
- v['F.FIELD_NAME']=name;v['F.FIELD_ORDINAL']=i+1;
- v.V_PROJECTION=evaluate(assignment('V_PROJECTION',cursor,sql),v);
-}
-const sourceQuery=evaluate(assignment('V_SQL',cursor,sql),v);assert.equal((sourceQuery.match(/FROM "SOURCE"\."FIXTURE"/g)||[]).length,1);
-ctas(sourceQuery,'DQ_NP_SOURCE');
-ctas(evaluate(assignment('V_SQL',sql.indexOf('/* Domain'),sql),v),'DQ_NP_PERIOD');
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_NP_PERIOD').get().n,6);
-const results=sql.indexOf('FOR R AS');
-const insertAt=sql.indexOf('/* h is calculated');
-for(const [i,name]of fields.entries()){
- v['R.FIELD_NAME']=name;v.V_FIELD='DQ_C'+(i+1);
- for(const part of ['V_OVERALL','V_YEARLY','V_MONTHLY'])v[part]=evaluate(assignment(part,results,sql),v);
- ctas(evaluate(assignment('V_SQL',results,sql),v),'DQ_NP_ORDERED');
- const insert=evaluate(assignment('V_SQL',insertAt,sql),v);lex(insert,'percentile persistence');db.exec(adapt(insert));
- db.exec('DROP TABLE DQ_NP_ORDERED');
-}
-const rows=db.prepare('SELECT * FROM DQ_METRIC_RESULT').all();assert.equal(rows.length,210);
-const periodMatches=(row,p)=>p.PERIOD_LEVEL==='OVERALL'||(p.PERIOD_LEVEL==='YEARLY'?(row[0]?.slice(0,4)??'UNKNOWN')===p.PERIOD_VALUE:(row[0]?.slice(0,7)??'UNKNOWN')===p.PERIOD_VALUE);
-for(const row of rows){
- const fieldIndex=fields.indexOf(row.FIELD_NAME)+1;
- const values=raw.filter(r=>periodMatches(r,row)).map(r=>r[fieldIndex]).filter(x=>x!==null&&x!==-999&&x!==999.99).sort((a,b)=>a-b);
- let expected=null;if(values.length){const h=(values.length-1)*probs[names.indexOf(row.METRIC_NAME)];const low=Math.floor(h),high=Math.ceil(h);expected=values[low]+(h-low)*(values[high]-values[low]);}
- if(expected===null)assert.equal(row.METRIC_VALUE,null);else assert.ok(Math.abs(row.METRIC_VALUE-expected)<1e-9,JSON.stringify(row));
-}
-// Empty source retains seven NULL quantiles for each selected field's OVERALL.
-db.exec('DELETE FROM SOURCE.FIXTURE; DROP TABLE DQ_NP_SOURCE; DROP TABLE DQ_NP_PERIOD; DELETE FROM DQ_METRIC_RESULT;');
-ctas(sourceQuery,'DQ_NP_SOURCE');ctas(evaluate(assignment('V_SQL',sql.indexOf('/* Domain'),sql),v),'DQ_NP_PERIOD');
-v.V_FIELD='DQ_C1';v['R.FIELD_NAME']='AMOUNT';for(const part of ['V_OVERALL','V_YEARLY','V_MONTHLY'])v[part]=evaluate(assignment(part,results,sql),v);
-ctas(evaluate(assignment('V_SQL',results,sql),v),'DQ_NP_ORDERED');db.exec(adapt(evaluate(assignment('V_SQL',insertAt,sql),v)));
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT WHERE METRIC_VALUE IS NULL AND PERIOD_LEVEL=\'OVERALL\'').get().n,7);
-db.close();console.log('Generated percentile logic passed: 210 field/period/quantile results, NULL dates, specials, all-NULL/all-special, singleton, constants and empty population. Teradata/SAS NOT executed.');
-
+const raw=dates.map((d,i)=>[d,amounts[i]]);
 /* Execute actual Basic source projections/aggregates, including cleaned
    distribution values, without adapting those SQL expressions. */
 const basics=new DatabaseSync(':memory:');basics.exec("ATTACH DATABASE ':memory:' AS SOURCE");

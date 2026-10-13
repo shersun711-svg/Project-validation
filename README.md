@@ -12,11 +12,11 @@ See [metric definitions](DQ_ENGINE/documentation/RESULTS_DICTIONARY.md).
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT describe overall non-missing availability for every
 selected field. See [availability definitions](DQ_ENGINE/documentation/RESULTS_DICTIONARY.md#field-availability).
 All field types support overall, yearly and monthly periods; percentages use
-the shared green/amber/red rules. Numeric percentiles and configurable special-value checks are implemented.
+the shared green/amber/red rules. Configurable special-value checks are implemented.
 Numeric Outliers uses mean +/- 3 times sample standard deviation.
 PSI and Excel report export remain deferred.
 See [outlier deployment and validation](DQ_ENGINE/documentation/NUMERIC_OUTLIERS.md).
-See [special values and percentile deployment](DQ_ENGINE/documentation/SPECIAL_VALUES_AND_PERCENTILES.md) before using this extension.
+See [special-value configuration and validation](DQ_ENGINE/documentation/SPECIAL_VALUES.md) before using this extension.
 
 ## Start here
 
@@ -45,8 +45,7 @@ No passwords belong in the workbook or repository.
 The [starter workbook](DQ_ENGINE/config/DQ_RDS_config.xlsx) contains 589 RDS
 field mappings and enables all 415 numeric fields. To test fewer fields, set
 ACTIVE_IND=Y only for the desired fields and N for all unwanted fields,
-then reload Excel. In file 00 use project=RDS, numeric_basic=Y, numeric_percentiles=Y
-when needed, other basic switches selected as needed and a blank retry_run_id for a new run.
+then reload Excel. In file 00 use project=RDS, numeric_basic=Y, other basic switches selected as needed and a blank retry_run_id for a new run.
 Every field type uses FIELD_TYPE and ACTIVE_IND; project-level SAS switches
 choose the tests for all active fields of that type. See [field selection and module switches](DQ_ENGINE/documentation/CONFIGURATION_GUIDE.md).
 

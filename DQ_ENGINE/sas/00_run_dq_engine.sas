@@ -11,7 +11,6 @@
 
 /* SpecialValues in Excel: Basic counts specials; statistics exclude them. */
 %let numeric_basic = Y;
-%let numeric_percentiles = N; /* Y adds P1/P5/P25/P50/P75/P95/P99. */
 %let numeric_outliers = N; /* Y applies mean +/- 3*sample standard deviation. */
 %let categorical_basic = N;
 %let categorical_psi = N;
@@ -42,7 +41,6 @@ options nomprint nomlogic nosymbolgen; /* Authentication is resolved by SAS. */
 %run_dq_engine(
     project=&project,
     numeric_basic=&numeric_basic,
-    numeric_percentiles=&numeric_percentiles,
     numeric_outliers=&numeric_outliers,
     categorical_basic=&categorical_basic,
     categorical_psi=&categorical_psi,

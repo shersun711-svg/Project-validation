@@ -48,7 +48,7 @@ no Basic metric rows or availability dates. Its timing/status appears in module
 logs but not the metric-based run summary.
 
 DQ_METRIC_RESULT stores five OUTLIERS metrics per field/period. DQ_BASIC_REVIEW
-combines them with Basic and optional percentiles in one field/period row. Old
+combines Outlier and Basic metrics in one field/period row. Old
 runs have NULL outlier columns. Outliers-only rows have NULL Basic/availability
 columns and expose their own valid count. DQ_RUN_SUMMARY groups by module, so
 field counts overlap when several numeric modules are selected.
@@ -56,11 +56,12 @@ field counts overlap when several numeric modules are selected.
 A failed attempt removes all partial metric, availability and numeric-statistic
 rows. Retry refreshes field selection and special lists; completed UUIDs remain
 protected. The seven-argument PROFILE, six-argument BASIC and two-argument ENGINE
-SQL APIs remain compatible. SAS uses the new eight-argument EXTENDED entry.
+SQL APIs remain compatible for supported tests; the legacy reserved argument
+must be N. SAS fixes that argument to N in the eight-argument EXTENDED entry.
 
 ## Deploy after the current run finishes
 
-This upgrade assumes the current special-value/percentile schema and procedures
+This upgrade assumes the current special-value schema and procedures
 are already deployed. Wait for profiling/configuration loads to finish. Replace
 DQ_DB with the approved schema, currently LAB_T_ORION_MVT, in deployment copies.
 No database deployment is performed by repository tools.
@@ -72,21 +73,18 @@ No database deployment is performed by repository tools.
 4. Compile modules/12_numeric_outliers.sql as a complete procedure.
 5. Recompile all four procedures in modules/00_run_engine.sql separately:
    SP_DQ_RUN_EXTENDED, SP_DQ_RUN_PROFILE, SP_DQ_RUN_BASIC, SP_DQ_RUN_ENGINE.
-6. Replace results/93_dq_basic_review.sql. Classification/summary procedures and
-   the percentile procedure do not need recompilation for this change.
+6. Replace results/93_dq_basic_review.sql. Classification/summary procedures do not need recompilation for this change.
 7. Apply approved EXECUTE/owner-reference privileges for the new procedures and
    SELECT/INSERT/DELETE on DQ_NUMERIC_STATISTICS. The site must verify these grants.
 8. Run updated SAS 01 in your session; require controller version
-   20261013_NUMERIC_OUTLIERS. File 05/configuration loader is unchanged.
+   20261013_BASIC_SPECIAL_OUTLIERS. File 05/configuration loader is unchanged.
 9. If Settings already has multiplier 3 and the intended field selection, no
    Excel reload is needed. Otherwise edit/reload with 04 and require APPLIED.
-10. Test a small numeric selection with file 00. Keep percentiles=N for the first
-    outlier test to isolate behaviour from the pending percentile spool issue.
+10. Test a small numeric selection with file 00 and numeric_outliers=Y.
 
 ```sas
 %let numeric_basic = Y;
 %let numeric_outliers = Y;
-%let numeric_percentiles = N;
 %let categorical_basic = N;
 %let date_basic = N;
 %let identifier_basic = N;

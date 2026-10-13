@@ -11,14 +11,13 @@ are retained. Keep source and configuration stable during execution.
 | Categorical Basic | 8 | Three explicit overall/year/month queries using UNION ALL |
 | Identifier Basic | 20 | Three explicit period queries using UNION ALL |
 | Date Basic | 30 | One aggregate statement using GROUPING SETS |
-| Numeric Percentiles | 5 | One source materialization into a volatile table |
 
 SQL_BATCH_SIZE remains configurable from 1 to 30; effective size is the lower
 of the setting and module cap. Special lists increase generated query size;
 length guards reject oversized SQL rather than truncating it. Lower the setting
 or shorten lists if needed. Caps bound SQL text and are not measured optimal
 batch sizes. With 50 numeric fields and the default setting, Numeric Basic uses
-5 batches and Percentiles uses 10 batches.
+5 Basic batches.
 
 Basic modules aggregate compatible statistics together, then persist results
 from small volatile aggregates. Numeric Basic emits 12 metrics and categorical
@@ -30,14 +29,6 @@ the user's DISTINCT/GROUPING SETS query returned duplicate period keys. Three
 source references do not imply exactly three physical scans: check EXPLAIN on
 the actual logged statement. Distinct aggregation can require substantial spool.
 
-Percentiles materialize up to five cleaned numeric fields and reporting date
-per batch into a MULTISET volatile table, preserving duplicates. Each field's
-valid rows expand into overall/yearly/monthly populations. One ordered volatile
-table supplies ranks and counts for all seven quantiles; persistence expands
-ordered rows against seven metadata rows. No source scans are done for each
-quantile. This adds raw spool and sorting and can be substantially slower than
-Basic profiling. Basic and Percentiles do not currently share source staging.
-Volatile tables are dropped after each batch and cleaned on module failure.
 Run numbering locks its small counter only before profiling.
 
 ## Benchmarking
@@ -47,7 +38,7 @@ and batch elapsed minutes and approved DBQL CPU, I/O, spool and AMP skew metrics
 Compare settings 1, 5, 8 and 10 using new run UUIDs, the same active fields,
 same stable population and same workload. Values above a module cap do not
 increase that module's batch size. Require result equivalence before comparing
-speed. Explain the percentile materialization/rank query on the installed release
+speed. Explain the logged aggregate queries on the installed release
 and confirm sufficient spool before broad RDS use. No timing, spool or throughput
 benchmark of this extension has been executed here.
 
@@ -72,5 +63,4 @@ references plus small bounds/aggregate volatile tables. No raw source staging
 or rank sorting is introduced. Basic supplies full FLOAT statistics through
 DQ_NUMERIC_STATISTICS; standalone Outliers calculates a prerequisite aggregate
 in batches capped at ten. Actual scans/spool depend on the view and optimizer.
-No throughput/spool benchmark has been executed here. The percentile spool
-error reported by the user is separate and is not fixed by this extension.
+No throughput/spool benchmark has been executed here.

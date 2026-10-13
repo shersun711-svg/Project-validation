@@ -25,7 +25,7 @@ Use text for names and SPECIAL_VALUE, without formulas. SpecialValues applies
 to every selected field of its type. Copy only that sheet into an existing
 edited workbook to preserve your field selection. An older workbook without
 SpecialValues preserves the stored special list; a present empty sheet with
-headers clears it. See [special-value semantics](SPECIAL_VALUES_AND_PERCENTILES.md).
+headers clears it. See [special-value semantics](SPECIAL_VALUES.md).
 
 Settings defaults are 1, 5, 25 and 3. Thresholds are percentage points: enter
 1 and 5, not 1% and 5%. Batch size must be an integer from 1–30. Outlier multiplier must remain 3 when numeric_outliers=Y;
@@ -37,8 +37,8 @@ round or truncate values beyond these limits.
 ## Load in Enterprise Guide or VS Code
 
 First deploy the current engine using [one-time setup](README.md#one-time-deployment).
-For an existing Basic engine adding special values/percentiles, use
-[the extension deployment guide](SPECIAL_VALUES_AND_PERCENTILES.md).
+For an existing Basic engine adding special values, use
+[the extension deployment guide](SPECIAL_VALUES.md).
 Do not rerun table CREATE scripts on a working installation.
 
 The workbook must be accessible to the SAS server. A local C: Downloads or

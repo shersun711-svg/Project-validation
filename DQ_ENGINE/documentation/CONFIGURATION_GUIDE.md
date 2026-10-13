@@ -23,7 +23,6 @@ all active fields of its matching type. For numeric and categorical testing:
 
 ```sas
 %let numeric_basic = Y;
-%let numeric_percentiles = Y;
 %let categorical_basic = Y;
 %let date_basic = N;
 %let identifier_basic = N;
@@ -34,7 +33,7 @@ all active fields of its matching type. For numeric and categorical testing:
 ```
 
 Basic numeric/categorical profiling includes special counts and rates.
-Percentiles can also run with numeric_basic=N. Enable numeric_outliers=Y for mean +/- 3*sample-deviation checks. PSI and Excel
+Enable numeric_outliers=Y for mean +/- 3*sample-deviation checks. PSI and Excel
 report export remain unavailable and must stay N. A selected module with no eligible
 fields fails explicitly; enabling no modules is also rejected.
 
@@ -50,8 +49,8 @@ belongs to engine installation and is not user-editable configuration.
 
 The SpecialValues sheet holds project-wide numeric and categorical lists.
 Special values stay non-missing, are counted separately, and are excluded from
-numeric distribution statistics/percentiles and categorical distinct counts.
-See [list configuration and percentile definitions](SPECIAL_VALUES_AND_PERCENTILES.md).
+numeric distribution statistics and categorical distinct counts.
+See [list configuration and exclusion definitions](SPECIAL_VALUES.md).
 No special-value testing applies to dates or identifiers.
 
 ## Review the loaded selection
