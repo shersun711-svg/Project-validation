@@ -9,8 +9,7 @@ No SAS or Teradata execution of this extension has been performed here.
 
 Add a SpecialValues sheet to your existing edited workbook by copying that
 sheet from config/DQ_RDS_config.xlsx. Preserve your Project, Fields and Settings
-sheets, including your selected 50 numeric, 2 identifier, 4 date and 9 categorical
-fields. Do not replace your edited workbook with the unedited starter: it enables
+sheets, including your chosen field selection. Do not replace your edited workbook with the unedited starter: it enables
 all 589 fields. config/special_values.csv also contains the same sheet contents.
 
 | Column | Meaning |

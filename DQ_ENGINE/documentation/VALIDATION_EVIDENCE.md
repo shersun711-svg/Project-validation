@@ -82,3 +82,8 @@ basic rows. Workbook checks preserve all 589 mappings and verify the four sheets
 These are adapted SQLite/static checks, not SAS/Teradata execution. The supplied
 extended SQL/SAS/configuration tests and all new stored-procedure compilation
 remain unverified on the user server. Earlier user-reported runs predate this extension.
+
+Documentation cleanup removed superseded Basic/date/availability upgrade guides
+and consolidated field selection into CONFIGURATION_GUIDE.md. Current definitions
+and deployment instructions replace old procedure order and metric counts.
+Production SQL/SAS, configuration workbooks and deployed objects were unchanged.

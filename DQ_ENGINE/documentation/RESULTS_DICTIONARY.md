@@ -43,7 +43,7 @@ A source with no rows produces twelve OVERALL results per eligible field: counts
 
 Green is strictly below 1%, amber is at least 1% but below 5%, and red is at least 5%, unless an approved project settings override applies. Exact thresholds are compared using numerator × 100 against denominator × threshold in DECIMAL arithmetic. A display that rounds up to 1% can therefore remain GREEN. Non-percentage metrics have NULL DQ_COLOUR. Colours are screening classifications, not proof of invalid data.
 
-`DQ_RUN_LOG` records first start, latest end, status, source/date, thresholds, batch size and attempt number. Its elapsed time can include time between failed attempts. `DQ_MODULE_LOG` preserves attempt/batch timings, field count, errors and aggregate SQL; batch 0 is the module summary. Successful earlier batches in an ultimately failed attempt remain marked successful in history, but their partial metric rows are removed. Actual run/module failure messages are retained; SAS status variables alone are not the audit store. `DQ_RUN_FIELD_CONFIG` holds the latest attempt's captured numeric selection; historical SQL_TEXT records retain prior batch expressions.
+`DQ_RUN_LOG` records first start, latest end, status, source/date, thresholds, batch size and attempt number. Its elapsed time can include time between failed attempts. `DQ_MODULE_LOG` preserves attempt/batch timings, field count, errors and aggregate SQL; batch 0 is the module summary. Successful earlier batches in an ultimately failed attempt remain marked successful in history, but their partial metric rows are removed. Actual run/module failure messages are retained; SAS status variables alone are not the audit store. `DQ_RUN_FIELD_CONFIG` holds the latest attempt's captured field selection; historical SQL_TEXT records retain prior batch expressions.
 
 `WORK.DQ_MODULE_STATUS` contains run/module identifiers, attempt/batch numbers,
 timings, status, error code/information and field count. SQL_TEXT stays in
@@ -74,15 +74,31 @@ with unrelated numeric/distinct columns NULL. Empty sources have zero counts and
 extrema remain stored but are excluded from current review/summary views.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT in DQ_BASIC_REVIEW describe
 overall reporting-date coverage for every selected field; other periods show
-NULL. Combined MINIMUM/MAXIMUM remain numeric. See [date upgrade](DATE_BASIC_UPGRADE.md).
+NULL. Combined MINIMUM/MAXIMUM remain numeric. See the field-availability definitions below.
 
 RUN_NUMBER is a BIGINT mapping in DQ_RUN_NUMBER and is exposed in completed
 and review views. It is global across projects and includes failed runs.
 Retries retain it. RUN_ID remains the original internal UUID; mapping numbers
 are never reset/reused. DQ_RUN_FIELD_CONFIG now captures selected fields for
 all basic types, with FIELD_ORDINAL numbered separately within FIELD_TYPE.
-See [upgrade semantics and verification](BASIC_PROFILING_UPGRADE.md).
+Use the current deployment sequence in [setup and operation](README.md).
 
 Numeric Percentiles adds P1, P5, P25, P50, P75, P95 and P99, excluding NULL and
 configured numeric specials. These are values, not rates; colours are NULL.
 See [special populations and interpolation methodology](SPECIAL_VALUES_AND_PERCENTILES.md).
+
+## Field availability
+
+FIRST_AVAILABLE_FACT_DT and LAST_AVAILABLE_FACT_DT are the earliest/latest
+configured reporting dates where the field is non-NULL. They are DATE values
+without time and appear only on OVERALL rows. Actual date-field values do not
+define these endpoints. Non-missing zeros, blanks and configured special values
+remain available; NULL reporting dates cannot extend coverage. If no row has
+both a non-NULL field and reporting date, both endpoints are NULL.
+
+DQ_FIELD_AVAILABILITY stores one row per field/run alongside Basic aggregation.
+Review never recalculates coverage from live source data. Runs without saved
+coverage, including percentiles-only runs, show NULL availability. Yearly and
+monthly rows also show NULL. Historical coverage is not backfilled from extrema
+or counts. Date Basic exposes only counts/missing percentage; MINIMUM/MAXIMUM
+and unrelated special/numeric/percentile columns remain NULL for date fields.

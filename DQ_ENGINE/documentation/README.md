@@ -2,13 +2,13 @@
 
 SAS loads configuration and controls execution. Teradata calculates Numeric
 Basic metrics and stores configuration, results and logs. The engine supports
-all ten Numeric Basic metrics, categorical/identifier missing and distinct
+Numeric Basic counts and distribution metrics, categorical/identifier missing and distinct
 metrics, and date counts/missing percentage, across overall/yearly/monthly periods.
 Numeric percentiles and numeric/categorical special-value checks are implemented.
 Outliers, PSI and Excel report generation remain deferred.
 For this extension, follow [deployment and test instructions](SPECIAL_VALUES_AND_PERCENTILES.md).
-Existing installations must apply the [basic profiling upgrade](BASIC_PROFILING_UPGRADE.md)
-before enabling the new modules.
+Existing Basic installations adding special values/percentiles should use that
+extension guide; current fresh deployments use the one-time sequence below.
 
 ## Everyday use
 
@@ -46,7 +46,7 @@ loaded configuration retains the existing selection.
 
 For categorical, identifier and date fields, FIELD_TYPE and ACTIVE_IND choose
 fields; the matching SAS switch enables the module. No workbook header changes
-are needed. See [upgrade and selection instructions](BASIC_PROFILING_UPGRADE.md).
+are needed. See [field selection](CONFIGURATION_GUIDE.md).
 
 ## Review the final result
 
@@ -56,7 +56,7 @@ and overall field availability. The view contains one row per field and period. 
 NULL statistics and NOT_EVALUATED classifications retain their meaning.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT are overall coverage for each
 non-missing field. Date counts use this same layout; unrelated metrics are NULL.
-MINIMUM/MAXIMUM are numeric and apply only to numeric fields. Read [availability semantics and upgrade](FIELD_AVAILABILITY.md).
+MINIMUM/MAXIMUM are numeric and apply only to numeric fields. Read [availability definitions](RESULTS_DICTIONARY.md#field-availability).
 The review and DQ_COMPLETED_RESULT include the short RUN_NUMBER.
 
 ```sql
@@ -75,9 +75,7 @@ fields store five and three metrics per period respectively; date fields store f
 Numeric Basic stores twelve, with seven extra metrics when percentiles are selected.
 Do not divide mixed-module metric counts by ten to infer review row counts.
 
-Existing installations need the complete [upgrade](BASIC_PROFILING_UPGRADE.md)
-for the new modules, date review and run numbers. Existing numeric results and
-UUIDs are preserved. The views read stored aggregates, not the source dataset.
+Existing results and UUIDs are preserved. The views read stored aggregates, not the source dataset.
 SAS imports run status/summary; detailed review is available in Teradata.
 
 ## One-time deployment
@@ -133,7 +131,7 @@ client; ordinary semicolon splitting breaks procedure bodies. With BTEQ use
 the site's approved .COMPILE FILE workflow. Inspect compiler errors/warnings.
 CALLs use mode=teradata and must not be wrapped in an enclosing transaction;
 the configuration apply and run-number allocation procedures own their
-transactions. File modules/00_run_engine.sql contains two complete procedure
+transactions. File modules/00_run_engine.sql contains three complete procedure
 statements; submit them separately in the stated order.
 
 No database cleanup is required for this repository cleanup. Existing unused
@@ -176,7 +174,7 @@ is abandoned from elapsed time: verify it ended before operator recovery.
 | `sas/` | Excel loader, controller and run entry program |
 | `config/` | Editable starter workbook and original input audit references |
 | `teradata/setup/` | Current one-time configuration, results and logging schema |
-| `teradata/modules/` | Numeric calculations and run orchestration |
+| `teradata/modules/` | Profiling calculations and run orchestration |
 | `teradata/results/` | Classification, completed results and review views |
 | `tests/` | Optional database/SAS regression, source and performance checks |
 | `tools/` | Developer-only local static/workbook checks |
@@ -187,5 +185,5 @@ Further details: [configuration](CONFIGURATION_GUIDE.md),
 and [original input review](INPUT_REVIEW.md).
 
 
-See [field selection and module switches](ACTIVE_FIELD_SELECTION.md) to choose
+See [field selection and module switches](CONFIGURATION_GUIDE.md) to choose
 which fields and tests to run.

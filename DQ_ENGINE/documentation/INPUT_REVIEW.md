@@ -23,7 +23,7 @@ Application data joins by `AGMT_ID` alone. SFS joins on account plus an inclusiv
 
 NULL acquisition IDs in the `NOT IN` subquery could suppress the population; this is an existing view concern to investigate if the source is unexpectedly empty. The prototype preserves that expression. `POSITIVE_ARREARS_AMT` is defined using negative source arrears in the supplied DDL; the engine also preserves those actual values regardless of the output label.
 
-No deduplication, additional population filter, special-value convention or undocumented join correction is applied. Profile counts refer to **view rows**. Null dates stay in overall results and UNKNOWN yearly/monthly buckets. The RDS final date predicate would ordinarily exclude null dates, but the engine must support future sources where they occur.
+No deduplication, additional population filter or undocumented join correction is applied. Configured special-value exclusions affect distribution statistics, while the source row population is preserved. Profile counts refer to **view rows**. Null dates stay in overall results and UNKNOWN yearly/monthly buckets. The RDS final date predicate would ordinarily exclude null dates, but the engine must support future sources where they occur.
 
 ## Input fingerprints
 

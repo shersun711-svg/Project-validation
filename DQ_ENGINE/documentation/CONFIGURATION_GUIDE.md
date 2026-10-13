@@ -1,79 +1,89 @@
-# Configuration
+# Configuration and test selection
 
-Normal users edit `config/DQ_RDS_config.xlsx` and run `sas/04_load_dq_config.sas`.
-SAS loads Project, Fields and Settings directly to Teradata without a workbook
-validation phase. See [Excel setup and usage](EXCEL_CONFIGURATION.md).
+Users edit the project workbook and load it with sas/04_load_dq_config.sas.
+SAS loads configuration directly; there is no SAS workbook-validation or
+approval stage. See [sheet headers and loading instructions](EXCEL_CONFIGURATION.md).
 
-`DQ_PROJECT_CONFIG` has one active source per project. Database, source and column names must be simple identifiers matching `[A-Za-z_][A-Za-z0-9_]*`, up to 128 characters. Project IDs use the same convention up to 30 characters. SQL quotes validated source names; arbitrary SQL snippets and user-supplied predicates are not configuration inputs.
+## Choose fields in Excel
 
-`DQ_FIELD_CONFIG` retains all logical types. A field runs in Numeric Basic only when FIELD_TYPE=NUMERIC, ACTIVE_IND=Y and the project Numeric Basic switch is Y. Disabling a field is an explicit analyst decision. The approved workbook FIELD_TYPE controls module selection. The engine does not query database types or alter classifications; Teradata evaluates numeric expressions and explicit statistical casts when each batch executes.
+The Fields sheet contains FIELD_NAME, FIELD_TYPE and ACTIVE_IND.
+ACTIVE_IND=Y selects a field; N excludes it from every module. The project
+ACTIVE_IND also needs to be Y. Workbook classifications are authoritative:
+NUMERIC, CATEGORICAL, DATE or IDENTIFIER. There are no per-field test flags.
 
-Edit the workbook's Settings row to maintain thresholds and batch size. The
-initial workbook uses green threshold 1, red threshold 5 (percentage points),
-batch size 25 and reserved outlier multiplier 3. Each Excel load inserts or
-updates one complete project settings row; no SQL INSERT/UPDATE is needed.
-Batch size is 1–30. A legacy global row with PROJECT_ID='*', if present, remains
-available as a fallback for older projects, but Excel-loaded projects have their
-own settings. A new installation does not create or require a global row.
-Thresholds are snapshotted in the run log, and all percentage colours use them
-centrally. Outlier settings and `DQ_PSI_REFERENCE_CONFIG` reserve later
-interfaces; no outliers, PSI or baseline distributions are implemented.
+To test 20 numeric and 9 categorical fields, enable those rows in Excel and
+reload configuration. Other types may remain active if their SAS switches are N.
+The starter workbook enables all 589 RDS fields, including 415 numeric fields;
+preserve your edited workbook rather than replacing it with the starter.
 
-The project seed SQL file has been removed. The first Excel load creates the
-project, fields and settings; later loads update them through the same path.
-File `setup/00_create_config_tables.sql` installs the twelve fixed Numeric Basic metric definitions
-alongside the schema. These names/ordinals belong to the Numeric Basic module
-and are not editable project settings.
+## Choose tests in SAS
 
-## Review loaded configuration
+Edit the settings section in sas/00_run_dq_engine.sas. Each switch applies to
+all active fields of its matching type. For numeric and categorical testing:
 
-Excel is the configuration input for initial setup and later changes. Fields
-omitted from a later workbook remain configured; set ACTIVE_IND=N to retire
-them. The CSV files under config are original input audit references used by
-developer checks, not an alternative loader or editable runtime configuration.
-
-After every change review the stored configuration:
-
-```sql
-SELECT * FROM DQ_DB.DQ_FIELD_CONFIG
-WHERE PROJECT_ID='RDS' ORDER BY FIELD_TYPE,FIELD_NAME;
+```sas
+%let numeric_basic = Y;
+%let numeric_percentiles = Y;
+%let categorical_basic = Y;
+%let date_basic = N;
+%let identifier_basic = N;
+%let numeric_outliers = N;
+%let categorical_psi = N;
+%let export_excel = N;
+%let retry_run_id = ;
 ```
 
-Workbook classifications are assumed correct. No DBC.ColumnsV or validation-view dependency remains. Numeric values are expected to fit the existing DECIMAL(38,10) result representation. Additional fractional digits round at storage; values outside the integral range fail during execution. No numeric precision preflight or automatic reclassification is performed. Missing source columns or incompatible operations are logged as module/run failures. A zero-test run is still rejected.
+Basic numeric/categorical profiling includes special counts and rates.
+Percentiles can also run with numeric_basic=N. Outliers, PSI and Excel report
+export remain unavailable and must stay N. A selected module with no eligible
+fields fails explicitly; enabling no modules is also rejected.
 
-## Other basic modules
+## Settings and special values
 
-CATEGORICAL, IDENTIFIER and DATE fields are selected by FIELD_TYPE and
-ACTIVE_IND only. Enable categorical_basic, identifier_basic or date_basic in
-file 00 after deploying the upgrade. There are no per-field module flags; SAS switches select tests for all active
-fields of each type.
-Date extrema go to final review; categorical/identifier missing and distinct
-metrics go to DQ_METRIC_RESULT. The three-sheet Excel layout is unchanged.
+Settings default to green below 1%, amber from 1% to below 5%, red from 5%,
+SQL_BATCH_SIZE=25 and reserved OUTLIER_SD_MULTIPLIER=3. Enter thresholds as
+numbers 1 and 5, not Excel percentage-formatted cells. Batch size accepts 1–30;
+module caps can reduce the effective size. See [performance](PERFORMANCE_NOTES.md).
+Excel-loaded projects have their own settings row. A legacy global '*' row can
+serve as fallback but is not required for new projects. Fixed metric metadata
+belongs to engine installation and is not user-editable configuration.
 
-## Add a project
+The SpecialValues sheet holds project-wide numeric and categorical lists.
+Special values stay non-missing, are counted separately, and are excluded from
+numeric distribution statistics/percentiles and categorical distinct counts.
+See [list configuration and percentile definitions](SPECIAL_VALUES_AND_PERCENTILES.md).
+No special-value testing applies to dates or identifiers.
 
-Copy the three-sheet workbook. Edit its Project row to point to the approved
-table/view and reporting date, replace the Fields rows with that project's
-approved mappings, and choose values in Settings. Load it using the Excel
-configuration program; no project setup SQL needs changing. Leave the account
-column blank if not applicable; it is not a grouping key or a required Numeric
-Basic input. Review the loaded configuration, then run
-`%run_dq_engine(project=YOUR_PROJECT,numeric_basic=Y)`.
+## Review the loaded selection
 
-DATE and TIMESTAMP reporting columns are accepted. For TIMESTAMP WITH TIME ZONE, confirm the database's extraction/session time-zone convention before comparing calendar periods across systems. There is no database type lookup; reporting-date compatibility and timezone behaviour have not been tested here.
+```sql
+SELECT FIELD_TYPE,COUNT(*) AS ACTIVE_FIELDS
+FROM LAB_T_ORION_MVT.DQ_FIELD_CONFIG
+WHERE PROJECT_ID='RDS' AND ACTIVE_IND='Y'
+GROUP BY FIELD_TYPE;
+```
 
-Keep source population and configuration stable during a run. The numeric selection is captured and revalidated per attempt; the latest failed-run retry refreshes selection/settings. There is no transaction-wide source snapshot across batches. Use a controlled, immutable staging table if source data can change during profiling. Future modules should use the same captured source, period conventions and metric metadata, with global success decided by the orchestrator after all selected modules complete.
+Compare counts with your workbook. Fields omitted from later loads remain
+configured; set ACTIVE_IND=N to retire them. Excel loading does not start a
+profiling run. Require APPLIED before running file 00, and SUCCEEDED before
+reviewing the resulting run number.
 
-## Excel configuration is now implemented
+## Add another project
 
-The agreed Project/Fields/Settings workbook is available. The final user decision
-is to load it directly, without SAS workbook validation. Database table constraints
-and transaction error handling remain. Profiling calculations and the deferred
-Excel report module are unchanged.
+Copy the workbook. Edit Project to point to the approved source table/view and
+reporting date, replace Fields with approved mappings, choose Settings and edit
+SpecialValues for that project. Load and run with project=YOUR_PROJECT.
+The optional account column is not a grouping key. No project seed SQL is needed.
 
+Source and column names must match [A-Za-z_][A-Za-z0-9_]*, up to 128 characters;
+project IDs use the same convention up to 30. Arbitrary SQL/predicates are not
+configuration inputs. The engine does not query database physical types or
+reclassify workbook fields. Missing columns/incompatible operations fail with
+logged errors. Numeric results use DECIMAL(38,10); range/precision and reporting
+DATE/TIMESTAMP compatibility must be verified on the installed database.
 
-The Fields workbook now has three columns: FIELD_NAME, FIELD_TYPE, ACTIVE_IND.
-See [field selection and module switches](ACTIVE_FIELD_SELECTION.md) for usage.
-
-SpecialValues adds project/type lists without changing the Fields headers.
-See [special-value configuration and percentile selection](SPECIAL_VALUES_AND_PERCENTILES.md).
+Keep configuration and source stable during execution. A failed-run retry
+refreshes selection, settings and special lists; completed runs are preserved.
+There is no transaction-wide source snapshot across batches. Use an approved
+immutable source stage if needed. Original audit CSVs support developer checks;
+special_values.csv is a sheet-copy convenience, not a separate runtime loader.
