@@ -1,6 +1,7 @@
 /* Shared batched implementation for CATEGORICAL, IDENTIFIER and DATE.
    Deploy before the three public wrappers. Invoked only inside an active run.
-   Categorical/identifier: three metrics, no category values/frequencies.
+   Categorical: five metrics including special count/rate; identifier: three.
+   Categorical distinct counts exclude configured specials. No frequencies.
    Date: total/non-missing/missing counts and missing percentage only.
    Each batch aggregates fields together. Distinct modules use three explicit
    period queries combined by UNION ALL; DATE retains GROUPING SETS.
@@ -34,6 +35,11 @@ main: BEGIN
     DECLARE V_MONTHLY VARCHAR(10000);
     DECLARE V_SUFFIX VARCHAR(12);
     DECLARE V_FIELD VARCHAR(260);
+    DECLARE V_DISTINCT VARCHAR(260);
+    DECLARE V_SPECIAL_LIST VARCHAR(8000);
+    DECLARE V_EXTRA_CASE VARCHAR(2000);
+    DECLARE V_NUMERATOR VARCHAR(1000);
+    DECLARE V_DENOMINATOR VARCHAR(300);
     DECLARE V_PERIOD_LEVEL VARCHAR(200);
     DECLARE V_PERIOD_VALUE VARCHAR(1000);
     DECLARE V_ERROR VARCHAR(2048) CHARACTER SET UNICODE;
@@ -90,6 +96,11 @@ main: BEGIN
     IF V_COUNT>0 THEN
         SIGNAL SQLSTATE 'U0011' SET MESSAGE_TEXT = 'Captured field identifier invalid';
     END IF;
+    IF P_TYPE='CATEGORICAL' THEN
+        SET V_METRICS=5;
+        SET V_SIZE=LEAST(V_SIZE,8);
+        CALL DQ_DB.SP_DQ_SPECIAL_LIST(P_RUN_ID,P_TYPE,V_SPECIAL_LIST);
+    END IF;
     IF P_TYPE='DATE' THEN
         SET V_METRICS=4;
     END IF;
@@ -123,6 +134,19 @@ main: BEGIN
             SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION || ',"' || TRIM(F.FIELD_NAME)
               || '" AS DQ_F' || V_SUFFIX;
             SET V_FIELD='S.DQ_F' || V_SUFFIX;
+            SET V_DISTINCT=V_FIELD;
+            IF P_TYPE='CATEGORICAL' THEN
+                IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SPECIAL_LIST)
+                   +2*CHARACTER_LENGTH(TRIM(F.FIELD_NAME))+150>8000 THEN
+                    SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Categorical SQL too long; reduce SQL_BATCH_SIZE or special list';
+                END IF;
+                SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION
+                  || ',CASE WHEN UPPER(TRIM("' || TRIM(F.FIELD_NAME) || '")) IN ' || V_SPECIAL_LIST
+                  || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
+                SET V_DISTINCT='S.DQ_C' || V_SUFFIX;
+                SET V_PROJECTION=V_PROJECTION
+                  || ',COALESCE(SUM(CAST(CASE WHEN ' || V_DISTINCT || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS V' || V_SUFFIX;
+            END IF;
             IF P_TYPE='DATE' THEN
                 SET V_PROJECTION=V_PROJECTION
                   || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
@@ -131,7 +155,7 @@ main: BEGIN
             ELSE
                 SET V_PROJECTION=V_PROJECTION
                   || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
-                  || ',CAST(COUNT(DISTINCT ' || V_FIELD || ') AS BIGINT) AS D' || V_SUFFIX
+                  || ',CAST(COUNT(DISTINCT ' || V_DISTINCT || ') AS BIGINT) AS D' || V_SUFFIX
              || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
              || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
             END IF;
@@ -207,6 +231,16 @@ main: BEGIN
                   || 'CURRENT_TIMESTAMP(6) FROM DQ_OB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
                   || 'WHERE M.MODULE_NAME=''DATE_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 4';
             ELSE
+                SET V_EXTRA_CASE='';
+                SET V_NUMERATOR='CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N-A.N' || V_SUFFIX || ' ELSE NULL END,';
+                SET V_DENOMINATOR='CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N ELSE NULL END,';
+                IF P_TYPE='CATEGORICAL' THEN
+                    SET V_EXTRA_CASE=' WHEN 4 THEN CAST(A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                      || ' WHEN 5 THEN CAST(100.0*CAST(A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))';
+                    SET V_NUMERATOR='CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N-A.N' || V_SUFFIX
+                      || ' WHEN M.METRIC_ORDINAL=5 THEN A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' ELSE NULL END,';
+                    SET V_DENOMINATOR='CASE WHEN M.METRIC_ORDINAL IN (2,5) THEN A.TOTAL_N ELSE NULL END,';
+                END IF;
                 SET V_SQL='INSERT INTO DQ_DB.DQ_METRIC_RESULT '
                   || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,'
                   || 'METRIC_NAME,METRIC_VALUE,IS_PERCENTAGE,RATE_NUMERATOR,RATE_DENOMINATOR,EXECUTION_TIMESTAMP) '
@@ -215,11 +249,10 @@ main: BEGIN
                   || ',M.METRIC_NAME,CASE M.METRIC_ORDINAL '
                   || 'WHEN 1 THEN CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS DECIMAL(38,10))'
                   || ' WHEN 2 THEN CAST(100.0*CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))'
-                  || ' WHEN 3 THEN CAST(A.D' || V_SUFFIX || ' AS DECIMAL(38,10)) END,M.IS_PERCENTAGE,'
-                  || 'CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N-A.N' || V_SUFFIX || ' ELSE NULL END,'
-                  || 'CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N ELSE NULL END,'
+                  || ' WHEN 3 THEN CAST(A.D' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                  || V_EXTRA_CASE || ' END,M.IS_PERCENTAGE,' || V_NUMERATOR || V_DENOMINATOR
                   || 'CURRENT_TIMESTAMP(6) FROM DQ_OB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
-                  || 'WHERE M.MODULE_NAME=''' || V_MODULE || ''' AND M.METRIC_ORDINAL BETWEEN 1 AND 3';
+                  || 'WHERE M.MODULE_NAME=''' || V_MODULE || ''' AND M.METRIC_ORDINAL BETWEEN 1 AND ' || TRIM(CAST(V_METRICS AS VARCHAR(2)));
             END IF;
             CALL DBC.SysExecSQL(V_SQL);
             SET V_SQL='INSERT INTO DQ_DB.DQ_FIELD_AVAILABILITY '

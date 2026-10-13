@@ -2,13 +2,13 @@
 
 Users edit `config/DQ_RDS_config.xlsx`, then run the SAS loader. SAS reads and
 loads the workbook directly, with **no SAS validation or preview phase**, as
-requested. Teradata retains the approved configuration in the existing three
+requested. Teradata retains the approved configuration in the project, field, settings and special-value
 configuration tables. Loading does not start profiling or produce an Excel
 report. Excel configuration input is implemented; Excel reporting remains deferred.
 
 ## Workbook layout
 
-Use one workbook per project, containing exactly these three sheets and headers.
+Use one workbook per project, containing these four sheets and headers (SpecialValues is optional for older workbooks).
 Keep the headers unchanged. The supplied workbook contains all 589 RDS mappings
 from book2.xlsx, without reclassifying fields.
 
@@ -17,6 +17,10 @@ from book2.xlsx, without reclassifying fields.
 | Project | PROJECT_ID, SOURCE_DATABASE, SOURCE_TABLE, REPORTING_DATE_FIELD, ACCOUNT_ID_FIELD, ACTIVE_IND | One project row |
 | Fields | FIELD_NAME, FIELD_TYPE, ACTIVE_IND | One row per configured field |
 | Settings | GREEN_THRESHOLD, RED_THRESHOLD, SQL_BATCH_SIZE, OUTLIER_SD_MULTIPLIER | One settings row |
+| SpecialValues | FIELD_TYPE, SPECIAL_VALUE, ACTIVE_IND | One numeric/categorical special per row |
+
+Keep SPECIAL_VALUE as Excel Text. Copy only SpecialValues from the revised starter
+into your edited workbook to preserve field selection. See [definitions and deployment](SPECIAL_VALUES_AND_PERCENTILES.md).
 
 For RDS, Project is `RDS`, `LAB_T_ORION_MVT`, `VW_RDS_PHASE2_FACT`, `FACT_DT`,
 `AGMT_ID`, `Y`. The field classifications are authoritative. Use the dropdowns
@@ -117,7 +121,7 @@ rows are inserted or updated, including their explicit active/module flags.
 removing its row from the workbook. Other projects, the global settings row,
 completed runs and historical metric results are untouched.
 
-The three configuration merges run in a database transaction. Database constraints
+The three configuration merges and optional special-list replacement run in one database transaction. Database constraints
 and required-shape/identifier checks still apply. There is no SAS workbook
 validation phase. Invalid flags, duplicates, missing sheets/rows and incompatible
 values can produce read, staging or database errors. These are errors to fix in

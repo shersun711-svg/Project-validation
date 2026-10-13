@@ -1,5 +1,10 @@
 # Overall field availability
 
+This guide describes an earlier capability upgrade. For current special-value
+and percentile deployment, use [the current extension guide](SPECIAL_VALUES_AND_PERCENTILES.md),
+which includes the new table/procedure prerequisites and three-procedure run API.
+
+
 FIRST_AVAILABLE_FACT_DT and LAST_AVAILABLE_FACT_DT in DQ_BASIC_REVIEW describe each selected field's
 reporting-date coverage: minimum/maximum FACT_DT (or the configured reporting
 date) where that field is non-NULL. They are DATE values, without time, and

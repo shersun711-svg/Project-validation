@@ -10,7 +10,9 @@ For example, numeric_basic=Y and numeric_outliers=N run Numeric Basic on all
 active NUMERIC fields. To test 50 numeric fields, mark those 50 ACTIVE_IND=Y
 and the remaining numeric fields N. Other types keep their own active selection.
 Select categorical_basic, date_basic and identifier_basic as needed.
-Percentiles, outliers, PSI and Excel export remain unavailable and must stay N.
+Use numeric_percentiles=Y to add seven numeric quantiles. Outliers, PSI and Excel
+export remain unavailable and must stay N. Configure special-value lists on the
+SpecialValues sheet; their counts are included in matching Basic modules.
 
 The starter workbook contains 589 field mappings, all active. Preserve your
 edited workbook and reload it only when configuration changes. Use file 04 to

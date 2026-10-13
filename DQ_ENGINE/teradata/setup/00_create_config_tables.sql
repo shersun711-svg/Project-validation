@@ -1,6 +1,6 @@
 /* Deploy once into an approved, separate DQ database. Replace DQ_DB globally.
    Creates the schema and fixed engine metric metadata only. Load project,
-   fields and settings from Excel after deploying setup 06/07.
+   fields and settings from Excel after deploying current setup files, including 06/07 and 14/15.
    ANSI object names only; identifiers are validated again before dynamic SQL. */
 CREATE MULTISET TABLE DQ_DB.DQ_PROJECT_CONFIG
 (
@@ -68,3 +68,5 @@ INSERT INTO DQ_DB.DQ_METRIC_DEFINITION VALUES ('NUMERIC_BASIC',7,'MINIMUM','N');
 INSERT INTO DQ_DB.DQ_METRIC_DEFINITION VALUES ('NUMERIC_BASIC',8,'MAXIMUM','N');
 INSERT INTO DQ_DB.DQ_METRIC_DEFINITION VALUES ('NUMERIC_BASIC',9,'MEAN','N');
 INSERT INTO DQ_DB.DQ_METRIC_DEFINITION VALUES ('NUMERIC_BASIC',10,'STDDEV_SAMP','N');
+INSERT INTO DQ_DB.DQ_METRIC_DEFINITION VALUES ('NUMERIC_BASIC',11,'SPECIAL_COUNT','N');
+INSERT INTO DQ_DB.DQ_METRIC_DEFINITION VALUES ('NUMERIC_BASIC',12,'SPECIAL_RATE_PCT','Y');

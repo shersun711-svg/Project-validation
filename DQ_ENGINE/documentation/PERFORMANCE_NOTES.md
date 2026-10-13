@@ -1,42 +1,66 @@
 # Performance and workload
 
-The default 25-field batch aggregates all compatible calculations together. For 415 numeric fields it generates 17 source aggregation statements. Each uses GROUPING SETS to request overall/yearly/monthly results together; the actual number of physical scans is optimizer-dependent and must be checked with EXPLAIN. Subsequent per-field INSERTs scan only the small volatile period aggregate, never the source view. Ten metric definitions are crossed with that aggregate to write long-format results.
+Calculations and any raw staging stay inside Teradata; SAS reads configuration,
+logs and aggregated summaries. Execution is sequential and respects the site's
+workload management. The source view's existing filters and row multiplicity
+are retained. Keep source and configuration stable during execution.
 
-Validated source projection aliases keep generated statements short even for 128-character field names. Local template checks found 8,517 characters for the first real 25-field batch and 13,498 for a 30-field batch of maximum-length names, below the 32,000-character SQL buffer. This is a statement-size check, not a throughput benchmark.
+| Module | Effective maximum fields per batch | Source access |
+|---|---:|---|
+| Numeric Basic | 10 | One aggregate statement using GROUPING SETS |
+| Categorical Basic | 8 | Three explicit overall/year/month queries using UNION ALL |
+| Identifier Basic | 20 | Three explicit period queries using UNION ALL |
+| Date Basic | 30 | One aggregate statement using GROUPING SETS |
+| Numeric Percentiles | 5 | One source materialization into a volatile table |
 
-Execution is sequential. The prototype does not create parallel sessions or bypass workload management. Results are distributed by run/field; the log tables are small. A volatile aggregate is session-local and dropped after each batch. Spool demand for evaluating the complex source view can still be large. Have the DBA inspect redistribution, AMP skew, window sorts, cardinality estimates, joins and statement memory limits. Existing source statistics are not altered automatically.
+SQL_BATCH_SIZE remains configurable from 1 to 30; effective size is the lower
+of the setting and module cap. Special lists increase generated query size;
+length guards reject oversized SQL rather than truncating it. Lower the setting
+or shorten lists if needed. Caps bound SQL text and are not measured optimal
+batch sizes. With 50 numeric fields and the default setting, Numeric Basic uses
+5 batches and Percentiles uses 10 batches.
 
-Use `tests/benchmark_numeric.sql` and the actual saved batch SQL. Record batch/module elapsed times and approved DBQL CPU, I/O, spool and skew information. Compare 10, 20, 25 and 30 fields using fresh run IDs, the same field selection, the same stable population and the same workload conditions. Result equivalence is required before comparing speed. No batch size has been demonstrated optimal here.
+Basic modules aggregate compatible statistics together, then persist results
+from small volatile aggregates. Numeric Basic emits 12 metrics and categorical
+5; date and identifier emit 4 and 3. Availability is calculated in the same basic
+aggregate and requires no separate source scan.
 
-## Direct view versus controlled staging
+Categorical/identifier use ordinary GROUP BY with literal period flags because
+the user's DISTINCT/GROUPING SETS query returned duplicate period keys. Three
+source references do not imply exactly three physical scans: check EXPLAIN on
+the actual logged statement. Distinct aggregation can require substantial spool.
 
-Direct-view processing is the implemented default. It avoids mandatory staging for smaller projects and allows the optimizer to prune unused projections. The RDS view's expensive joins/windows may be repeated for each batch. A retained, immutable projection of the **final view** may reduce repeated view work and ensure a consistent population; benchmark it before adoption.
+Percentiles materialize up to five cleaned numeric fields and reporting date
+per batch into a MULTISET volatile table, preserving duplicates. Each field's
+valid rows expand into overall/yearly/monthly populations. One ordered volatile
+table supplies ranks and counts for all seven quantiles; persistence expands
+ordered rows against seven metadata rows. No source scans are done for each
+quantile. This adds raw spool and sorting and can be substantially slower than
+Basic profiling. Basic and Percentiles do not currently share source staging.
+Volatile tables are dropped after each batch and cleaned on module failure.
+Run numbering locks its small counter only before profiling.
 
-In an approved test schema, materialise the configured numeric fields plus FACT_DT and AGMT_ID from the final view, with **no extra filters or DISTINCT**. Use a DBA-approved distribution key; a candidate `(AGMT_ID,FACT_DT)` primary index need not be unique. Never impose uniqueness before checking the view's actual multiplicity. Size spool and permanent space, include materialisation and statistics collection time in the benchmark, and define retention/security before creating a copy of account-level data.
+## Benchmarking
 
-Create a separate test project pointing to that retained stage and copy the same field/settings configuration; do not mutate the production RDS source project to benchmark it. Profile both paths in Teradata, compare all aggregate metrics with documented tolerances, then compare total elapsed cost, not just the profiling portion. A permanent stage survives the independent SAS sessions used for configuration; a manually created volatile stage does not. A fully managed staging lifecycle is deferred until this comparison justifies it.
+Use tests/benchmark_numeric.sql and saved DQ_MODULE_LOG.SQL_TEXT. Record module
+and batch elapsed minutes and approved DBQL CPU, I/O, spool and AMP skew metrics.
+Compare settings 1, 5, 8 and 10 using new run UUIDs, the same active fields,
+same stable population and same workload. Values above a module cap do not
+increase that module's batch size. Require result equivalence before comparing
+speed. Explain the percentile materialization/rank query on the installed release
+and confirm sufficient spool before broad RDS use. No timing, spool or throughput
+benchmark of this extension has been executed here.
 
-Changing source data between batches can invalidate cross-field/count reconciliation. Use a stable source window or approved stage. Profiling a moving view is not guaranteed to observe one consistent snapshot.
+## Controlled source staging
 
+For the complex RDS view, an approved immutable projection of the final view
+may reduce repeated joins/windows and ensure a consistent population. Benchmark
+this before adoption. Preserve all final-view filters and duplicates; add no
+extra WHERE/DISTINCT. Candidate (AGMT_ID,FACT_DT) uniqueness is not assumed.
+Include materialization, statistics and retention cost in the comparison.
 
-## Other basic modules
-
-Categorical and identifier batches calculate missing counts and distinct counts
-for all reporting periods. They use three explicit period queries combined by
-UNION ALL, each referencing the configured source, to avoid the user's observed
-DISTINCT/GROUPING SETS flag/duplicate-row failure. Distinct aggregation may
-require additional sorting/spool. There are three source references per batch;
-actual physical scans/reuse depend on the optimizer. Benchmark batch size and
-keep the source stable during all period queries and batches. Date batches calculate counts/missing percentages and coverage dates;
-no field-value extrema or distinct counts are calculated. Different types execute as separate
-modules, so a mixed run can scan the source separately for each type and batch.
-The short run-number counter is locked only during number allocation, before
-profiling starts. No new parallel sessions or source staging are introduced.
-
-
-Availability adds conditional MIN/MAX of the reporting date alongside each
-field's existing aggregates. No extra source query is added solely for
-availability. Distinct-module batches now cap at 20 fields to fit the bounded
-UNION parts; numeric/date modules keep the configured size. Persisted coverage
-rows are overall-only and indexed by run/field. Actual source workload remains
-unmeasured; use the logged statement for EXPLAIN after upgrading.
+Use a separate test project pointing to a DBA-approved persistent stage, with
+the same fields, settings and special lists. Do not mutate production source
+configuration for benchmarking. A permanent stage survives separate SAS
+sessions; a manually created volatile stage does not. The engine does not
+manage a permanent raw-data staging lifecycle.

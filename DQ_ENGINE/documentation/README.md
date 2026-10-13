@@ -4,7 +4,9 @@ SAS loads configuration and controls execution. Teradata calculates Numeric
 Basic metrics and stores configuration, results and logs. The engine supports
 all ten Numeric Basic metrics, categorical/identifier missing and distinct
 metrics, and date counts/missing percentage, across overall/yearly/monthly periods.
-Percentiles, outliers, PSI and Excel report generation remain deferred.
+Numeric percentiles and numeric/categorical special-value checks are implemented.
+Outliers, PSI and Excel report generation remain deferred.
+For this extension, follow [deployment and test instructions](SPECIAL_VALUES_AND_PERCENTILES.md).
 Existing installations must apply the [basic profiling upgrade](BASIC_PROFILING_UPGRADE.md)
 before enabling the new modules.
 
@@ -69,7 +71,8 @@ ORDER BY FIELD_NAME;
 Remove the period filter for yearly/monthly results too; order by FIELD_NAME,
 PERIOD_LEVEL, PERIOD_VALUE. Always filter by RUN_NUMBER to keep historical runs
 separate. For 50 numeric fields only, OVERALL returns 50 rows. Categorical/identifier
-fields each store three metrics per period; date fields store four count/rate metrics.
+fields store five and three metrics per period respectively; date fields store four count/rate metrics.
+Numeric Basic stores twelve, with seven extra metrics when percentiles are selected.
 Do not divide mixed-module metric counts by ten to infer review row counts.
 
 Existing installations need the complete [upgrade](BASIC_PROFILING_UPGRADE.md)
@@ -100,21 +103,25 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 2. `teradata/setup/01_create_result_tables.sql`
 3. `teradata/setup/02_create_log_tables.sql`
 4. `teradata/setup/06_create_excel_config_tables.sql`
-5. `teradata/setup/07_apply_excel_config.sql`
-6. `teradata/setup/09_add_basic_metrics.sql`
-7. `teradata/setup/10_add_run_numbers.sql`
-8. `teradata/setup/11_create_field_availability.sql`
-9. `teradata/setup/12_add_date_basic_metrics.sql`
-10. `teradata/results/90_colour_classification.sql`
-11. `teradata/results/91_dq_summary_views.sql`
-12. `teradata/results/93_dq_basic_review.sql`
-13. `teradata/modules/01_assign_run_number.sql`
-14. `teradata/modules/10_numeric_basic.sql`
-15. `teradata/modules/15_other_basic.sql`
-16. `teradata/modules/20_categorical_basic.sql`
-17. `teradata/modules/30_date_basic.sql`
-18. `teradata/modules/40_identifier_basic.sql`
-19. `teradata/modules/00_run_engine.sql` (SP_DQ_RUN_BASIC, then SP_DQ_RUN_ENGINE)
+5. `teradata/setup/09_add_basic_metrics.sql`
+6. `teradata/setup/10_add_run_numbers.sql`
+7. `teradata/setup/11_create_field_availability.sql`
+8. `teradata/setup/12_add_date_basic_metrics.sql`
+9. `teradata/setup/14_create_special_values.sql`
+10. `teradata/setup/15_add_extended_metrics.sql`
+11. `teradata/setup/07_apply_excel_config.sql`
+12. `teradata/results/90_colour_classification.sql`
+13. `teradata/results/91_dq_summary_views.sql`
+14. `teradata/results/93_dq_basic_review.sql`
+15. `teradata/modules/01_assign_run_number.sql`
+16. `teradata/modules/02_special_value_list.sql`
+17. `teradata/modules/10_numeric_basic.sql`
+18. `teradata/modules/11_numeric_percentiles.sql`
+19. `teradata/modules/15_other_basic.sql`
+20. `teradata/modules/20_categorical_basic.sql`
+21. `teradata/modules/30_date_basic.sql`
+22. `teradata/modules/40_identifier_basic.sql`
+23. `teradata/modules/00_run_engine.sql` (PROFILE, then BASIC, then ENGINE separately)
 
 Table CREATE files are one-time operations. Do not rerun them on an existing
 installation. File 00 installs fixed metric definitions; project configuration

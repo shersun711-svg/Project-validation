@@ -1,5 +1,10 @@
 # Date Basic: counts and missing percentage only
 
+This guide describes an earlier capability upgrade. For current special-value
+and percentile deployment, use [the current extension guide](SPECIAL_VALUES_AND_PERCENTILES.md),
+which includes the new table/procedure prerequisites and three-procedure run API.
+
+
 Date Basic now calculates exactly TOTAL_COUNT, NON_MISSING_COUNT,
 MISSING_COUNT and MISSING_RATE_PCT for overall/yearly/monthly periods. Only
 SQL NULL is missing. Missing percentage uses all rows and the existing colour

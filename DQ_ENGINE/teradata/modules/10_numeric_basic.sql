@@ -2,7 +2,9 @@
    SPL delimiters. Requires Teradata-session mode (see deployment guide).
    No WHERE clause is added to the configured source: its filters are retained.
    One source aggregation per field batch; the subsequent INSERTs only read
-   a tiny volatile aggregate table. No account-level data leaves Teradata. */
+   a tiny volatile aggregate table. No account-level data leaves Teradata.
+   Configured numeric specials stay non-missing; distribution statistics exclude
+   them. SPECIAL_COUNT and SPECIAL_RATE_PCT use the raw total population. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_BASIC
     (IN P_RUN_ID CHAR(36), IN P_PROJECT_ID VARCHAR(30))
 SQL SECURITY INVOKER
@@ -11,8 +13,10 @@ main: BEGIN
     DECLARE V_SOURCE VARCHAR(128);
     DECLARE V_DATE VARCHAR(128);
     DECLARE V_SQL VARCHAR(32000);
-    DECLARE V_PROJECTION VARCHAR(20000);
-    DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
+    DECLARE V_PROJECTION VARCHAR(12000);
+    DECLARE V_SOURCE_PROJECTION VARCHAR(16000);
+    DECLARE V_SPECIAL_LIST VARCHAR(8000);
+    DECLARE V_CLEAN VARCHAR(260);
     DECLARE V_SUFFIX VARCHAR(12);
     DECLARE V_FIELD VARCHAR(260);
     DECLARE V_GREEN DECIMAL(9,4);
@@ -107,8 +111,8 @@ main: BEGIN
         SIGNAL SQLSTATE 'U0009' SET MESSAGE_TEXT = 'No eligible numeric fields; zero-field run rejected';
     END IF;
     SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_DEFINITION
-     WHERE MODULE_NAME = 'NUMERIC_BASIC' AND METRIC_ORDINAL BETWEEN 1 AND 10;
-    IF V_COUNT <> 10 THEN
+     WHERE MODULE_NAME = 'NUMERIC_BASIC' AND METRIC_ORDINAL BETWEEN 1 AND 12;
+    IF V_COUNT <> 12 THEN
         SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT = 'Numeric metric definitions incomplete';
     END IF;
     UPDATE DQ_DB.DQ_RUN_LOG
@@ -138,6 +142,9 @@ main: BEGIN
     IF V_COUNT > 0 OR V_FIELDS = 0 THEN
         SIGNAL SQLSTATE 'U0011' SET MESSAGE_TEXT = 'Captured numeric identifiers invalid or selection empty';
     END IF;
+    CALL DQ_DB.SP_DQ_SPECIAL_LIST(P_RUN_ID,'NUMERIC',V_SPECIAL_LIST);
+    /* The list is repeated only in the source projection. Bound SQL size. */
+    SET V_SIZE=LEAST(V_SIZE,10);
     SET V_FIRST = 1;
     WHILE V_FIRST <= V_FIELDS DO
         SET V_BATCH = V_BATCH + 1;
@@ -158,13 +165,22 @@ main: BEGIN
             SET V_SOURCE_PROJECTION = V_SOURCE_PROJECTION || ',"' || TRIM(F.FIELD_NAME)
                 || '" AS DQ_F' || V_SUFFIX;
             SET V_FIELD = 'S.DQ_F' || V_SUFFIX;
+            SET V_CLEAN = 'S.DQ_C' || V_SUFFIX;
+            IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SPECIAL_LIST)
+               +2*CHARACTER_LENGTH(TRIM(F.FIELD_NAME))+100>16000 THEN
+                SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Numeric SQL too long; reduce SQL_BATCH_SIZE or special list';
+            END IF;
+            SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION
+              || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_SPECIAL_LIST
+              || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
             SET V_PROJECTION = V_PROJECTION
              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' = 0 THEN 1 ELSE 0 END AS BIGINT)),0) AS Z' || V_SUFFIX
-             || ',MIN(' || V_FIELD || ') AS LO' || V_SUFFIX
-             || ',MAX(' || V_FIELD || ') AS HI' || V_SUFFIX
-             || ',AVG(CAST(' || V_FIELD || ' AS FLOAT)) AS AV' || V_SUFFIX
-             || ',STDDEV_SAMP(CAST(' || V_FIELD || ' AS FLOAT)) AS SD' || V_SUFFIX
+             || ',MIN(' || V_CLEAN || ') AS LO' || V_SUFFIX
+             || ',MAX(' || V_CLEAN || ') AS HI' || V_SUFFIX
+             || ',AVG(CAST(' || V_CLEAN || ' AS FLOAT)) AS AV' || V_SUFFIX
+             || ',STDDEV_SAMP(CAST(' || V_CLEAN || ' AS FLOAT)) AS SD' || V_SUFFIX
+             || ',COALESCE(SUM(CAST(CASE WHEN ' || V_CLEAN || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS V' || V_SUFFIX
              || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
              || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
         END FOR;
@@ -212,12 +228,14 @@ main: BEGIN
               || ' WHEN 6 THEN CAST(100.0*CAST(A.Z' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))'
               || ' WHEN 7 THEN CAST(A.LO' || V_SUFFIX || ' AS DECIMAL(38,10)) WHEN 8 THEN CAST(A.HI' || V_SUFFIX || ' AS DECIMAL(38,10))'
               || ' WHEN 9 THEN CAST(A.AV' || V_SUFFIX || ' AS DECIMAL(38,10)) WHEN 10 THEN CAST(A.SD' || V_SUFFIX || ' AS DECIMAL(38,10))'
+              || ' WHEN 11 THEN CAST(A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' AS DECIMAL(38,10))'
+              || ' WHEN 12 THEN CAST(100.0*CAST(A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))'
               || ' END,M.IS_PERCENTAGE,'
               || 'CASE M.METRIC_ORDINAL WHEN 4 THEN A.TOTAL_N-A.N' || V_SUFFIX
-              || ' WHEN 6 THEN A.Z' || V_SUFFIX || ' ELSE NULL END,'
+              || ' WHEN 6 THEN A.Z' || V_SUFFIX || ' WHEN 12 THEN A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' ELSE NULL END,'
               || 'CASE WHEN M.IS_PERCENTAGE=''Y'' THEN A.TOTAL_N ELSE NULL END,'
               || 'CURRENT_TIMESTAMP(6) FROM DQ_NB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
-              || 'WHERE M.MODULE_NAME=''NUMERIC_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 10';
+              || 'WHERE M.MODULE_NAME=''NUMERIC_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 12';
             CALL DBC.SysExecSQL(V_SQL);
             /* Coverage is overall-only and depends on this field being non-NULL.
                NULL reporting dates contribute no availability endpoint. */

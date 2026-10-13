@@ -56,6 +56,15 @@ for(const field of ['EVENT_DATE','EVENT_TS']){
   const rate=name==='MISSING_RATE_PCT';metric('date-only',field,'DATE',['OVERALL','ALL'],name,value,rate?'NOT_EVALUATED':null,rate?0:null,rate?0:null);
  }
 }
+for(const period of periods){
+ for(const [field,type] of [['AMOUNT','NUMERIC'],['CATEGORY','CATEGORICAL'],['NULL_CATEGORY','CATEGORICAL']]){
+  metric('mixed',field,type,period,'SPECIAL_COUNT',0);
+  metric('mixed',field,type,period,'SPECIAL_RATE_PCT',0,'GREEN',0,4);
+ }
+ for(const [name,value] of Object.entries({P1:0.02,P5:0.1,P25:0.5,P50:1,P75:1.5,P95:1.9,P99:1.98})){
+  insert.run('mixed','TEST','AMOUNT','NUMERIC','NUMERIC_PERCENTILES',...period,name,value,null,null,null);
+ }
+}
 for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
@@ -63,7 +72,7 @@ for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
   .replace(/CAST\(CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE FORMAT 'YYYY-MM-DD'\) AS VARCHAR\(64\)\)/g,'date($1)');
  db.exec(sql);
 }
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,224);
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,328);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='NUMERIC'").get().n,8);
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW').get().n,50);
 const category=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='CATEGORY' AND PERIOD_LEVEL='OVERALL'").get();
@@ -86,5 +95,9 @@ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUM
 assert.equal(db.prepare("SELECT MINIMUM FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get().MINIMUM,0);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='DATE'").get().n,16);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_TYPE='DATE' AND (MINIMUM IS NOT NULL OR MAXIMUM IS NOT NULL OR DISTINCT_COUNT IS NOT NULL OR ZERO_COUNT IS NOT NULL OR ZERO_RATE_PCT IS NOT NULL OR MEAN IS NOT NULL OR STDDEV_SAMP IS NOT NULL)").get().n,0);
+const combined=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get();
+assert.equal(combined.P50,1);assert.equal(combined.MINIMUM,0);assert.equal(combined.SPECIAL_COUNT,0);
+assert.equal(combined.MODULE_NAME,'NUMERIC_BASIC+PERCENTILES');
+assert.equal(date.SPECIAL_COUNT,null);assert.equal(date.P50,null);
 db.close();
 console.log('Portable review logic checks passed: pivot, period separation, date-only summary, short numbers and completed-run filtering. Teradata/SAS execution NOT tested.');

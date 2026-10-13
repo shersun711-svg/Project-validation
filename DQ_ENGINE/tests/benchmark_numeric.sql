@@ -20,6 +20,6 @@ SELECT RUN_ID,ATTEMPT_NO,BATCH_ID,FIELD_COUNT,START_TIME,END_TIME,
 FROM DQ_DB.DQ_MODULE_LOG
 WHERE RUN_ID='REPLACE_WITH_RUN_UUID' AND BATCH_ID>0
 ORDER BY ATTEMPT_NO,BATCH_ID;
-/* Compare batch sizes 10/20/25/30 by updating project-level settings and
+/* Compare batch sizes 1/5/8/10 by updating project-level settings and
    creating NEW run UUIDs, while preserving the same field selection/population.
    Staging comparison instructions are in PERFORMANCE_NOTES.md. */

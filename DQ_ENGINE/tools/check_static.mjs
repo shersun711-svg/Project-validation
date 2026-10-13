@@ -21,8 +21,8 @@ assert.ok(!fs.existsSync(path.join(root,'teradata/setup/03_seed_rds_config.sql')
 const schema=read('teradata/setup/00_create_config_tables.sql');
 const catalog=[...schema.matchAll(/INSERT INTO DQ_DB\.DQ_METRIC_DEFINITION VALUES \('NUMERIC_BASIC',(\d+),'([^']+)','([YN])'\);/g)]
     .map(([,ordinal,name,percentage])=>({ordinal:+ordinal,name,percentage}));
-const metricNames=['TOTAL_COUNT','NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE_PCT','ZERO_COUNT','ZERO_RATE_PCT','MINIMUM','MAXIMUM','MEAN','STDDEV_SAMP'];
-assert.deepEqual(catalog,metricNames.map((name,i)=>({ordinal:i+1,name,percentage:[4,6].includes(i+1)?'Y':'N'})));
+const metricNames=['TOTAL_COUNT','NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE_PCT','ZERO_COUNT','ZERO_RATE_PCT','MINIMUM','MAXIMUM','MEAN','STDDEV_SAMP','SPECIAL_COUNT','SPECIAL_RATE_PCT'];
+assert.deepEqual(catalog,metricNames.map((name,i)=>({ordinal:i+1,name,percentage:[4,6,12].includes(i+1)?'Y':'N'})));
 assert.ok(!/INSERT INTO DQ_DB\.DQ_(PROJECT_CONFIG|FIELD_CONFIG|ENGINE_SETTINGS)\b/.test(schema));
 const audit=read('config/rds_ddl_validation.csv').trim().split('\n').slice(1);
 assert.equal(audit.length,589);
@@ -83,7 +83,7 @@ for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
     }
 }
 assert.equal(files.filter(p=>p.endsWith('10_numeric_basic.sql')).length,1);
-assert.ok(!files.some(p=>/\/(11_numeric_percentiles|12_numeric_outliers|21_categorical_psi|02_dq_excel_export)\./.test(p)));
+assert.ok(!files.some(p=>/\/(12_numeric_outliers|21_categorical_psi|02_dq_excel_export)\./.test(p)));
 
 /* Evaluate only the concatenation expressions used to build SQL in SPL.
    This tests the actual template strings, including quotes and parentheses. */
@@ -95,7 +95,7 @@ for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
 }
 assert.ok(module.includes("REGEXP_SIMILAR(FIELD_NAME,"),'Retain captured identifier validation');
 assert.ok(read('sas/01_dq_controller.sas').includes('DQ_FIELD_CONFIG'),'Read workbook-derived config directly');
-assert.match(read('sas/01_dq_controller.sas'),/execute\s*\(call &dq_database\.\.SP_DQ_RUN_BASIC\(&_run_sql,&_project_sql,\s*&_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql\)\) by dq;/,'Controller actually executes all selected module switches');
+assert.match(read('sas/01_dq_controller.sas'),/execute\s*\(call &dq_database\.\.SP_DQ_RUN_PROFILE\(&_run_sql,&_project_sql,\s*&_numeric_sql,&_categorical_sql,&_date_sql,&_identifier_sql,&_percentiles_sql\)\) by dq;/,'Controller executes the percentile switch');
 function assignment(name,startAt=0,source=module){
     const start=source.indexOf(`SET ${name} =`,startAt);assert.ok(start>=0,name);
     let quote=false;
@@ -113,28 +113,34 @@ function evaluate(expression,variables){
     return parts.map(p=>{
         if(p.startsWith("'")){assert.ok(p.endsWith("'"));return p.slice(1,-1).replace(/''/g,"'");}
         const trim=p.match(/^TRIM\((\w+\.\w+)\)$/);if(trim)p=trim[1];
+        const cast=p.match(/^TRIM\(CAST\(([\w.]+) AS VARCHAR\(\d+\)\)\)$/);if(cast)p=cast[1];
         assert.ok(Object.hasOwn(variables,p),`Unknown SQL-template variable ${p}`);return String(variables[p]);
     }).join('');
 }
+const specialXml=execFileSync('unzip',['-p',path.join(root,'config/DQ_RDS_config.xlsx'),'xl/worksheets/sheet4.xml'],{encoding:'utf8'});
+const specialRows=[...specialXml.matchAll(/<row[^>]*>(.*?)<\/row>/g)].map(m=>[...m[1].matchAll(/<t>(.*?)<\/t>/g)].map(t=>t[1]));
+const numericSpecialList='('+specialRows.filter(r=>r[0]==='NUMERIC').map(r=>Number(r[1]).toFixed(10)).join(',')+')';
 const projection=assignment('V_PROJECTION',module.indexOf('FOR F AS'));
 const sourceProjection=assignment('V_SOURCE_PROJECTION',module.indexOf('FOR F AS'));
 const aggregate=assignment('V_SQL',module.indexOf('/* GROUPING distinguishes'));
 const insert=assignment('V_SQL',module.indexOf('FOR R AS'));
-for(const batch of [fields.filter(f=>f.type==='NUMERIC').slice(0,25),Array.from({length:30},(_,i)=>({name:'F'+String(i).padStart(127,'X')}))]){
-    const v={V_DB:'LAB_T_ORION_MVT',V_SOURCE:'VW_RDS_PHASE2_FACT',V_DATE:'FACT_DT',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT'};
+for(const batch of [fields.filter(f=>f.type==='NUMERIC').slice(0,10),Array.from({length:10},(_,i)=>({name:'F'+String(i).padStart(127,'X')}))]){
+    const v={V_DB:'LAB_T_ORION_MVT',V_SOURCE:'VW_RDS_PHASE2_FACT',V_DATE:'FACT_DT',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_SPECIAL_LIST:numericSpecialList};
     for(const [i,f] of batch.entries()){
-        v.V_SUFFIX=String(i+1);v.V_FIELD='S.DQ_F'+v.V_SUFFIX;v['F.FIELD_NAME']=f.name;
-        v.V_SOURCE_PROJECTION=evaluate(sourceProjection,v);v.V_PROJECTION=evaluate(projection,v);
+        v.V_SUFFIX=String(i+1);v.V_FIELD='S.DQ_F'+v.V_SUFFIX;v.V_CLEAN='S.DQ_C'+v.V_SUFFIX;v['F.FIELD_NAME']=f.name;
+        v.V_SOURCE_PROJECTION=evaluate(sourceProjection,v);
+        v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',module.indexOf('IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)'),module.replace(/SET (\w+)=/g,'SET $1 =')),v);
+        v.V_PROJECTION=evaluate(projection,v);
     }
-    assert.ok(v.V_SOURCE_PROJECTION.length<=8000);
-    assert.ok(v.V_PROJECTION.length<=20000);
+    assert.ok(v.V_SOURCE_PROJECTION.length<=16000);
+    assert.ok(v.V_PROJECTION.length<=12000);
     const query=evaluate(aggregate,v);lex(query,'generated aggregate');assert.ok(query.length<32000);
     assert.equal((query.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,1);
     assert.ok(query.includes('GROUP BY GROUPING SETS ((),'));
     for(const [i,f] of batch.entries()){
         const result=evaluate(insert,{P_RUN_ID:'00000000-0000-4000-8000-000000000001',P_PROJECT_ID:'RDS','R.FIELD_NAME':f.name,V_SUFFIX:String(i+1)});
         lex(result,'generated insert');assert.ok(result.length<32000);
-        assert.equal((result.match(/AS DECIMAL\(38,10\)/g)||[]).length,10,'Cast each CASE branch to preserve exact counts/min/max');
+        assert.equal((result.match(/AS DECIMAL\(38,10\)/g)||[]).length,12,'Cast each CASE branch to preserve exact counts/min/max');
         assert.ok(result.includes('FROM DQ_NB_AGG A CROSS JOIN'));
     }
     console.log(`SQL template checks passed: ${batch.length} fields, ${query.length} characters`);
@@ -150,11 +156,17 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
     v.V_PERIOD_LEVEL=evaluate(assignment('V_PERIOD_LEVEL',0,other),v);
     v.V_PERIOD_VALUE=evaluate(assignment('V_PERIOD_VALUE',0,other),v);
     const cursor=other.indexOf('FOR F AS');
-    const projectionStart=type==='DATE'?cursor:other.indexOf('ELSE',cursor);
-    const batchSize=type==='DATE'?30:20;
+    const projectionStart=type==='DATE'?other.indexOf("IF P_TYPE='DATE' THEN",cursor):other.indexOf('            ELSE\n',cursor);
+    const batchSize=type==='DATE'?30:type==='CATEGORICAL'?8:20;
     for(let i=1;i<=batchSize;i++){
-        v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_F'+i;v['F.FIELD_NAME']='F'+String(i).padStart(127,'X');
+        v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_F'+i;v.V_DISTINCT=v.V_FIELD;v['F.FIELD_NAME']='F'+String(i).padStart(127,'X');
         v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cursor,other),v);
+        if(type==='CATEGORICAL'){
+            v.V_SPECIAL_LIST="('UNKNOWN','N/A','NA','NULL','NONE','-','?','#N/A','.','MISSING','NOT APPLICABLE')";
+            v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',other.indexOf("IF P_TYPE='CATEGORICAL' THEN",cursor),other),v);
+            v.V_DISTINCT='S.DQ_C'+i;
+            v.V_PROJECTION=evaluate(assignment('V_PROJECTION',other.indexOf("IF P_TYPE='CATEGORICAL' THEN",cursor),other),v);
+        }
         v.V_PROJECTION=evaluate(assignment('V_PROJECTION',projectionStart,other),v);
     }
     assert.ok(v.V_SOURCE_PROJECTION.length<=8000);
@@ -217,7 +229,19 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
     }
     v['R.FIELD_NAME']='TEST_FIELD';v.V_SUFFIX=String(batchSize);
     const resultsCursor=other.indexOf('FOR R AS');
-    const insertStart=type==='DATE'?resultsCursor:other.indexOf('ELSE',resultsCursor);
+    const insertStart=type==='DATE'?resultsCursor:other.indexOf('            ELSE\n',resultsCursor);
+    v.V_METRICS=type==='DATE'?4:type==='CATEGORICAL'?5:3;
+    v.V_EXTRA_CASE='';
+    if(type!=='DATE'){
+        v.V_NUMERATOR=evaluate(assignment('V_NUMERATOR',resultsCursor,other),v);
+        v.V_DENOMINATOR=evaluate(assignment('V_DENOMINATOR',resultsCursor,other),v);
+        if(type==='CATEGORICAL'){
+            const specialStart=other.indexOf("IF P_TYPE='CATEGORICAL' THEN",resultsCursor);
+            v.V_EXTRA_CASE=evaluate(assignment('V_EXTRA_CASE',specialStart,other),v);
+            v.V_NUMERATOR=evaluate(assignment('V_NUMERATOR',specialStart,other),v);
+            v.V_DENOMINATOR=evaluate(assignment('V_DENOMINATOR',specialStart,other),v);
+        }
+    }
     const insert=evaluate(assignment('V_SQL',insertStart,other),v);
     lex(insert,'generated '+type+' insert');assert.ok(insert.length<32000);
     assert.ok(insert.includes('INSERT INTO DQ_DB.DQ_METRIC_RESULT'));
@@ -260,3 +284,5 @@ if(process.argv.length>2){
     console.log('Original workbook and DDL reconciliation passed: all 589 names/types preserved, no missing output columns');
 }
 console.log(`Static checks passed for ${files.filter(p=>/\.(sql|sas)$/.test(p)).length} SQL/SAS files. Database compilation and execution NOT tested.`);
+
+export {assignment,evaluate,lex};

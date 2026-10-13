@@ -2,7 +2,7 @@
    Call in Teradata session mode WITHOUT an enclosing transaction.
    Workbook classifications are trusted; only schema-safe identifiers, logical
    types, flags, row counts and settings are checked. No physical type lookup.
-   All three active configuration merges commit together. Absent fields remain
+   All three active configuration merges and optional special lists commit together. Absent fields remain
    unchanged; explicit ACTIVE_IND=N deactivates a field. Historical results
    and existing global settings/other projects are never changed here. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_APPLY_CONFIG
@@ -102,6 +102,39 @@ main: BEGIN
     IF V_COUNT<>1 THEN
         SIGNAL SQLSTATE 'U0026' SET MESSAGE_TEXT='Unexpected extra settings rows for load';
     END IF;
+    /* Optional sheet replaces this project's special list in the same transaction.
+       Old workbooks without a marker preserve the stored list. */
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_SPECIAL_LOAD_STAGE WHERE LOAD_ID=P_LOAD_ID;
+    IF V_COUNT>0 THEN
+        IF V_COUNT<>1 THEN
+            SIGNAL SQLSTATE 'U0032' SET MESSAGE_TEXT='SpecialValues marker requires one project';
+        END IF;
+        SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_SPECIAL_LOAD_STAGE
+         WHERE LOAD_ID=P_LOAD_ID AND PROJECT_ID=V_PROJECT_ID;
+        IF V_COUNT<>1 THEN
+            SIGNAL SQLSTATE 'U0032' SET MESSAGE_TEXT='SpecialValues marker project mismatch';
+        END IF;
+        SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_SPECIAL_VALUE_XLS_STAGE
+         WHERE LOAD_ID=P_LOAD_ID AND (PROJECT_ID<>V_PROJECT_ID OR TRIM(SPECIAL_VALUE)=''
+          OR (FIELD_TYPE='NUMERIC' AND REGEXP_SIMILAR(TRIM(SPECIAL_VALUE),
+              '^[+-]?[0-9]{1,28}([.][0-9]{1,10})?$','c')<>1));
+        IF V_COUNT>0 THEN
+            SIGNAL SQLSTATE 'U0033' SET MESSAGE_TEXT='SpecialValues has invalid project, empty label or numeric format';
+        END IF;
+        DELETE FROM DQ_DB.DQ_SPECIAL_VALUE_CONFIG WHERE PROJECT_ID=V_PROJECT_ID;
+        INSERT INTO DQ_DB.DQ_SPECIAL_VALUE_CONFIG
+        SELECT PROJECT_ID,FIELD_TYPE,
+               CASE WHEN FIELD_TYPE='CATEGORICAL' THEN UPPER(TRIM(SPECIAL_VALUE))
+                    ELSE TRIM(SPECIAL_VALUE) END,
+               CASE WHEN FIELD_TYPE='NUMERIC' THEN CAST(SPECIAL_VALUE AS DECIMAL(38,10)) ELSE NULL END,
+               ACTIVE_IND
+          FROM DQ_DB.DQ_SPECIAL_VALUE_XLS_STAGE WHERE LOAD_ID=P_LOAD_ID;
+    ELSE
+        SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_SPECIAL_VALUE_XLS_STAGE WHERE LOAD_ID=P_LOAD_ID;
+        IF V_COUNT>0 THEN
+            SIGNAL SQLSTATE 'U0032' SET MESSAGE_TEXT='SpecialValues rows require a load marker';
+        END IF;
+    END IF;
     MERGE INTO DQ_DB.DQ_PROJECT_CONFIG AS T
     USING (SELECT PROJECT_ID,SOURCE_DATABASE,SOURCE_TABLE,REPORTING_DATE_FIELD,
                   NULLIF(TRIM(ACCOUNT_ID_FIELD),'') AS ACCOUNT_ID_FIELD,ACTIVE_IND
@@ -135,4 +168,6 @@ main: BEGIN
     DELETE FROM DQ_DB.DQ_PROJECT_CONFIG_XLS_STAGE WHERE LOAD_ID=P_LOAD_ID;
     DELETE FROM DQ_DB.DQ_FIELD_CONFIG_XLS_STAGE WHERE LOAD_ID=P_LOAD_ID;
     DELETE FROM DQ_DB.DQ_SETTINGS_XLS_STAGE WHERE LOAD_ID=P_LOAD_ID;
+    DELETE FROM DQ_DB.DQ_SPECIAL_VALUE_XLS_STAGE WHERE LOAD_ID=P_LOAD_ID;
+    DELETE FROM DQ_DB.DQ_SPECIAL_LOAD_STAGE WHERE LOAD_ID=P_LOAD_ID;
 END main;

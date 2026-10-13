@@ -1,6 +1,6 @@
 # Data Quality Engine - SAS and Teradata
 
-This repository contains the basic Data Quality Engine in [DQ_ENGINE](DQ_ENGINE/).
+This repository contains the Data Quality Engine in [DQ_ENGINE](DQ_ENGINE/).
 Users maintain configuration in Excel, SAS loads it and starts profiling, and
 Teradata stores the configuration and calculates the results.
 
@@ -12,8 +12,9 @@ counts. Date Basic provides total, non-missing and missing counts plus missing p
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT describe overall non-missing availability for every
 selected field. [Availability upgrade](DQ_ENGINE/documentation/FIELD_AVAILABILITY.md).
 All field types support overall, yearly and monthly periods; percentages use
-the shared green/amber/red rules. Percentiles, outliers, PSI and Excel report
-export remain deferred.
+the shared green/amber/red rules. Numeric percentiles and configurable special-value checks are implemented.
+Outliers, PSI and Excel report export remain deferred.
+See [special values and percentile deployment](DQ_ENGINE/documentation/SPECIAL_VALUES_AND_PERCENTILES.md) before using this extension.
 
 ## Start here
 
@@ -42,7 +43,8 @@ No passwords belong in the workbook or repository.
 The [starter workbook](DQ_ENGINE/config/DQ_RDS_config.xlsx) contains 589 RDS
 field mappings and enables all 415 numeric fields. To test fewer fields, set
 ACTIVE_IND=Y only for the desired fields and N for all unwanted fields,
-then reload Excel. In file 00 use project=RDS, numeric_basic=Y, new basic switches selected as needed and a blank retry_run_id for a new run.
+then reload Excel. In file 00 use project=RDS, numeric_basic=Y, numeric_percentiles=Y
+when needed, other basic switches selected as needed and a blank retry_run_id for a new run.
 Every field type uses FIELD_TYPE and ACTIVE_IND; project-level SAS switches
 choose the tests for all active fields of that type. See [field selection and module switches](DQ_ENGINE/documentation/ACTIVE_FIELD_SELECTION.md).
 

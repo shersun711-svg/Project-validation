@@ -71,3 +71,14 @@ this cleanup. Optional regression tests remain for maintenance.
 The detailed [revision history](history/VALIDATION_HISTORY.md) records earlier
 failures, fixes and evidence. Historical instructions are not current deployment
 steps; use the main README and configuration/deployment guides.
+
+## Special-value and percentile extension
+
+Local generated-query checks passed for filtered numeric/categorical Basic
+aggregates and 210 percentile results across five fields and six periods,
+including NULL dates, specials, all-NULL/all-special fields, constants, singletons
+and empty populations. Combined review tests verify merging quantiles into
+basic rows. Workbook checks preserve all 589 mappings and verify the four sheets.
+These are adapted SQLite/static checks, not SAS/Teradata execution. The supplied
+extended SQL/SAS/configuration tests and all new stored-procedure compilation
+remain unverified on the user server. Earlier user-reported runs predate this extension.

@@ -27,7 +27,7 @@
         %let _rc=&sqlrc;
     quit;
     %if &_rc ne 0 %then %abort cancel;
-    %if &_fields ne 5 or &_metrics ne 136 %then %do;
+    %if &_fields ne 5 or &_metrics ne 168 %then %do;
         %put ERROR: Unexpected basic fixture summary.;
         %abort cancel;
     %end;

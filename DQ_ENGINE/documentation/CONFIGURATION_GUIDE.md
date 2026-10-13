@@ -21,7 +21,7 @@ interfaces; no outliers, PSI or baseline distributions are implemented.
 
 The project seed SQL file has been removed. The first Excel load creates the
 project, fields and settings; later loads update them through the same path.
-File `setup/00_create_config_tables.sql` installs the ten fixed metric definitions
+File `setup/00_create_config_tables.sql` installs the twelve fixed Numeric Basic metric definitions
 alongside the schema. These names/ordinals belong to the Numeric Basic module
 and are not editable project settings.
 
@@ -74,3 +74,6 @@ Excel report module are unchanged.
 
 The Fields workbook now has three columns: FIELD_NAME, FIELD_TYPE, ACTIVE_IND.
 See [field selection and module switches](ACTIVE_FIELD_SELECTION.md) for usage.
+
+SpecialValues adds project/type lists without changing the Fields headers.
+See [special-value configuration and percentile selection](SPECIAL_VALUES_AND_PERCENTILES.md).

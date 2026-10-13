@@ -54,7 +54,7 @@ quit;
     %put ERROR: Cannot read the SAS fixture summary.;
     %abort cancel;
 %end;
-%if &fixture_metric_count ne 400 or &fixture_field_count ne 5 %then %do;
+%if &fixture_metric_count ne 480 or &fixture_field_count ne 5 %then %do;
     %put ERROR: Unexpected fixture summary counts.;
     %abort cancel;
 %end;

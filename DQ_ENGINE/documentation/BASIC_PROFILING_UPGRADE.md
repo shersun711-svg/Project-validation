@@ -1,5 +1,10 @@
 # Basic profiling upgrade
 
+This guide describes an earlier capability upgrade. For current special-value
+and percentile deployment, use [the current extension guide](SPECIAL_VALUES_AND_PERCENTILES.md),
+which includes the new table/procedure prerequisites and three-procedure run API.
+
+
 Numeric Basic has ten metrics. Categorical/identifier basics store missing
 count/percentage and distinct count, with total/non-missing context in review.
 Date Basic stores exactly total, non-missing, missing counts and missing

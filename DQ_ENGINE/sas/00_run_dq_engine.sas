@@ -9,8 +9,9 @@
 %let dq_database = LAB_T_ORION_MVT;
 %let project = RDS; /* Configuration and field selection are loaded from Excel. */
 
+/* SpecialValues in Excel: Basic counts specials; statistics exclude them. */
 %let numeric_basic = Y;
-%let numeric_percentiles = N;
+%let numeric_percentiles = N; /* Y adds P1/P5/P25/P50/P75/P95/P99. */
 %let numeric_outliers = N;
 %let categorical_basic = N;
 %let categorical_psi = N;

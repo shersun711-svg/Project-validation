@@ -3,7 +3,8 @@
 One logical result is `(RUN_ID, FIELD_NAME, MODULE_NAME, PERIOD_LEVEL, PERIOD_VALUE, METRIC_NAME)`, enforced by a unique secondary index. RUN_ID identifies exactly one project; a completed run cannot be overwritten. `DQ_COMPLETED_RESULT` exposes only successful runs. `DQ_RUN_SUMMARY` counts fields separately from metric rows and groups by module/type.
 
 `DQ_BASIC_REVIEW` is the common final review layout over
-`DQ_COMPLETED_RESULT`: one row per run, project, field/type, module and period.
+`DQ_COMPLETED_RESULT`: one row per run, project, field/type and period. Basic and percentile metrics
+share the same numeric row when both modules are selected.
 Applicable metric names become columns, with MISSING_RATE_COLOUR and
 ZERO_RATE_COLOUR copied from the corresponding stored percentage results.
 Values remain DECIMAL(38,10), including the original NULL statistics. Colours
@@ -23,9 +24,11 @@ remain separate. The view reads aggregates, not the source dataset.
 | MISSING_RATE_PCT | 100 × missing / total |
 | ZERO_COUNT | Number of values exactly equal to zero; NULL is not zero |
 | ZERO_RATE_PCT | 100 × zero / total |
-| MINIMUM / MAXIMUM | Non-NULL source extrema |
-| MEAN | Arithmetic mean of non-NULL values, calculated in FLOAT |
-| STDDEV_SAMP | Sample standard deviation of non-NULL values, denominator n−1 |
+| SPECIAL_COUNT | Number of configured special values; SQL NULL is excluded |
+| SPECIAL_RATE_PCT | 100 × special count / total |
+| MINIMUM / MAXIMUM | Source extrema excluding NULL and configured specials |
+| MEAN | Arithmetic mean of non-NULL, non-special values, calculated in FLOAT |
+| STDDEV_SAMP | Sample standard deviation of non-NULL, non-special values, denominator n−1 |
 
 Only SQL NULL is missing. Teradata cannot recover SAS special missing codes lost during source ingestion. Negative values, sentinel values and zero are not treated as missing.
 
@@ -36,7 +39,7 @@ Only SQL NULL is missing. Teradata cannot recover SAS special missing codes lost
 | MONTHLY | `YYYY-MM`, derived from the same date |
 | YEARLY / MONTHLY null date | `UNKNOWN`, distinct from rollup NULLs via GROUPING |
 
-A source with no rows produces ten OVERALL results per eligible field: counts are zero, rates/statistics are NULL, and percentage colours are NOT_EVALUATED. No yearly/monthly rows are invented. All-NULL fields have 100% missing when population >0 and NULL extrema/mean/deviation. A singleton non-missing population has NULL sample deviation; a constant field with at least two non-missing values has zero sample deviation.
+A source with no rows produces twelve OVERALL results per eligible field: counts are zero, rates/statistics are NULL, and percentage colours are NOT_EVALUATED. No yearly/monthly rows are invented. All-NULL fields have 100% missing when population >0 and NULL extrema/mean/deviation. A singleton valid statistics population has NULL sample deviation; a constant field with at least two non-missing values has zero sample deviation.
 
 Green is strictly below 1%, amber is at least 1% but below 5%, and red is at least 5%, unless an approved project settings override applies. Exact thresholds are compared using numerator × 100 against denominator × threshold in DECIMAL arithmetic. A display that rounds up to 1% can therefore remain GREEN. Non-percentage metrics have NULL DQ_COLOUR. Colours are screening classifications, not proof of invalid data.
 
@@ -57,9 +60,10 @@ metric values and count-based percentage classifications are unaffected.
 
 ## Other basic results and short run numbers
 
-CATEGORICAL_BASIC and IDENTIFIER_BASIC each emit MISSING_COUNT,
-MISSING_RATE_PCT and DISTINCT_COUNT. Distinct excludes NULL and follows source
-comparison semantics. Missing percentage uses the total row population; blanks
+Both CATEGORICAL_BASIC and IDENTIFIER_BASIC emit MISSING_COUNT,
+MISSING_RATE_PCT and DISTINCT_COUNT. Categorical additionally emits SPECIAL_COUNT
+and SPECIAL_RATE_PCT. Distinct excludes NULL and follows source comparison
+semantics; categorical distinct also excludes configured specials. Missing percentage uses the total row population; blanks
 are not automatically NULL. No category/identifier values or frequencies are
 saved. Their review population counts are derived from saved rate counts.
 
@@ -78,3 +82,7 @@ Retries retain it. RUN_ID remains the original internal UUID; mapping numbers
 are never reset/reused. DQ_RUN_FIELD_CONFIG now captures selected fields for
 all basic types, with FIELD_ORDINAL numbered separately within FIELD_TYPE.
 See [upgrade semantics and verification](BASIC_PROFILING_UPGRADE.md).
+
+Numeric Percentiles adds P1, P5, P25, P50, P75, P95 and P99, excluding NULL and
+configured numeric specials. These are values, not rates; colours are NULL.
+See [special populations and interpolation methodology](SPECIAL_VALUES_AND_PERCENTILES.md).

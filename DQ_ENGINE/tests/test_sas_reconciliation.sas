@@ -36,9 +36,10 @@ quit;
 data work.sas_expected_long;
     set work.sas_expected;
     length metric_name $32;
-    array v[10] total_count non_missing_count missing_count missing_rate_pct
-        zero_count zero_rate_pct minimum maximum mean stddev_samp;
+    array v[12] total_count non_missing_count missing_count missing_rate_pct
+        zero_count zero_rate_pct minimum maximum mean stddev_samp special_count special_rate_pct;
     total_count=&sas_total; zero_count=&sas_zero;
+    special_count=0; special_rate_pct=0; /* DQ_TEST has no configured special list. */
     missing_rate_pct=100*missing_count/total_count;
     zero_rate_pct=100*zero_count/total_count;
     do i=1 to dim(v);
@@ -62,7 +63,7 @@ quit;
     proc print data=work.reconciliation_failure; run;
     %abort cancel;
 %end;
-%put NOTE: Ten synthetic overall Numeric Basic metrics reconcile to SAS.;
+%put NOTE: Twelve synthetic overall Numeric Basic metrics reconcile to SAS.;
 
 %mend;
 %test_reconciliation;

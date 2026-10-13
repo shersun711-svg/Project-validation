@@ -1,10 +1,10 @@
 /* Direct Excel -> Teradata configuration loader. No SAS validation/approval
    phase: the user edits the approved workbook, then runs this loader.
-   Project, Fields and Settings are loaded as small configuration datasets.
+   Project, Fields, Settings and optional SpecialValues are small configuration.
    The database merges the three tables in one transaction; no profiling runs.
    Requires 01_dq_controller.sas connection macros in the same SAS session. */
 %macro load_dq_config(config_workbook=);
-    %local _rc _load_id _status _load_sql;
+    %local _rc _load_id _status _load_sql _has_special;
     %global dq_config_status dq_config_load_id;
     %let dq_config_status=FAILED;
     %let dq_config_load_id=;
@@ -75,6 +75,25 @@
     run;
     %let _rc=&syserr;
     %if &_rc>4 %then %goto read_failed;
+    %let _has_special=%sysfunc(exist(dqbook.SpecialValues));
+    %if &_has_special %then %do;
+        data work.dq_stage_special_marker;
+            set work.dq_stage_project(keep=load_id project_id);
+        run;
+        data work.dq_stage_special;
+            if _n_=1 then set work.dq_stage_project(keep=project_id);
+            set dqbook.SpecialValues(rename=(FIELD_TYPE=_in_type
+                SPECIAL_VALUE=_in_special ACTIVE_IND=_in_active));
+            length load_id $36 field_type $16 special_value $128 active_ind $1;
+            load_id="&_load_id";
+            field_type=upcase(strip(vvaluex('_in_type')));
+            special_value=strip(vvaluex('_in_special'));
+            active_ind=upcase(strip(vvaluex('_in_active')));
+            keep load_id project_id field_type special_value active_ind;
+        run;
+        %let _rc=&syserr;
+        %if &_rc>4 %then %goto read_failed;
+    %end;
     libname dqbook clear;
     libname dqstage teradata server="&td_server" schema="&dq_database"
         authdomain="&td_authdomain" mode=teradata;
@@ -90,6 +109,14 @@
     %if &_rc<=4 %then %do;
         proc append base=dqstage.DQ_SETTINGS_XLS_STAGE data=work.dq_stage_settings; run;
         %let _rc=&syserr;
+    %end;
+    %if &_rc<=4 and &_has_special %then %do;
+        proc append base=dqstage.DQ_SPECIAL_LOAD_STAGE data=work.dq_stage_special_marker; run;
+        %let _rc=&syserr;
+        %if &_rc<=4 %then %do;
+            proc append base=dqstage.DQ_SPECIAL_VALUE_XLS_STAGE data=work.dq_stage_special; run;
+            %let _rc=&syserr;
+        %end;
     %end;
     libname dqstage clear;
     %if &_rc>4 %then %do;
