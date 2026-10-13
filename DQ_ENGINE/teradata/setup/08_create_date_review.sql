@@ -1,3 +1,4 @@
+/* LEGACY: retained for old date-extrema history; not needed for new Date Basic. */
 /* Additive upgrade, deploy once. Date extrema are FINAL REVIEW rows,
    not long-format profiling metrics. No date rows enter DQ_METRIC_RESULT.
    TIMESTAMP(6) preserves DATE and ordinary TIMESTAMP source extrema. */

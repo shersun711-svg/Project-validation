@@ -7,8 +7,9 @@ Teradata stores the configuration and calculates the results.
 Numeric Basic is implemented: total, non-missing, missing and zero counts,
 missing/zero percentages, minimum, maximum, mean and sample standard deviation.
 Categorical and identifier basics add missing counts/percentages and distinct
-counts. Date-field value ranges use MINIMUM/MAXIMUM in the final review.
-EARLIEST_DATE/LATEST_DATE describe overall non-missing availability for every
+counts. Date Basic provides total, non-missing and missing counts plus missing percentage.
+[Date Basic upgrade](DQ_ENGINE/documentation/DATE_BASIC_UPGRADE.md).
+FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT describe overall non-missing availability for every
 selected field. [Availability upgrade](DQ_ENGINE/documentation/FIELD_AVAILABILITY.md).
 All field types support overall, yearly and monthly periods; percentages use
 the shared green/amber/red rules. Percentiles, outliers, PSI and Excel report
@@ -49,7 +50,7 @@ numeric fields. See [field selection and module switches](DQ_ENGINE/documentatio
 ## Final results
 
 Review DQ_BASIC_REVIEW: one row per field and period across all four types,
-with applicable metrics, classifications and date extrema as columns.
+with applicable metrics, classifications as columns. Date-specific review uses DQ_DATE_BASIC_REVIEW.
 DQ_NUMERIC_REVIEW remains available for numeric-only review. Both include only
 successful runs. Filter by PROJECT_ID and the short RUN_NUMBER (1, 2, 3...) to
 select the correct results. UUIDs remain internal RUN_ID values.
@@ -63,7 +64,7 @@ See [review query and view deployment](DQ_ENGINE/documentation/README.md#review-
 | `DQ_METRIC_RESULT` | Stored results, one row per metric |
 | `DQ_COMPLETED_RESULT` | Successful results, one row per metric |
 | `DQ_NUMERIC_REVIEW` | Numeric-only review, metrics as columns |
-| `DQ_DATE_REVIEW` | Stored date extrema for final review |
+| `DQ_DATE_BASIC_REVIEW` | Date counts and missing percentage only |
 | `DQ_BASIC_REVIEW` | Final review across all four field types |
 | `DQ_RUN_NUMBER` | Short number mapped to each internal run UUID |
 

@@ -63,15 +63,14 @@ comparison semantics. Missing percentage uses the total row population; blanks
 are not automatically NULL. No category/identifier values or frequencies are
 saved. Their review population counts are derived from saved rate counts.
 
-DATE_BASIC saves only EARLIEST_DATE/LATEST_DATE in the final DQ_DATE_REVIEW
-store, as TIMESTAMP(6), with no date profiling metrics or percentage colours.
-DQ_BASIC_REVIEW displays date-value extrema in existing MINIMUM/MAXIMUM text
-columns, formatted YYYY-MM-DD, while retaining stored timestamp precision.
-Its EARLIEST_DATE/LATEST_DATE columns are DATE-valued overall availability for
-every field, using the configured reporting date where that field is non-NULL.
-They are NULL on YEARLY/MONTHLY rows. See [field availability](FIELD_AVAILABILITY.md).
-DQ_BASIC_REVIEW combines successful results from all four types. Date fields
-appear in DQ_RUN_SUMMARY with fields tested and zero metric/colour counts.
+DATE_BASIC emits TOTAL_COUNT, NON_MISSING_COUNT, MISSING_COUNT and
+MISSING_RATE_PCT into DQ_METRIC_RESULT. No date-value extrema or distinct counts
+are emitted. DQ_DATE_BASIC_REVIEW shows these four metrics and missing colour
+only. Empty sources have zero counts and NULL/NOT_EVALUATED rates. Legacy date
+extrema remain stored but are excluded from current review/summary views.
+FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT in DQ_BASIC_REVIEW describe
+overall reporting-date coverage for every selected field; other periods show
+NULL. Combined MINIMUM/MAXIMUM remain numeric. See [date upgrade](DATE_BASIC_UPGRADE.md).
 
 RUN_NUMBER is a BIGINT mapping in DQ_RUN_NUMBER and is exposed in completed
 and review views. It is global across projects and includes failed runs.

@@ -1,6 +1,6 @@
 # Overall field availability
 
-EARLIEST_DATE and LATEST_DATE in DQ_BASIC_REVIEW describe each selected field's
+FIRST_AVAILABLE_FACT_DT and LAST_AVAILABLE_FACT_DT in DQ_BASIC_REVIEW describe each selected field's
 reporting-date coverage: minimum/maximum FACT_DT (or the configured reporting
 date) where that field is non-NULL. They are DATE values, without time, and
 appear only on OVERALL rows. Yearly/monthly rows show NULL coverage dates.
@@ -8,13 +8,11 @@ If no row has both a non-NULL field and reporting date, both endpoints are NULL.
 A non-missing zero is available. Blank/sentinel values remain non-missing under
 the engine's existing SQL-NULL definition. Profile counts/periods are unchanged.
 
-For DATE fields, the field's own value extrema use the existing MINIMUM and
-MAXIMUM columns, displayed as YYYY-MM-DD. These differ from its reporting-date
-availability. No extra review columns are added. MINIMUM/MAXIMUM in this
-combined review are VARCHAR(64) display values so numeric and date ranges fit
-in one layout. Numeric storage and DQ_NUMERIC_REVIEW retain numeric types;
-use those objects for numeric sorting/calculation. Date timestamps remain
-stored at their original precision in DQ_DATE_REVIEW.
+Date Basic now provides counts/missing percentage only. No date-field value
+extrema are shown. Availability is separate, clearly named
+FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT in the combined review.
+DQ_DATE_BASIC_REVIEW focuses on date counts and omits these coverage columns.
+See [latest Date Basic upgrade](DATE_BASIC_UPGRADE.md).
 
 Availability is persisted once per field/run in DQ_FIELD_AVAILABILITY, alongside
 existing batched aggregation. It is not recalculated from a live source when
@@ -65,8 +63,7 @@ Then inspect the new run's OVERALL review rows:
 | EVENT_DATE | 2000-01-31 | 2001-01-31 |
 | EVENT_TS | 2000-01-31 | 2000-02-29 |
 
-EVENT_DATE's own MINIMUM/MAXIMUM remain 1999-12-31 and 2002-03-05. Its
-availability dates use FACT_DT, not EVENT_DATE's values. The fixture's NULL
+The fixture's NULL
 FACT_DT row contributes to missing/distinct/value metrics and UNKNOWN groups
 but does not extend reporting-date coverage.
 

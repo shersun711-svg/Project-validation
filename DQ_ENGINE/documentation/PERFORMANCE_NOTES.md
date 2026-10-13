@@ -27,8 +27,8 @@ UNION ALL, each referencing the configured source, to avoid the user's observed
 DISTINCT/GROUPING SETS flag/duplicate-row failure. Distinct aggregation may
 require additional sorting/spool. There are three source references per batch;
 actual physical scans/reuse depend on the optimizer. Benchmark batch size and
-keep the source stable during all period queries and batches. Date batches calculate only
-extrema and persist period/field review rows. Different types execute as separate
+keep the source stable during all period queries and batches. Date batches calculate counts/missing percentages and coverage dates;
+no field-value extrema or distinct counts are calculated. Different types execute as separate
 modules, so a mixed run can scan the source separately for each type and batch.
 The short run-number counter is locked only during number allocation, before
 profiling starts. No new parallel sessions or source staging are introduced.

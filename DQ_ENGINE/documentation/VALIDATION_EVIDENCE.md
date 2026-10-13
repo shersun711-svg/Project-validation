@@ -386,3 +386,20 @@ dates, empty populations, overall-only review endpoints, shared min/max display
 and preservation of stored timestamps. Teradata compilation, date formatting,
 new storage grants, failure cleanup and source calculations remain unverified
 for this revision. No deployed data or configuration was changed here.
+
+
+## Date Basic narrowed to counts/missing percentage
+
+The user's final scope replaces Date extrema with total, non-missing, missing
+counts and missing percentage only. Date metrics now use the shared metric
+store/classification and summary paths. New DQ_DATE_BASIC_REVIEW exposes only
+requested metrics and metadata. Availability stays separate in combined
+review under FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT. Numeric min/max
+types are restored; no old extrema/history tables are dropped or rewritten.
+Old date-only runs cannot acquire counts without a new source profile.
+
+SAS fixture expectations now include 64 date metric rows, 136 non-numeric rows
+and 216 mixed rows. Failure fixtures use an absent date source column because
+this module only checks NULL and does not parse/validate date values. Local
+static and portable-view checks passed. Live compile/execution remains
+unverified for this revision; no deployment occurred from this workspace.

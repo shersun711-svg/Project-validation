@@ -1,7 +1,7 @@
 /* Shared batched implementation for CATEGORICAL, IDENTIFIER and DATE.
    Deploy before the three public wrappers. Invoked only inside an active run.
    Categorical/identifier: three metrics, no category values/frequencies.
-   Date: earliest/latest extrema saved directly in DQ_DATE_REVIEW only.
+   Date: total/non-missing/missing counts and missing percentage only.
    Each batch aggregates fields together. Distinct modules use three explicit
    period queries combined by UNION ALL; DATE retains GROUPING SETS.
    Persistence reads the small volatile aggregate, not the source. */
@@ -16,6 +16,7 @@ main: BEGIN
     DECLARE V_SIZE INTEGER;
     DECLARE V_ATTEMPT INTEGER;
     DECLARE V_COUNT INTEGER;
+    DECLARE V_METRICS INTEGER DEFAULT 3;
     DECLARE V_FIELDS INTEGER;
     DECLARE V_FIRST INTEGER DEFAULT 1;
     DECLARE V_LAST INTEGER;
@@ -89,12 +90,13 @@ main: BEGIN
     IF V_COUNT>0 THEN
         SIGNAL SQLSTATE 'U0011' SET MESSAGE_TEXT = 'Captured field identifier invalid';
     END IF;
-    IF P_TYPE<>'DATE' THEN
-        SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_DEFINITION
-         WHERE MODULE_NAME=V_MODULE AND METRIC_ORDINAL BETWEEN 1 AND 3;
-        IF V_COUNT<>3 THEN
-            SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT = 'Basic metric definitions incomplete';
-        END IF;
+    IF P_TYPE='DATE' THEN
+        SET V_METRICS=4;
+    END IF;
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_DEFINITION
+     WHERE MODULE_NAME=V_MODULE AND METRIC_ORDINAL BETWEEN 1 AND V_METRICS;
+    IF V_COUNT<>V_METRICS THEN
+        SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT = 'Basic metric definitions incomplete';
     END IF;
     /* Period expressions are shared by all result inserts. UNKNOWN represents
        an actual NULL reporting date, not a rolled-up grouping row. */
@@ -123,8 +125,7 @@ main: BEGIN
             SET V_FIELD='S.DQ_F' || V_SUFFIX;
             IF P_TYPE='DATE' THEN
                 SET V_PROJECTION=V_PROJECTION
-                  || ',MIN(CAST(' || V_FIELD || ' AS TIMESTAMP(6))) AS LO' || V_SUFFIX
-                  || ',MAX(CAST(' || V_FIELD || ' AS TIMESTAMP(6))) AS HI' || V_SUFFIX
+                  || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
              || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
              || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
             ELSE
@@ -191,11 +192,20 @@ main: BEGIN
         DO
             SET V_SUFFIX=TRIM(CAST(R.FIELD_ORDINAL AS VARCHAR(12)));
             IF P_TYPE='DATE' THEN
-                SET V_SQL='INSERT INTO DQ_DB.DQ_DATE_REVIEW '
-                  || '(RUN_ID,PROJECT_ID,FIELD_NAME,PERIOD_LEVEL,PERIOD_VALUE,EARLIEST_DATE,LATEST_DATE,EXECUTION_TIMESTAMP) '
-                  || 'SELECT ''' || P_RUN_ID || ''',''' || P_PROJECT_ID || ''',''' || TRIM(R.FIELD_NAME) || ''','
-                  || V_PERIOD_LEVEL || ',' || V_PERIOD_VALUE || ',A.LO' || V_SUFFIX || ',A.HI' || V_SUFFIX
-                  || ',CURRENT_TIMESTAMP(6) FROM DQ_OB_AGG A';
+                SET V_SQL='INSERT INTO DQ_DB.DQ_METRIC_RESULT '
+                  || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,'
+                  || 'METRIC_NAME,METRIC_VALUE,IS_PERCENTAGE,RATE_NUMERATOR,RATE_DENOMINATOR,EXECUTION_TIMESTAMP) '
+                  || 'SELECT ''' || P_RUN_ID || ''',''' || P_PROJECT_ID || ''',''' || TRIM(R.FIELD_NAME)
+                  || ''',''DATE'',''DATE_BASIC'',' || V_PERIOD_LEVEL || ',' || V_PERIOD_VALUE
+                  || ',M.METRIC_NAME,CASE M.METRIC_ORDINAL '
+                  || 'WHEN 1 THEN CAST(A.TOTAL_N AS DECIMAL(38,10))'
+                  || ' WHEN 2 THEN CAST(A.N' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                  || ' WHEN 3 THEN CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                  || ' WHEN 4 THEN CAST(100.0*CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))'
+                  || ' END,M.IS_PERCENTAGE,CASE WHEN M.METRIC_ORDINAL=4 THEN A.TOTAL_N-A.N' || V_SUFFIX || ' ELSE NULL END,'
+                  || 'CASE WHEN M.METRIC_ORDINAL=4 THEN A.TOTAL_N ELSE NULL END,'
+                  || 'CURRENT_TIMESTAMP(6) FROM DQ_OB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
+                  || 'WHERE M.MODULE_NAME=''DATE_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 4';
             ELSE
                 SET V_SQL='INSERT INTO DQ_DB.DQ_METRIC_RESULT '
                   || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,'

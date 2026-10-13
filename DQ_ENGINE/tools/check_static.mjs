@@ -217,12 +217,17 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
     const insertStart=type==='DATE'?resultsCursor:other.indexOf('ELSE',resultsCursor);
     const insert=evaluate(assignment('V_SQL',insertStart,other),v);
     lex(insert,'generated '+type+' insert');assert.ok(insert.length<32000);
-    assert.ok(insert.includes(type==='DATE'?'INSERT INTO DQ_DB.DQ_DATE_REVIEW':'INSERT INTO DQ_DB.DQ_METRIC_RESULT'));
+    assert.ok(insert.includes('INSERT INTO DQ_DB.DQ_METRIC_RESULT'));
+    if(type==='DATE'){
+        assert.equal((insert.match(/AS DECIMAL\(38,10\)/g)||[]).length,4,'Date must emit exactly four count/rate branches');
+        assert.ok(insert.includes("M.MODULE_NAME='DATE_BASIC' AND M.METRIC_ORDINAL BETWEEN 1 AND 4"));
+        assert.ok(!/DISTINCT_COUNT|A\.LO|A\.HI/.test(insert),'Date value/distinct metrics are retired');
+    }
     console.log(type+' SQL template checks passed: '+batchSize+' max-length fields, '+query.length+' characters');
 }
 assert.ok(read('teradata/modules/10_numeric_basic.sql').includes("WHERE RUN_ID = P_RUN_ID AND FIELD_TYPE = 'NUMERIC'"),'Numeric module isolates its own snapshots');
-assert.ok(read('teradata/results/93_dq_basic_review.sql').includes("WHERE L.STATUS='SUCCEEDED'"),'Date review excludes unfinished runs');
-assert.ok(read('teradata/modules/00_run_engine.sql').includes('DELETE FROM DQ_DB.DQ_DATE_REVIEW'),'All partial date output is cleaned up');
+assert.ok(read('teradata/results/93_dq_basic_review.sql').includes('FROM DQ_DB.DQ_COMPLETED_RESULT'),'Date review excludes unfinished runs');
+assert.ok(read('teradata/modules/00_run_engine.sql').includes('DELETE FROM DQ_DB.DQ_METRIC_RESULT'),'All partial date output is cleaned up');
 
 /* Optional authoritative input reconciliation; no Excel package dependency. */
 if(process.argv.length>2){

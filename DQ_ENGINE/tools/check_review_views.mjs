@@ -38,8 +38,9 @@ for(const period of periods){
   metric('mixed',field,type,period,'DISTINCT_COUNT',allNull?0:2);
  }
  for(const field of ['EVENT_DATE','EVENT_TS']){
-  db.prepare('INSERT INTO DQ_DATE_REVIEW VALUES (?,?,?,?,?,?,?)').run('mixed','TEST',field,...period,
-   '1999-12-31 23:59:59.000123','2002-03-05 00:00:00.000000');
+  for(const [name,value] of Object.entries({TOTAL_COUNT:4,NON_MISSING_COUNT:3,MISSING_COUNT:1,MISSING_RATE_PCT:25})){
+   const rate=name==='MISSING_RATE_PCT';metric('mixed',field,'DATE',period,name,value,rate?'RED':null,rate?1:null,rate?4:null);
+  }
  }
 }
 for(const field of ['AMOUNT','CATEGORY','NULL_CATEGORY','CUSTOMER_ID','EVENT_DATE','EVENT_TS']){
@@ -51,36 +52,40 @@ for(const run of ['failed','active']){
  db.prepare('INSERT INTO DQ_DATE_REVIEW VALUES (?,?,?,?,?,?,?)').run(run,'TEST','EVENT_DATE','OVERALL','ALL',null,null);
 }
 for(const field of ['EVENT_DATE','EVENT_TS']){
- db.prepare('INSERT INTO DQ_DATE_REVIEW VALUES (?,?,?,?,?,?,?)').run('date-only','TEST',field,'OVERALL','ALL',null,null);
+ for(const [name,value] of Object.entries({TOTAL_COUNT:0,NON_MISSING_COUNT:0,MISSING_COUNT:0,MISSING_RATE_PCT:null})){
+  const rate=name==='MISSING_RATE_PCT';metric('date-only',field,'DATE',['OVERALL','ALL'],name,value,rate?'NOT_EVALUATED':null,rate?0:null,rate?0:null);
+ }
 }
-for(const file of ['91_dq_summary_views.sql','92_dq_numeric_review.sql','93_dq_basic_review.sql']){
+for(const file of ['91_dq_summary_views.sql','92_dq_numeric_review.sql','93_dq_basic_review.sql','94_dq_date_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
   /* SQLite CAST AS DATE differs from Teradata; adapt date extraction only. */
   .replace(/CAST\(CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE FORMAT 'YYYY-MM-DD'\) AS VARCHAR\(64\)\)/g,'date($1)');
  db.exec(sql);
 }
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,152);
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,224);
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_NUMERIC_REVIEW').get().n,8);
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW').get().n,50);
 const category=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='CATEGORY' AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(category.MISSING_COUNT,1);assert.equal(category.MISSING_RATE_PCT,25);
 assert.equal(category.DISTINCT_COUNT,2);assert.equal(category.TOTAL_COUNT,4);
 assert.equal(category.NON_MISSING_COUNT,3);assert.equal(category.MISSING_RATE_COLOUR,'RED');
-assert.equal(category.MINIMUM,null);assert.equal(category.EARLIEST_DATE,'2000-01-31');
+assert.equal(category.MINIMUM,null);assert.equal(category.FIRST_AVAILABLE_FACT_DT,'2000-01-31');
 const date=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE FIELD_NAME='EVENT_TS' AND RUN_NUMBER=1 AND PERIOD_LEVEL='OVERALL'").get();
-assert.equal(date.MINIMUM,'1999-12-31');assert.equal(date.MAXIMUM,'2002-03-05');
-assert.equal(date.EARLIEST_DATE,'2000-01-31');assert.equal(date.LATEST_DATE,'2000-02-29');
-assert.equal(date.MISSING_COUNT,null);
-assert.equal(db.prepare("SELECT EARLIEST_DATE FROM DQ_DATE_REVIEW WHERE RUN_ID='mixed' AND FIELD_NAME='EVENT_TS' AND PERIOD_LEVEL='OVERALL'").get().EARLIEST_DATE,
- '1999-12-31 23:59:59.000123','Review formatting must preserve stored timestamp extrema');
+assert.equal(date.MINIMUM,null);assert.equal(date.MAXIMUM,null);assert.equal(date.DISTINCT_COUNT,null);
+assert.equal(date.FIRST_AVAILABLE_FACT_DT,'2000-01-31');assert.equal(date.LAST_AVAILABLE_FACT_DT,'2000-02-29');
+assert.equal(date.MISSING_COUNT,1);assert.equal(date.TOTAL_COUNT,4);assert.equal(date.MISSING_RATE_COLOUR,'RED');
+
 const summary=db.prepare("SELECT * FROM DQ_RUN_SUMMARY WHERE RUN_ID='date-only'").all();
 assert.equal(summary.length,1);assert.equal(summary[0].FIELDS_TESTED,2);
-assert.equal(summary[0].METRIC_RESULT_COUNT,0);assert.equal(summary[0].GREEN_COUNT,0);
+assert.equal(summary[0].METRIC_RESULT_COUNT,8);assert.equal(summary[0].GREEN_COUNT,0);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER IN (2,3)").get().n,0);
-assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT WHERE FIELD_TYPE='DATE'").get().n,0);
-assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=4 AND EARLIEST_DATE IS NULL AND LATEST_DATE IS NULL").get().n,2);
-assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND PERIOD_LEVEL<>'OVERALL' AND (EARLIEST_DATE IS NOT NULL OR LATEST_DATE IS NOT NULL)").get().n,0);
-assert.equal(db.prepare("SELECT MINIMUM FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get().MINIMUM,'0');
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT WHERE FIELD_TYPE='DATE'").get().n,72);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=4 AND FIRST_AVAILABLE_FACT_DT IS NULL AND LAST_AVAILABLE_FACT_DT IS NULL").get().n,2);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND PERIOD_LEVEL<>'OVERALL' AND (FIRST_AVAILABLE_FACT_DT IS NOT NULL OR LAST_AVAILABLE_FACT_DT IS NOT NULL)").get().n,0);
+assert.equal(db.prepare("SELECT MINIMUM FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get().MINIMUM,0);
+const dateColumns=Object.keys(db.prepare("SELECT * FROM DQ_DATE_BASIC_REVIEW WHERE RUN_NUMBER=1 LIMIT 1").get());
+assert.ok(!dateColumns.includes('MINIMUM')&&!dateColumns.includes('DISTINCT_COUNT')&&!dateColumns.includes('FIRST_AVAILABLE_FACT_DT'));
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_DATE_BASIC_REVIEW WHERE RUN_NUMBER=1").get().n,16);
 db.close();
 console.log('Portable review logic checks passed: pivot, period separation, date-only summary, short numbers and completed-run filtering. Teradata/SAS execution NOT tested.');
