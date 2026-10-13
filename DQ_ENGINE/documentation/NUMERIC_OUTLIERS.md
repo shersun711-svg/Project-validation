@@ -68,14 +68,19 @@ No database deployment is performed by repository tools.
 
 1. Run setup/16_create_outlier_support.sql ONCE. It adds the shared aggregate
    table and five fixed metric definitions. Existing tables/results are preserved.
-2. Compile modules/03_numeric_statistics.sql as a complete procedure.
+2. Compile modules/03_numeric_statistics.sql as a complete procedure, then
+   execute its following GRANT statement.
 3. Recompile modules/10_numeric_basic.sql to capture unrounded statistics.
-4. Compile modules/12_numeric_outliers.sql as a complete procedure.
+4. Compile modules/12_numeric_outliers.sql as a complete procedure, then
+   execute its following GRANT statement.
 5. Recompile all four procedures in modules/00_run_engine.sql separately:
    SP_DQ_RUN_EXTENDED, SP_DQ_RUN_PROFILE, SP_DQ_RUN_BASIC, SP_DQ_RUN_ENGINE.
+   Execute the GRANT following each before compiling the next wrapper.
 6. Replace results/93_dq_basic_review.sql. Classification/summary procedures do not need recompilation for this change.
-7. Apply approved EXECUTE/owner-reference privileges for the new procedures and
-   SELECT/INSERT/DELETE on DQ_NUMERIC_STATISTICS. The site must verify these grants.
+7. The deployment files include EXECUTE PROCEDURE grants to DQ_DB and the
+   statistics table SELECT/INSERT/DELETE grant. Replace DQ_DB in both ON and TO.
+   Verify runtime-user permissions and view-owner access separately. If setup 16
+   already ran, execute only its grant; do not rerun CREATE or metadata inserts.
 8. Run updated SAS 01 in your session; require controller version
    20261013_BASIC_SPECIAL_OUTLIERS. File 05/configuration loader is unchanged.
 9. If Settings already has multiplier 3 and the intended field selection, no
@@ -124,3 +129,8 @@ The module checks total/valid counts against captured statistics and fails on a
 mismatch, but unchanged counts cannot detect all value changes. FLOAT arithmetic
 and DECIMAL(38,10) storage require tolerance and range checks as in Basic profiling.
 PSI and Excel report generation remain deferred.
+
+Grant statements are separate from SPL procedure definitions. A client that
+handles SPL deployment sequences can execute both from the same file. With
+BTEQ .COMPILE FILE, compile only the procedure block, then submit its GRANT.
+No grants have been executed from this workspace.

@@ -136,7 +136,9 @@ the site's approved .COMPILE FILE workflow. Inspect compiler errors/warnings.
 CALLs use mode=teradata and must not be wrapped in an enclosing transaction;
 the configuration apply and run-number allocation procedures own their
 transactions. File modules/00_run_engine.sql contains four complete procedure
-statements; submit them separately in the stated order.
+statements; submit them separately in the stated order and run each following
+GRANT before compiling the next wrapper. Grants are separate SQL statements;
+BTEQ .COMPILE FILE should receive only the procedure block.
 
 No database cleanup is required for this repository cleanup. Existing unused
 DQ_FIELD_CONFIG_STAGE tables may remain; new installations no longer create

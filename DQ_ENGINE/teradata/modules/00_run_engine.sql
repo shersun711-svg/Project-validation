@@ -1,5 +1,6 @@
 /* Deploy AFTER basic, outlier/statistics and special-list procedures and SP_DQ_CLASSIFY.
    Submit EACH REPLACE PROCEDURE below separately: EXTENDED, PROFILE, BASIC, ENGINE.
+   Run each following GRANT before compiling the next wrapper.
    SP_DQ_RUN_ENGINE keeps the original two-argument Numeric Basic API.
    SAS uses SP_DQ_RUN_EXTENDED for independent module switches.
    The seventh EXTENDED argument is reserved and must be N for API compatibility.
@@ -153,6 +154,10 @@ main: BEGIN
      WHERE RUN_ID=P_RUN_ID AND STATUS='RUNNING';
 END main;
 
+/* Execute after compiling the complete procedure above. Replace DQ_DB in
+   both ON and TO with the approved engine schema. */
+GRANT EXECUTE PROCEDURE ON DQ_DB.SP_DQ_RUN_EXTENDED TO DQ_DB;
+
 /* Keep the seven-argument legacy API. Its reserved final switch must be N. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_RUN_PROFILE
     (IN P_RUN_ID CHAR(36),IN P_PROJECT_ID VARCHAR(30),IN P_NUMERIC CHAR(1),IN P_CATEGORICAL CHAR(1),
@@ -164,6 +169,10 @@ BEGIN
     END IF;
     CALL DQ_DB.SP_DQ_RUN_EXTENDED(P_RUN_ID,P_PROJECT_ID,P_NUMERIC,P_CATEGORICAL,P_DATE,P_IDENTIFIER,'N','N');
 END;
+/* Execute after compiling the complete procedure above. Replace DQ_DB in
+   both ON and TO with the approved engine schema. */
+GRANT EXECUTE PROCEDURE ON DQ_DB.SP_DQ_RUN_PROFILE TO DQ_DB;
+
 
 /* Preserve the six-argument basic API for SQL callers and existing fixtures. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_RUN_BASIC
@@ -173,6 +182,10 @@ SQL SECURITY INVOKER
 BEGIN
     CALL DQ_DB.SP_DQ_RUN_PROFILE(P_RUN_ID,P_PROJECT_ID,P_NUMERIC,P_CATEGORICAL,P_DATE,P_IDENTIFIER,'N');
 END;
+/* Execute after compiling the complete procedure above. Replace DQ_DB in
+   both ON and TO with the approved engine schema. */
+GRANT EXECUTE PROCEDURE ON DQ_DB.SP_DQ_RUN_BASIC TO DQ_DB;
+
 
 /* Backwards-compatible Numeric Basic entry for existing SQL integrations. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_RUN_ENGINE
@@ -181,3 +194,6 @@ SQL SECURITY INVOKER
 BEGIN
     CALL DQ_DB.SP_DQ_RUN_BASIC(P_RUN_ID,P_PROJECT_ID,'Y','N','N','N');
 END;
+/* Execute after compiling the complete procedure above. Replace DQ_DB in
+   both ON and TO with the approved engine schema. */
+GRANT EXECUTE PROCEDURE ON DQ_DB.SP_DQ_RUN_ENGINE TO DQ_DB;
