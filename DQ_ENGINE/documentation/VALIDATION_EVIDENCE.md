@@ -414,3 +414,17 @@ classification and combined-view SQL are unchanged; unrelated numeric/distinct
 columns are NULL. Portable checks confirm sixteen fixture date rows and NULL
 unrelated metrics. No database objects/results were changed or dropped locally;
 the previously deployed view is optional legacy cleanup only.
+
+
+## Global field activation and project-level tests
+
+The user chose one ACTIVE_IND per field in Excel and project-level test switches
+in file 00, because tests should be the same for all selected fields of a type.
+The workbook, loader, schemas, apply MERGE, controller configuration read and
+numeric/orchestrator selection now follow that rule. No runtime code uses the
+retired numeric module flag. Migration 13 folds old numeric flag N into active
+N to preserve prior selection before dropping the old columns. Results and
+run numbering are not rewritten. Edited server workbooks require conversion
+before loading; the unchanged-mapping starter enables all fields by default.
+Local static/workbook/portable checks passed. Live schema migration and SAS
+loading/execution remain unverified. No deployment was performed here.

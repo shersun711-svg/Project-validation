@@ -51,14 +51,13 @@
     data work.dq_stage_fields;
         if _n_=1 then set work.dq_stage_project(keep=project_id);
         set dqbook.Fields(rename=(FIELD_NAME=_in_name FIELD_TYPE=_in_type
-            ACTIVE_IND=_in_active NUMERIC_BASIC_IND=_in_numeric));
-        length load_id $36 field_name $128 field_type $16 active_ind numeric_basic_ind $1;
+            ACTIVE_IND=_in_active));
+        length load_id $36 field_name $128 field_type $16 active_ind $1;
         load_id="&_load_id";
         field_name=strip(vvaluex('_in_name'));
         field_type=upcase(strip(vvaluex('_in_type')));
         active_ind=upcase(strip(vvaluex('_in_active')));
-        numeric_basic_ind=upcase(strip(vvaluex('_in_numeric')));
-        keep load_id project_id field_name field_type active_ind numeric_basic_ind;
+        keep load_id project_id field_name field_type active_ind;
     run;
     %let _rc=&syserr;
     %if &_rc>4 %then %goto read_failed;

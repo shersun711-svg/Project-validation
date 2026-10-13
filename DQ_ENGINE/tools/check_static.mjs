@@ -66,6 +66,21 @@ function lex(text,label){
 assert.throws(()=>lex("execute (call DQ_DB.SP_DQ_RUN_ENGINE('&dq_run_id','&project')) by dq;",'single_quote_regression.sas'),/unresolved macro reference/);
 function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)]);}
 const files=walk(root);
+/* Execute the actual selection-fold UPDATE on synthetic legacy config.
+   No ALTER TABLE/SAS/Teradata execution is claimed by this portable check. */
+{
+    const db=new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE DQ_FIELD_CONFIG (FIELD_NAME TEXT,FIELD_TYPE TEXT,ACTIVE_IND TEXT,NUMERIC_BASIC_IND TEXT)');
+    const cases=[['selected','NUMERIC','Y','Y','Y'],['unselected','NUMERIC','Y','N','N'],
+        ['inactive','NUMERIC','N','Y','N'],['category','CATEGORICAL','Y','N','Y'],['date','DATE','N','N','N']];
+    for(const [name,type,active,legacy] of cases)db.prepare('INSERT INTO DQ_FIELD_CONFIG VALUES (?,?,?,?)').run(name,type,active,legacy);
+    db.exec(read('teradata/setup/13_simplify_field_selection.sql').split('ALTER TABLE')[0].replaceAll('DQ_DB.',''));
+    for(const [name,,,,expected] of cases)assert.equal(db.prepare('SELECT ACTIVE_IND FROM DQ_FIELD_CONFIG WHERE FIELD_NAME=?').get(name).ACTIVE_IND,expected);
+    db.close();
+}
+for(const p of files.filter(p=>/\.(sql|sas)$/.test(p)&&!p.endsWith('13_simplify_field_selection.sql'))){
+    assert.ok(!/NUMERIC_BASIC_IND/i.test(fs.readFileSync(p,'utf8')),'Retired field flag still referenced in '+p);
+}
 for(const p of files.filter(p=>/\.(sql|sas)$/.test(p))){
     const text=fs.readFileSync(p,'utf8');const clean=lex(text,path.relative(root,p));
     if(p.endsWith('.sas')){

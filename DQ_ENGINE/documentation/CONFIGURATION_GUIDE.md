@@ -6,7 +6,7 @@ validation phase. See [Excel setup and usage](EXCEL_CONFIGURATION.md).
 
 `DQ_PROJECT_CONFIG` has one active source per project. Database, source and column names must be simple identifiers matching `[A-Za-z_][A-Za-z0-9_]*`, up to 128 characters. Project IDs use the same convention up to 30 characters. SQL quotes validated source names; arbitrary SQL snippets and user-supplied predicates are not configuration inputs.
 
-`DQ_FIELD_CONFIG` retains all logical types. A field runs in Numeric Basic only when FIELD_TYPE=NUMERIC, ACTIVE_IND=Y and NUMERIC_BASIC_IND=Y. Disabling a field is an explicit analyst decision. The approved workbook FIELD_TYPE controls module selection. The engine does not query database types or alter classifications; Teradata evaluates numeric expressions and explicit statistical casts when each batch executes.
+`DQ_FIELD_CONFIG` retains all logical types. A field runs in Numeric Basic only when FIELD_TYPE=NUMERIC, ACTIVE_IND=Y and the project Numeric Basic switch is Y. Disabling a field is an explicit analyst decision. The approved workbook FIELD_TYPE controls module selection. The engine does not query database types or alter classifications; Teradata evaluates numeric expressions and explicit statistical casts when each batch executes.
 
 Edit the workbook's Settings row to maintain thresholds and batch size. The
 initial workbook uses green threshold 1, red threshold 5 (percentage points),
@@ -45,7 +45,8 @@ Workbook classifications are assumed correct. No DBC.ColumnsV or validation-view
 
 CATEGORICAL, IDENTIFIER and DATE fields are selected by FIELD_TYPE and
 ACTIVE_IND only. Enable categorical_basic, identifier_basic or date_basic in
-file 00 after deploying the upgrade. NUMERIC_BASIC_IND applies only to NUMERIC.
+file 00 after deploying the upgrade. There are no per-field module flags; SAS switches select tests for all active
+fields of each type.
 Date extrema go to final review; categorical/identifier missing and distinct
 metrics go to DQ_METRIC_RESULT. The three-sheet Excel layout is unchanged.
 
@@ -69,3 +70,8 @@ The agreed Project/Fields/Settings workbook is available. The final user decisio
 is to load it directly, without SAS workbook validation. Database table constraints
 and transaction error handling remain. Profiling calculations and the deferred
 Excel report module are unchanged.
+
+
+The Fields workbook now has three columns: FIELD_NAME, FIELD_TYPE, ACTIVE_IND.
+See [migration and workbook conversion](ACTIVE_FIELD_SELECTION.md) before
+loading it into an older installation.

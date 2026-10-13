@@ -3,7 +3,7 @@
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
 %global dq_controller_version;
-%let dq_controller_version=20261012_BASIC_RUN_NUMBER;
+%let dq_controller_version=20261013_ACTIVE_SELECTION;
 %put NOTE: DQ controller loaded: &dq_controller_version;
 %put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
 
@@ -140,7 +140,7 @@
         %put NOTE: DQ READ: configuration;
         create table work.dq_configuration_report as
         select * from connection to dq
-            (select PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND,NUMERIC_BASIC_IND
+            (select PROJECT_ID,FIELD_NAME,FIELD_TYPE,ACTIVE_IND
              from &dq_database..DQ_FIELD_CONFIG
              where PROJECT_ID=&_project_sql order by FIELD_NAME);
         %dq_check_sql;

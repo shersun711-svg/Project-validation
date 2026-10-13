@@ -46,8 +46,9 @@ old test-result cleanup. Verify concurrent allocation with two sessions.
 
 ## Configuration and review
 
-Excel layout is unchanged. FIELD_TYPE/ACTIVE_IND select non-numeric fields;
-NUMERIC_BASIC_IND applies only to numeric fields. Select the matching basic
+The simplified Excel Fields sheet has three columns; apply
+ACTIVE_FIELD_SELECTION.md when migrating an old four-column installation. FIELD_TYPE/ACTIVE_IND select non-numeric fields;
+There are no per-field test flags; ACTIVE_IND selects all types consistently. Select the matching basic
 SAS switches. A selected module with no eligible fields fails explicitly.
 Percentiles/outliers/PSI/Excel export remain N.
 

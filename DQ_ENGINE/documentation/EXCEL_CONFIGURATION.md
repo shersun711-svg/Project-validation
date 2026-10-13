@@ -15,12 +15,13 @@ from book2.xlsx, without reclassifying fields.
 | Sheet | Columns | Rows |
 |---|---|---|
 | Project | PROJECT_ID, SOURCE_DATABASE, SOURCE_TABLE, REPORTING_DATE_FIELD, ACCOUNT_ID_FIELD, ACTIVE_IND | One project row |
-| Fields | FIELD_NAME, FIELD_TYPE, ACTIVE_IND, NUMERIC_BASIC_IND | One row per configured field |
+| Fields | FIELD_NAME, FIELD_TYPE, ACTIVE_IND | One row per configured field |
 | Settings | GREEN_THRESHOLD, RED_THRESHOLD, SQL_BATCH_SIZE, OUTLIER_SD_MULTIPLIER | One settings row |
 
 For RDS, Project is `RDS`, `LAB_T_ORION_MVT`, `VW_RDS_PHASE2_FACT`, `FACT_DT`,
 `AGMT_ID`, `Y`. The field classifications are authoritative. Use the dropdowns
-for logical types and Y/N flags. Only NUMERIC fields should have Numeric Basic=Y.
+for logical types and Y/N flags. ACTIVE_IND selects fields globally. Module switches in file 00 select tests
+for all active fields of the matching type.
 Keep field names as text, not formulas. An account field is optional for other
 projects; leave that cell blank if not applicable.
 
@@ -148,3 +149,8 @@ checked by the user. These are user-server observations; no SAS or Teradata
 execution took place in this workspace. The configuration-rollback test suite
 has not been confirmed executed. See VALIDATION_EVIDENCE.md for the distinction
 between local checks and user-server evidence.
+
+
+Existing four-column workbooks must be converted before loading. See
+[active field selection upgrade](ACTIVE_FIELD_SELECTION.md) for preserving your
+50-field numeric selection and migrating the schema without reseeding projects.

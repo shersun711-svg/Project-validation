@@ -17,9 +17,11 @@ const project=rows(1),fields=rows(2),settings=rows(3);
 assert.equal(project.length,2);assert.equal(settings.length,2);assert.equal(fields.length,590);
 assert.deepEqual(project[0],['PROJECT_ID','SOURCE_DATABASE','SOURCE_TABLE','REPORTING_DATE_FIELD','ACCOUNT_ID_FIELD','ACTIVE_IND']);
 assert.deepEqual(project[1],['RDS','LAB_T_ORION_MVT','VW_RDS_PHASE2_FACT','FACT_DT','AGMT_ID','Y']);
-assert.deepEqual(fields[0],['FIELD_NAME','FIELD_TYPE','ACTIVE_IND','NUMERIC_BASIC_IND']);
+assert.deepEqual(fields[0],['FIELD_NAME','FIELD_TYPE','ACTIVE_IND']);
+assert.ok(!xml('xl/worksheets/sheet2.xml').includes('NUMERIC_BASIC_IND'));
+assert.ok(xml('xl/worksheets/sheet2.xml').includes('ref="A1:C590"'));
 const csv=fs.readFileSync(path.join(root,'config/rds_fields.csv'),'utf8').trim().split('\n').slice(1).map(l=>l.split(','));
-assert.deepEqual(fields.slice(1),csv.map(([n,t])=>[n,t,'Y',t==='NUMERIC'?'Y':'N']));
+assert.deepEqual(fields.slice(1),csv.map(([n,t])=>[n,t,'Y']));
 assert.deepEqual(settings[0],['GREEN_THRESHOLD','RED_THRESHOLD','SQL_BATCH_SIZE','OUTLIER_SD_MULTIPLIER']);
 assert.deepEqual(settings[1],[1,5,25,3]);
 for(let i=1;i<=3;i++){assert.ok(!/<f[ >]/.test(xml(`xl/worksheets/sheet${i}.xml`)),'No formulas in starter workbook');}

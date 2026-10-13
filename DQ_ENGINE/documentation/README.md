@@ -36,8 +36,8 @@ If using automatic INCLUDE instead, set it to the DQ_ENGINE folder on the SAS
 server. A local PC Downloads path is not a server path. The workbook must also
 be accessible from the chosen SAS server, regardless of the editor used.
 
-A numeric field runs only with FIELD_TYPE=NUMERIC, ACTIVE_IND=Y and
-NUMERIC_BASIC_IND=Y. The starter workbook contains 589 original RDS mappings
+A field runs when ACTIVE_IND=Y and its matching type/module switch in file 00
+is Y. There are no per-field test flags. The starter workbook contains 589 original RDS mappings
 and enables all 415 numeric fields. For a smaller run, edit the selections in
 Excel, reload and check the enabled count in DQ_FIELD_CONFIG. Reusing already
 loaded configuration retains the existing selection.
@@ -177,3 +177,8 @@ is abandoned from elapsed time: verify it ended before operator recovery.
 Further details: [configuration](CONFIGURATION_GUIDE.md),
 [metric definitions](RESULTS_DICTIONARY.md), [performance](PERFORMANCE_NOTES.md)
 and [original input review](INPUT_REVIEW.md).
+
+
+For an existing installation, apply [active field selection](ACTIVE_FIELD_SELECTION.md)
+before using the simplified three-column workbook. Migration 13 is not part
+of a fresh installation; current schemas do not create the retired flag.

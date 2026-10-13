@@ -42,10 +42,12 @@ No passwords belong in the workbook or repository.
 
 The [starter workbook](DQ_ENGINE/config/DQ_RDS_config.xlsx) contains 589 RDS
 field mappings and enables all 415 numeric fields. To test fewer fields, set
-NUMERIC_BASIC_IND=Y only for the desired numeric fields, keep their ACTIVE_IND=Y,
+ACTIVE_IND=Y only for the desired fields and N for all unwanted fields,
 then reload Excel. In file 00 use project=RDS, numeric_basic=Y, new basic switches selected as needed and a blank retry_run_id for a new run.
-Non-numeric fields use FIELD_TYPE and ACTIVE_IND; NUMERIC_BASIC_IND affects only
-numeric fields. See [field selection and module switches](DQ_ENGINE/documentation/BASIC_PROFILING_UPGRADE.md#choose-fields-and-modules).
+Every field type uses FIELD_TYPE and ACTIVE_IND; project-level SAS switches
+choose the tests for all active fields of that type. See [field selection and module switches](DQ_ENGINE/documentation/BASIC_PROFILING_UPGRADE.md#choose-fields-and-modules).
+
+Existing installations must apply the [simple field-selection upgrade](DQ_ENGINE/documentation/ACTIVE_FIELD_SELECTION.md) and convert their edited workbook before reload.
 
 ## Final results
 

@@ -102,7 +102,7 @@ main: BEGIN
        by the existing SQL exception handler when the batch executes. */
     SELECT COUNT(*) INTO V_FIELDS FROM DQ_DB.DQ_FIELD_CONFIG
      WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y'
-       AND FIELD_TYPE = 'NUMERIC' AND NUMERIC_BASIC_IND = 'Y';
+       AND FIELD_TYPE = 'NUMERIC';
     IF V_FIELDS = 0 THEN
         SIGNAL SQLSTATE 'U0009' SET MESSAGE_TEXT = 'No eligible numeric fields; zero-field run rejected';
     END IF;
@@ -126,7 +126,7 @@ main: BEGIN
            ROW_NUMBER() OVER (ORDER BY FIELD_NAME)
       FROM DQ_DB.DQ_FIELD_CONFIG
      WHERE PROJECT_ID = P_PROJECT_ID AND ACTIVE_IND = 'Y'
-       AND FIELD_TYPE = 'NUMERIC' AND NUMERIC_BASIC_IND = 'Y';
+       AND FIELD_TYPE = 'NUMERIC';
 
     /* Validate captured identifiers, including concurrent configuration edits,
        while keeping the approved workbook classifications unchanged. */
