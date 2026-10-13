@@ -50,7 +50,7 @@ numeric fields. See [field selection and module switches](DQ_ENGINE/documentatio
 ## Final results
 
 Review DQ_BASIC_REVIEW: one row per field and period across all four types,
-with applicable metrics, classifications as columns. Date-specific review uses DQ_DATE_BASIC_REVIEW.
+with applicable metrics, classifications as columns. Date rows share the same layout; unrelated metrics are NULL.
 DQ_NUMERIC_REVIEW remains available for numeric-only review. Both include only
 successful runs. Filter by PROJECT_ID and the short RUN_NUMBER (1, 2, 3...) to
 select the correct results. UUIDs remain internal RUN_ID values.
@@ -64,7 +64,6 @@ See [review query and view deployment](DQ_ENGINE/documentation/README.md#review-
 | `DQ_METRIC_RESULT` | Stored results, one row per metric |
 | `DQ_COMPLETED_RESULT` | Successful results, one row per metric |
 | `DQ_NUMERIC_REVIEW` | Numeric-only review, metrics as columns |
-| `DQ_DATE_BASIC_REVIEW` | Date counts and missing percentage only |
 | `DQ_BASIC_REVIEW` | Final review across all four field types |
 | `DQ_RUN_NUMBER` | Short number mapped to each internal run UUID |
 

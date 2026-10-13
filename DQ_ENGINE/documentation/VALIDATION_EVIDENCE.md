@@ -403,3 +403,14 @@ and 216 mixed rows. Failure fixtures use an absent date source column because
 this module only checks NULL and does not parse/validate date values. Local
 static and portable-view checks passed. Live compile/execution remains
 unverified for this revision; no deployment occurred from this workspace.
+
+
+## Single combined review for date fields
+
+The user chose to keep date profiling simple and remove the separate date
+review view. File 94 was removed and active documentation/validation now uses
+DQ_BASIC_REVIEW with FIELD_TYPE=DATE. Date calculations, metric storage,
+classification and combined-view SQL are unchanged; unrelated numeric/distinct
+columns are NULL. Portable checks confirm sixteen fixture date rows and NULL
+unrelated metrics. No database objects/results were changed or dropped locally;
+the previously deployed view is optional legacy cleanup only.

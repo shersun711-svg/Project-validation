@@ -54,7 +54,7 @@ and overall field availability. DQ_NUMERIC_REVIEW retains the ten numeric metric
 Both contain one row per field and period. Values retain stored precision;
 NULL statistics and NOT_EVALUATED classifications retain their meaning.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT are overall coverage for each
-non-missing field. Date counts have their own narrow DQ_DATE_BASIC_REVIEW.
+non-missing field. Date counts use this same layout; unrelated metrics are NULL.
 MINIMUM/MAXIMUM are numeric and apply only to numeric fields. Read [availability semantics and upgrade](FIELD_AVAILABILITY.md).
 Both views and DQ_COMPLETED_RESULT include the short RUN_NUMBER.
 
@@ -110,7 +110,6 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 11. `teradata/results/91_dq_summary_views.sql`
 12. `teradata/results/92_dq_numeric_review.sql`
 13. `teradata/results/93_dq_basic_review.sql`
-14. `teradata/results/94_dq_date_basic_review.sql`
 15. `teradata/modules/01_assign_run_number.sql`
 16. `teradata/modules/10_numeric_basic.sql`
 17. `teradata/modules/15_other_basic.sql`

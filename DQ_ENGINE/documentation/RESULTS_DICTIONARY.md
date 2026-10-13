@@ -65,8 +65,8 @@ saved. Their review population counts are derived from saved rate counts.
 
 DATE_BASIC emits TOTAL_COUNT, NON_MISSING_COUNT, MISSING_COUNT and
 MISSING_RATE_PCT into DQ_METRIC_RESULT. No date-value extrema or distinct counts
-are emitted. DQ_DATE_BASIC_REVIEW shows these four metrics and missing colour
-only. Empty sources have zero counts and NULL/NOT_EVALUATED rates. Legacy date
+are emitted. DQ_BASIC_REVIEW shows these four metrics and missing colour,
+with unrelated numeric/distinct columns NULL. Empty sources have zero counts and NULL/NOT_EVALUATED rates. Legacy date
 extrema remain stored but are excluded from current review/summary views.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT in DQ_BASIC_REVIEW describe
 overall reporting-date coverage for every selected field; other periods show

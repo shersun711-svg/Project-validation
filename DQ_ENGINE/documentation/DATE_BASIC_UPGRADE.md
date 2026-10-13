@@ -25,9 +25,7 @@ With profiling stopped, replace DQ_DB with LAB_T_ORION_MVT:
    store dependency from failure/retry cleanup.
 5. Replace both views in results/91_dq_summary_views.sql.
 6. Replace results/93_dq_basic_review.sql.
-7. Deploy results/94_dq_date_basic_review.sql and grant approved reviewers
-   SELECT using your site's process.
-8. Use the latest tests/test_other_basic.sas with the controller loaded.
+7. Use the latest tests/test_other_basic.sas with the controller loaded.
    Its non-numeric fixture expectation is now 136 metric rows across 5 fields.
 
 No Excel layout or SAS controller change is needed. Availability table 11 from
@@ -40,13 +38,14 @@ CREATE files, number backfill or metric definitions for other modules.
 SELECT RUN_NUMBER,FIELD_NAME,PERIOD_LEVEL,PERIOD_VALUE,
        TOTAL_COUNT,NON_MISSING_COUNT,MISSING_COUNT,MISSING_RATE_PCT,
        MISSING_RATE_COLOUR
-FROM LAB_T_ORION_MVT.DQ_DATE_BASIC_REVIEW
-WHERE RUN_NUMBER=19 AND PERIOD_LEVEL='OVERALL'
+FROM LAB_T_ORION_MVT.DQ_BASIC_REVIEW
+WHERE RUN_NUMBER=19 AND FIELD_TYPE='DATE' AND PERIOD_LEVEL='OVERALL'
 ORDER BY FIELD_NAME;
 ```
 
-Use your new run number. This view contains no irrelevant numeric, distinct,
-min/max or availability columns. In the fixture, EVENT_DATE and EVENT_TS each
+Use your new run number. The combined view keeps unrelated numeric, distinct
+and min/max columns NULL for date fields. The explicit SELECT above shows the
+requested metrics; SELECT * uses the common layout. In the fixture, EVENT_DATE and EVENT_TS each
 have total 4, non-missing 3, missing 1, missing percentage 25 and RED.
 Date-only fixture runs have 64 metric rows and 16 review rows. Mixed runs have
 216 metric rows and 48 review rows. Empty non-numeric runs have 17 metric rows
@@ -57,8 +56,7 @@ FIRST_AVAILABLE_FACT_DT and LAST_AVAILABLE_FACT_DT, only on OVERALL rows.
 These describe reporting-date coverage and are not date-field values. The
 backing availability table's internal column names remain unchanged.
 MINIMUM/MAXIMUM in the combined view return to numeric DECIMAL(38,10); Date
-rows have NULL for those unrelated metrics. Use the date-specific view for
-clear review. Queries using the former availability aliases must be updated.
+rows have NULL for those unrelated metrics. No separate date view is required. Queries using the former availability aliases must be updated.
 
 ## Validation
 
@@ -73,3 +71,10 @@ so counts-only Date Basic still exercises cleanup. Older fixtures using
 Z_BAD_DATE must update only that synthetic DQ_BASIC_BAD field configuration;
 invalid date text is not a failure condition in this limited module. No RDS
 configuration/data change is required for testing.
+
+
+The previously deployed DQ_DATE_BASIC_REVIEW is now unused; its creation file
+was removed from the repository. No engine procedure/view depends on it.
+Keeping or removing that old view does not affect results. If desired, remove
+only the view with DROP VIEW LAB_T_ORION_MVT.DQ_DATE_BASIC_REVIEW; do not drop
+result/history tables or rerun profiling for this repository cleanup.

@@ -56,7 +56,7 @@ for(const field of ['EVENT_DATE','EVENT_TS']){
   const rate=name==='MISSING_RATE_PCT';metric('date-only',field,'DATE',['OVERALL','ALL'],name,value,rate?'NOT_EVALUATED':null,rate?0:null,rate?0:null);
  }
 }
-for(const file of ['91_dq_summary_views.sql','92_dq_numeric_review.sql','93_dq_basic_review.sql','94_dq_date_basic_review.sql']){
+for(const file of ['91_dq_summary_views.sql','92_dq_numeric_review.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
   /* SQLite CAST AS DATE differs from Teradata; adapt date extraction only. */
@@ -84,8 +84,7 @@ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT WHERE FIELD_
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=4 AND FIRST_AVAILABLE_FACT_DT IS NULL AND LAST_AVAILABLE_FACT_DT IS NULL").get().n,2);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND PERIOD_LEVEL<>'OVERALL' AND (FIRST_AVAILABLE_FACT_DT IS NOT NULL OR LAST_AVAILABLE_FACT_DT IS NOT NULL)").get().n,0);
 assert.equal(db.prepare("SELECT MINIMUM FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get().MINIMUM,0);
-const dateColumns=Object.keys(db.prepare("SELECT * FROM DQ_DATE_BASIC_REVIEW WHERE RUN_NUMBER=1 LIMIT 1").get());
-assert.ok(!dateColumns.includes('MINIMUM')&&!dateColumns.includes('DISTINCT_COUNT')&&!dateColumns.includes('FIRST_AVAILABLE_FACT_DT'));
-assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_DATE_BASIC_REVIEW WHERE RUN_NUMBER=1").get().n,16);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='DATE'").get().n,16);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_TYPE='DATE' AND (MINIMUM IS NOT NULL OR MAXIMUM IS NOT NULL OR DISTINCT_COUNT IS NOT NULL OR ZERO_COUNT IS NOT NULL OR ZERO_RATE_PCT IS NOT NULL OR MEAN IS NOT NULL OR STDDEV_SAMP IS NOT NULL)").get().n,0);
 db.close();
 console.log('Portable review logic checks passed: pivot, period separation, date-only summary, short numbers and completed-run filtering. Teradata/SAS execution NOT tested.');

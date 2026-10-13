@@ -30,7 +30,7 @@ an enclosing transaction.
 8. Compile modules/00_run_engine.sql as two complete statements, basic runner
    first and the SP_DQ_RUN_ENGINE compatibility wrapper second.
 9. Replace results/91_dq_summary_views.sql, 92_dq_numeric_review.sql and
-   93_dq_basic_review.sql, then deploy 94_dq_date_basic_review.sql. File 90's
+   93_dq_basic_review.sql. File 90's
    shared classification logic is unchanged.
 10. Run the current SAS controller in the same session as the run/test file.
 
@@ -52,8 +52,8 @@ SAS switches. A selected module with no eligible fields fails explicitly.
 Percentiles/outliers/PSI/Excel export remain N.
 
 DQ_BASIC_REVIEW combines successful metric results. Numeric MINIMUM/MAXIMUM
-remain numeric; date rows have NULL in unrelated columns. Use
-DQ_DATE_BASIC_REVIEW for a narrow date-count review. Availability is separate,
+remain numeric; date rows have NULL in unrelated columns. No separate date
+view or reporting workflow is required. Availability is separate,
 named FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT in combined review and
 populated only for OVERALL. Old date extrema remain stored in the legacy table
 but are not shown or recalculated. New runs are required for date counts.

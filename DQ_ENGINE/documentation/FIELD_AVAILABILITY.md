@@ -11,7 +11,7 @@ the engine's existing SQL-NULL definition. Profile counts/periods are unchanged.
 Date Basic now provides counts/missing percentage only. No date-field value
 extrema are shown. Availability is separate, clearly named
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT in the combined review.
-DQ_DATE_BASIC_REVIEW focuses on date counts and omits these coverage columns.
+Date counts use the same combined review, with unrelated metrics NULL.
 See [latest Date Basic upgrade](DATE_BASIC_UPGRADE.md).
 
 Availability is persisted once per field/run in DQ_FIELD_AVAILABILITY, alongside
