@@ -25,6 +25,12 @@ main: BEGIN
     DECLARE V_SQL VARCHAR(32000);
     DECLARE V_PROJECTION VARCHAR(20000);
     DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
+    /* Bounded parts also bound SPL's inferred concatenation expression size.
+       Repeating 20,000/8,000-character variables in one expression can fail
+       compilation even when the actual generated query is below 32,000. */
+    DECLARE V_OVERALL VARCHAR(10000);
+    DECLARE V_YEARLY VARCHAR(10000);
+    DECLARE V_MONTHLY VARCHAR(10000);
     DECLARE V_SUFFIX VARCHAR(12);
     DECLARE V_FIELD VARCHAR(260);
     DECLARE V_PERIOD_LEVEL VARCHAR(200);
@@ -138,23 +144,29 @@ main: BEGIN
                Ordinary GROUP BY and literal flags keep periods unambiguous.
                This requires three source references per batch; no raw source
                staging, arbitrary deduplication or relaxed uniqueness index. */
-            SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS ('
-              || 'SELECT CAST(NULL AS INTEGER) AS DQ_YEAR,CAST(NULL AS INTEGER) AS DQ_MONTH,'
+            /* Guard before assigning bounded parts; never truncate query text. */
+            IF CHARACTER_LENGTH(V_PROJECTION)+CHARACTER_LENGTH(V_SOURCE_PROJECTION)
+               +CHARACTER_LENGTH(V_DB)+CHARACTER_LENGTH(V_SOURCE)+600>10000 THEN
+                SIGNAL SQLSTATE 'U0023' SET MESSAGE_TEXT = 'Period SQL part too long; reduce SQL_BATCH_SIZE';
+            END IF;
+            SET V_OVERALL='SELECT CAST(NULL AS INTEGER) AS DQ_YEAR,CAST(NULL AS INTEGER) AS DQ_MONTH,'
               || '1 AS GY,1 AS GM,COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
               || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
-              || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
-              || ' UNION ALL SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
+              || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S';
+            SET V_YEARLY='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
               || 'CAST(NULL AS INTEGER) AS DQ_MONTH,0 AS GY,1 AS GM,'
               || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
               || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
               || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
-              || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT)'
-              || ' UNION ALL SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
+              || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT)';
+            SET V_MONTHLY='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
               || 'EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,0 AS GY,0 AS GM,'
               || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
               || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
               || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
-              || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)'
+              || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)';
+            SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS ('
+              || V_OVERALL || ' UNION ALL ' || V_YEARLY || ' UNION ALL ' || V_MONTHLY
               || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
         END IF;
         UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL

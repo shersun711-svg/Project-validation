@@ -171,3 +171,11 @@ loaded. It generates a fresh run UUID; the failed run remains logged.
 For the fixture, the successful non-numeric-only run should have 72 metric
 rows, 16 date-review rows and 40 combined review rows, covering five fields.
 The portable aggregation checks do not establish live Teradata correctness.
+
+If an earlier UNION revision fails compilation with SPL1026/E3798 (expression
+larger than the maximum), use the newer file with V_OVERALL, V_YEARLY and
+V_MONTHLY VARCHAR(10000) parts. The final assembly has bounded declared lengths,
+and a pre-assignment guard rejects oversized actual parts rather than truncating
+SQL. Local checks cover both length bounds. Recompile the complete procedure
+successfully before rerunning the SAS test; a failed REPLACE leaves the old
+procedure deployed.

@@ -158,6 +158,19 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
     const dateAggregateStart=other.indexOf("SET V_SQL ='CREATE VOLATILE TABLE DQ_OB_AGG",other.indexOf('WHILE V_FIRST'));
     assert.ok(dateAggregateStart>=0,'Find the date aggregate template');
     const aggregateStart=type==='DATE'?dateAggregateStart:other.indexOf('ELSE',dateAggregateStart);
+    if(type!=='DATE'){
+        const widths=Object.fromEntries([...other.matchAll(/DECLARE (\w+) VARCHAR\((\d+)\)/g)].map(([,name,size])=>[name,+size]));
+        const declared={...v,...Object.fromEntries(Object.entries(widths).map(([name,size])=>[name,'X'.repeat(size)]))};
+        for(const part of ['V_OVERALL','V_YEARLY','V_MONTHLY']){
+            const expression=assignment(part,aggregateStart,other);
+            v[part]=evaluate(expression,v);
+            assert.ok(v[part].length<=widths[part],'Actual period part must fit its bounded variable');
+            assert.ok(evaluate(expression,declared).length<32000,'Declared input widths must fit each SPL expression');
+        }
+        assert.ok(evaluate(assignment('V_SQL',aggregateStart,other),declared).length<32000,
+            'SPL must not infer an oversized final concatenation from declared part widths');
+        assert.ok(v.V_PROJECTION.length+v.V_SOURCE_PROJECTION.length+v.V_DB.length+v.V_SOURCE.length+600<=10000);
+    }
     const query=evaluate(assignment('V_SQL',aggregateStart,other),v);
     lex(query,'generated '+type+' aggregate');assert.ok(query.length<32000);
     assert.equal((query.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,type==='DATE'?1:3);

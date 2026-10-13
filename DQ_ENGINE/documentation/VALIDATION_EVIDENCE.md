@@ -326,3 +326,21 @@ statements are 25,760 characters for categorical/identifier, below the existing
 32,000-character buffer; date remains 7,330. Static checks passed for 35 SQL/SAS
 files. Portable review checks and diff whitespace checks also passed.
 The repaired procedure has not yet been compiled or executed on Teradata.
+
+## SPL UNION builder expression-length correction
+
+The user's saved batch text confirmed that the old GROUPING SETS procedure
+was still executing. Compiling the first UNION revision then failed with
+SPL1026/E3798: a column/character expression exceeded the maximum size.
+The single concatenation repeated declared VARCHAR(20000)/VARCHAR(8000)
+buffers three times; checking only the actual 25,760-character query did not
+catch that inferred expression size.
+
+The three period SELECTs are now constructed in separate VARCHAR(10000)
+parts. Final assembly uses those bounded parts; a conservative actual-length
+guard runs before assigning them, raising U0023 when the batch must be reduced.
+The static checker verifies both actual part lengths and the concatenations'
+declared-width upper bounds. Reconstructed SQL and synthetic period results
+are unchanged. Static checks (35 SQL/SAS files), portable review checks and
+diff checks passed. Compilation and execution of this correction on Teradata
+remain unverified; a failed REPLACE did not deploy the preceding correction.
