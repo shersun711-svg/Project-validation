@@ -237,6 +237,18 @@ main: BEGIN
               || 'CURRENT_TIMESTAMP(6) FROM DQ_NB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
               || 'WHERE M.MODULE_NAME=''NUMERIC_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 12';
             CALL DBC.SysExecSQL(V_SQL);
+            /* Keep unrounded FLOAT mean/deviation for strict Outlier bounds.
+               V is the non-NULL, non-special population; no source rescan. */
+            SET V_SQL = 'INSERT INTO DQ_DB.DQ_NUMERIC_STATISTICS '
+              || '(RUN_ID,FIELD_NAME,PERIOD_LEVEL,PERIOD_VALUE,TOTAL_COUNT,VALID_COUNT,MEAN_VALUE,STDDEV_VALUE) '
+              || 'SELECT ''' || P_RUN_ID || ''',''' || TRIM(R.FIELD_NAME) || ''','
+              || 'CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END,'
+              || 'CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
+              || 'WHEN A.GM=1 THEN TRIM(CAST(A.DQ_YEAR AS CHAR(4))) ELSE '
+              || 'TRIM(CAST(A.DQ_YEAR AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))),'
+              || 'CHARACTER_LENGTH(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))))-1,2) END,'
+              || 'A.TOTAL_N,A.V' || V_SUFFIX || ',A.AV' || V_SUFFIX || ',A.SD' || V_SUFFIX || ' FROM DQ_NB_AGG A';
+            CALL DBC.SysExecSQL(V_SQL);
             /* Coverage is overall-only and depends on this field being non-NULL.
                NULL reporting dates contribute no availability endpoint. */
             SET V_SQL = 'INSERT INTO DQ_DB.DQ_FIELD_AVAILABILITY '

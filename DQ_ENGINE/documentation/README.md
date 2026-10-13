@@ -5,7 +5,9 @@ Basic metrics and stores configuration, results and logs. The engine supports
 Numeric Basic counts and distribution metrics, categorical/identifier missing and distinct
 metrics, and date counts/missing percentage, across overall/yearly/monthly periods.
 Numeric percentiles and numeric/categorical special-value checks are implemented.
-Outliers, PSI and Excel report generation remain deferred.
+Numeric Outliers is implemented with the agreed +/-3 sample-deviation rule.
+PSI and Excel report generation remain deferred.
+See [outlier deployment for an existing engine](NUMERIC_OUTLIERS.md).
 For this extension, follow [deployment and test instructions](SPECIAL_VALUES_AND_PERCENTILES.md).
 Existing Basic installations adding special values/percentiles should use that
 extension guide; current fresh deployments use the one-time sequence below.
@@ -107,19 +109,22 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 8. `teradata/setup/12_add_date_basic_metrics.sql`
 9. `teradata/setup/14_create_special_values.sql`
 10. `teradata/setup/15_add_extended_metrics.sql`
-11. `teradata/setup/07_apply_excel_config.sql`
-12. `teradata/results/90_colour_classification.sql`
-13. `teradata/results/91_dq_summary_views.sql`
-14. `teradata/results/93_dq_basic_review.sql`
-15. `teradata/modules/01_assign_run_number.sql`
-16. `teradata/modules/02_special_value_list.sql`
-17. `teradata/modules/10_numeric_basic.sql`
-18. `teradata/modules/11_numeric_percentiles.sql`
-19. `teradata/modules/15_other_basic.sql`
-20. `teradata/modules/20_categorical_basic.sql`
-21. `teradata/modules/30_date_basic.sql`
-22. `teradata/modules/40_identifier_basic.sql`
-23. `teradata/modules/00_run_engine.sql` (PROFILE, then BASIC, then ENGINE separately)
+11. `teradata/setup/16_create_outlier_support.sql`
+12. `teradata/setup/07_apply_excel_config.sql`
+13. `teradata/results/90_colour_classification.sql`
+14. `teradata/results/91_dq_summary_views.sql`
+15. `teradata/results/93_dq_basic_review.sql`
+16. `teradata/modules/01_assign_run_number.sql`
+17. `teradata/modules/02_special_value_list.sql`
+18. `teradata/modules/03_numeric_statistics.sql`
+19. `teradata/modules/10_numeric_basic.sql`
+20. `teradata/modules/11_numeric_percentiles.sql`
+21. `teradata/modules/12_numeric_outliers.sql`
+22. `teradata/modules/15_other_basic.sql`
+23. `teradata/modules/20_categorical_basic.sql`
+24. `teradata/modules/30_date_basic.sql`
+25. `teradata/modules/40_identifier_basic.sql`
+26. `teradata/modules/00_run_engine.sql` (EXTENDED, then PROFILE, BASIC and ENGINE separately)
 
 Table CREATE files are one-time operations. Do not rerun them on an existing
 installation. File 00 installs fixed metric definitions; project configuration
@@ -131,7 +136,7 @@ client; ordinary semicolon splitting breaks procedure bodies. With BTEQ use
 the site's approved .COMPILE FILE workflow. Inspect compiler errors/warnings.
 CALLs use mode=teradata and must not be wrapped in an enclosing transaction;
 the configuration apply and run-number allocation procedures own their
-transactions. File modules/00_run_engine.sql contains three complete procedure
+transactions. File modules/00_run_engine.sql contains four complete procedure
 statements; submit them separately in the stated order.
 
 No database cleanup is required for this repository cleanup. Existing unused

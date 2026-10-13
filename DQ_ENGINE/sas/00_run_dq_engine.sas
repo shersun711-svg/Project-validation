@@ -12,7 +12,7 @@
 /* SpecialValues in Excel: Basic counts specials; statistics exclude them. */
 %let numeric_basic = Y;
 %let numeric_percentiles = N; /* Y adds P1/P5/P25/P50/P75/P95/P99. */
-%let numeric_outliers = N;
+%let numeric_outliers = N; /* Y applies mean +/- 3*sample standard deviation. */
 %let categorical_basic = N;
 %let categorical_psi = N;
 %let date_basic = N;

@@ -28,8 +28,8 @@ SpecialValues preserves the stored special list; a present empty sheet with
 headers clears it. See [special-value semantics](SPECIAL_VALUES_AND_PERCENTILES.md).
 
 Settings defaults are 1, 5, 25 and 3. Thresholds are percentage points: enter
-1 and 5, not 1% and 5%. Batch size must be an integer from 1–30. Outlier multiplier
-is reserved and does not enable outliers. Names support 128 ASCII identifier
+1 and 5, not 1% and 5%. Batch size must be an integer from 1–30. Outlier multiplier must remain 3 when numeric_outliers=Y;
+the SAS switch enables that module. Names support 128 ASCII identifier
 characters, project IDs 30, flags one, logical types 16, special text 128.
 Use the documented numeric precision. Normal SAS/database conversion can
 round or truncate values beyond these limits.

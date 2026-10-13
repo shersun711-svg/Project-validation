@@ -34,14 +34,14 @@ all active fields of its matching type. For numeric and categorical testing:
 ```
 
 Basic numeric/categorical profiling includes special counts and rates.
-Percentiles can also run with numeric_basic=N. Outliers, PSI and Excel report
-export remain unavailable and must stay N. A selected module with no eligible
+Percentiles can also run with numeric_basic=N. Enable numeric_outliers=Y for mean +/- 3*sample-deviation checks. PSI and Excel
+report export remain unavailable and must stay N. A selected module with no eligible
 fields fails explicitly; enabling no modules is also rejected.
 
 ## Settings and special values
 
 Settings default to green below 1%, amber from 1% to below 5%, red from 5%,
-SQL_BATCH_SIZE=25 and reserved OUTLIER_SD_MULTIPLIER=3. Enter thresholds as
+SQL_BATCH_SIZE=25 and OUTLIER_SD_MULTIPLIER=3 (required for the agreed outlier rule). Enter thresholds as
 numbers 1 and 5, not Excel percentage-formatted cells. Batch size accepts 1–30;
 module caps can reduce the effective size. See [performance](PERFORMANCE_NOTES.md).
 Excel-loaded projects have their own settings row. A legacy global '*' row can

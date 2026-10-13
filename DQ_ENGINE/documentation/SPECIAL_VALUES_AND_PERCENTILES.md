@@ -95,49 +95,23 @@ yearly and monthly include UNKNOWN for NULL reporting dates. Domain periods
 are generated from all rows, so all-special/all-NULL periods still receive seven
 NULL quantiles. An empty source produces only OVERALL with seven NULL results.
 
-## Deploy to an already working engine
+## Deployment and use
 
-Pause profiling and Excel loads. Replace DQ_DB with the approved schema,
-currently LAB_T_ORION_MVT, in deployment copies, including dynamic SQL literals.
-Back up configuration through your normal database process. No completed
-results or existing configuration need to be deleted.
+For a new installation, use the [current one-time deployment sequence](README.md#one-time-deployment).
+For an existing special-value/percentile engine adding Outliers, use
+[the current Outlier upgrade](NUMERIC_OUTLIERS.md). Current Numeric Basic and
+run procedures require the shared-statistics table from setup 16, even when
+outliers are switched off. Do not recompile them piecemeal from older releases.
 
-1. Run setup/14_create_special_values.sql once to add four small config/staging/
-   snapshot tables. Do not rerun existing table CREATE scripts.
-2. Run setup/15_add_extended_metrics.sql to add fixed metric definitions.
-3. Compile modules/02_special_value_list.sql as one procedure.
-4. Recompile modules/10_numeric_basic.sql and modules/15_other_basic.sql.
-5. Compile modules/11_numeric_percentiles.sql as one procedure.
-6. Recompile setup/07_apply_excel_config.sql as one procedure.
-7. Recompile the three complete procedures in modules/00_run_engine.sql
-   separately: SP_DQ_RUN_PROFILE, then SP_DQ_RUN_BASIC, then SP_DQ_RUN_ENGINE.
-   The two existing basic APIs remain available with their previous signatures.
-8. Recompile results/93_dq_basic_review.sql. Existing classification and completed/
-   summary views remain usable without recompilation.
-9. Have your DBA apply the approved source/config/DML/EXECUTE privileges,
-   including owner-reference rights for the new helper, percentile and PROFILE
-   procedures. Follow the same containing-database grant approach that resolved
-   the earlier owner-reference error; do not assume old grants cover new objects.
-10. Load current SAS 01 and 05 in the same session. Controller version is
-    20261013_SPECIAL_PERCENTILES. Add SpecialValues to your edited workbook and
-    load with file 04. Require APPLIED and confirm field selections and special lists.
-11. Test a small numeric/categorical selection using file 00 with numeric_basic=Y,
-    numeric_percentiles=Y and categorical_basic=Y. Leave outliers/PSI/export=N.
-    Require SUCCEEDED and inspect DQ_BASIC_REVIEW before a full RDS run.
+Older Basic installations first need setup 14 (special tables), setup 15
+(extended metric definitions), helper 02, percentile procedure 11, updated
+other-basic helper 15 and apply procedure 07. Then follow the Outlier upgrade
+before loading the current controller. Existing table CREATEs are not rerunnable.
 
-```sql
-SELECT FIELD_TYPE,COUNT(*) AS ACTIVE_FIELDS
-FROM LAB_T_ORION_MVT.DQ_FIELD_CONFIG
-WHERE PROJECT_ID='RDS' AND ACTIVE_IND='Y' GROUP BY FIELD_TYPE;
-
-SELECT FIELD_TYPE,SPECIAL_VALUE,NUMERIC_VALUE,ACTIVE_IND
-FROM LAB_T_ORION_MVT.DQ_SPECIAL_VALUE_CONFIG
-WHERE PROJECT_ID='RDS' ORDER BY FIELD_TYPE,SPECIAL_VALUE;
-
-SELECT * FROM LAB_T_ORION_MVT.DQ_BASIC_REVIEW
-WHERE PROJECT_ID='RDS' AND RUN_NUMBER=YOUR_RUN_NUMBER
-ORDER BY FIELD_NAME,PERIOD_LEVEL,PERIOD_VALUE;
-```
+Copy only SpecialValues into your edited workbook, load with file 04 and require
+APPLIED. Choose numeric_percentiles=Y in file 00 and require SUCCEEDED before
+review. Use a small initial selection and observe spool/timing. No deployment
+is performed by repository tools.
 
 ## Validation and limits
 
@@ -168,4 +142,4 @@ field's sort. This can consume substantial spool. Numeric Basic caps at 10 field
 Categorical Basic at 8, Identifier Basic at 20, Date Basic at 30. Lower the shared
 SQL_BATCH_SIZE if needed; caps bound generated SQL, not measured optimal sizes.
 No workload/performance benchmarks have been run here. No underlying source
-records are retrieved by SAS. Outliers, PSI and Excel reporting remain deferred.
+records are retrieved by SAS. PSI and Excel reporting remain deferred. Numeric Outliers is available separately.

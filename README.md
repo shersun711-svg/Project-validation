@@ -13,7 +13,9 @@ FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT describe overall non-missing avai
 selected field. See [availability definitions](DQ_ENGINE/documentation/RESULTS_DICTIONARY.md#field-availability).
 All field types support overall, yearly and monthly periods; percentages use
 the shared green/amber/red rules. Numeric percentiles and configurable special-value checks are implemented.
-Outliers, PSI and Excel report export remain deferred.
+Numeric Outliers uses mean +/- 3 times sample standard deviation.
+PSI and Excel report export remain deferred.
+See [outlier deployment and validation](DQ_ENGINE/documentation/NUMERIC_OUTLIERS.md).
 See [special values and percentile deployment](DQ_ENGINE/documentation/SPECIAL_VALUES_AND_PERCENTILES.md) before using this extension.
 
 ## Start here

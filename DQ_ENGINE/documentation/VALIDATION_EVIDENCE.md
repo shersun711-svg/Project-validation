@@ -87,3 +87,13 @@ Documentation cleanup removed superseded Basic/date/availability upgrade guides
 and consolidated field selection into CONFIGURATION_GUIDE.md. Current definitions
 and deployment instructions replace old procedure order and metric counts.
 Production SQL/SAS, configuration workbooks and deployed objects were unchanged.
+
+## Numeric Outliers
+
+Local generated-SQL checks passed for 180 field/period/metric outlier results,
+strict +/-3 boundary equality, special exclusions, zero deviation, singleton/
+empty populations, and valid rate denominators. Statistics checks verify 36
+period aggregates and preservation of full FLOAT precision. Supplied SQL/SAS
+outlier fixtures, failure/retry tests and database compilation remain unverified
+on the user server. The user reported Teradata 2646 spool exhaustion in Numeric
+Percentiles and is testing a smaller batch; no successful rerun is claimed.

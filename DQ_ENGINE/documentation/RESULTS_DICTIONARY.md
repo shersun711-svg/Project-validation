@@ -102,3 +102,12 @@ coverage, including percentiles-only runs, show NULL availability. Yearly and
 monthly rows also show NULL. Historical coverage is not backfilled from extrema
 or counts. Date Basic exposes only counts/missing percentage; MINIMUM/MAXIMUM
 and unrelated special/numeric/percentile columns remain NULL for date fields.
+
+## Numeric outliers
+
+Five metrics store lower/upper mean +/-3 sample-deviation bounds, outlier count,
+valid count and outlier percentage. The denominator excludes NULL and configured
+specials. Insufficient populations are NOT_EVALUATED; constants with n>=2 have
+zero outliers. Unrounded Basic/prerequisite statistics are retained in
+DQ_NUMERIC_STATISTICS; only percentage metrics receive colours. See
+[outlier definitions and validation](NUMERIC_OUTLIERS.md).

@@ -64,3 +64,13 @@ the same fields, settings and special lists. Do not mutate production source
 configuration for benchmarking. A permanent stage survives separate SAS
 sessions; a manually created volatile stage does not. The engine does not
 manage a permanent raw-data staging lifecycle.
+
+## Numeric Outliers
+
+Outliers cap batches at five fields and use three explicit period source
+references plus small bounds/aggregate volatile tables. No raw source staging
+or rank sorting is introduced. Basic supplies full FLOAT statistics through
+DQ_NUMERIC_STATISTICS; standalone Outliers calculates a prerequisite aggregate
+in batches capped at ten. Actual scans/spool depend on the view and optimizer.
+No throughput/spool benchmark has been executed here. The percentile spool
+error reported by the user is separate and is not fixed by this extension.

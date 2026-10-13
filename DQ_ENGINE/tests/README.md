@@ -23,6 +23,9 @@ SAS tests require the current controller loaded in the same server session.
 | `test_extended.sql` | Checks filtered metrics, quantiles, independent switching and empty sources |
 | `test_extended.sas` | Checks the SAS advanced-module call and summary |
 | `test_extended_config.sql` | Checks special-list replacement, escaped labels and rollback |
+| `03_create_outlier_fixture.sql` | Creates isolated strict-boundary and tail test populations |
+| `test_outliers.sql` | Checks outlier bounds/rates, Basic reuse, dependency and retry |
+| `test_outliers.sas` | Checks switches and reconciles sample deviation/bounds to SAS |
 
 Run fixture creation, numeric, colour and failure/restart SQL in that order,
 then the full SAS execution and SAS reconciliation checks. Use an isolated
@@ -44,6 +47,7 @@ Developer-only checks (Node 24 and unzip; no SAS/Teradata execution):
 
 ```sh
 node DQ_ENGINE/tools/check_extended.mjs
+node DQ_ENGINE/tools/check_outliers.mjs
 node DQ_ENGINE/tools/check_config_workbook.mjs
 node DQ_ENGINE/tools/check_review_views.mjs
 ```
