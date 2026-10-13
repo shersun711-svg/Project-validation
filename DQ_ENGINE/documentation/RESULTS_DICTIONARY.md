@@ -2,9 +2,9 @@
 
 One logical result is `(RUN_ID, FIELD_NAME, MODULE_NAME, PERIOD_LEVEL, PERIOD_VALUE, METRIC_NAME)`, enforced by a unique secondary index. RUN_ID identifies exactly one project; a completed run cannot be overwritten. `DQ_COMPLETED_RESULT` exposes only successful runs. `DQ_RUN_SUMMARY` counts fields separately from metric rows and groups by module/type.
 
-`DQ_NUMERIC_REVIEW` is the final Numeric Basic review layout over
+`DQ_BASIC_REVIEW` is the common final review layout over
 `DQ_COMPLETED_RESULT`: one row per run, project, field/type, module and period.
-The ten metric names become columns, with MISSING_RATE_COLOUR and
+Applicable metric names become columns, with MISSING_RATE_COLOUR and
 ZERO_RATE_COLOUR copied from the corresponding stored percentage results.
 Values remain DECIMAL(38,10), including the original NULL statistics. Colours
 are not recalculated from rounded rates or current configuration. Filter by
@@ -13,7 +13,7 @@ remain separate. The view reads aggregates, not the source dataset.
 
 `DQ_METRIC_RESULT` stores numeric metrics as DECIMAL(38,10): 28 integral digits, 10 fractional digits. Exact supported source min/max and counts are cast independently before CASE evaluation, avoiding implicit FLOAT promotion. Counts/rate denominators are also preserved as BIGINT where applicable. Mean, sample standard deviation and reported rates use FLOAT arithmetic before storage, consistent with SAS floating-point statistical calculations; they require numeric tolerances in reconciliation. Tiny differences and rates below storage scale can round. Colours use exact count comparisons, not the stored rounded rate. FLOAT source min/max already have source floating-point precision.
 
-`DATE_METRIC_VALUE` remains reserved and unused. Date Basic writes extrema directly to DQ_DATE_REVIEW; no date rows are emitted into DQ_METRIC_RESULT. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
+`DATE_METRIC_VALUE` remains reserved and unused. Date Basic emits its four count/missing metrics into DQ_METRIC_RESULT; no date-value extrema are calculated. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
 
 | Numeric Basic metric | Definition |
 |---|---|

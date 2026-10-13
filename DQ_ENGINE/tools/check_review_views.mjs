@@ -56,7 +56,7 @@ for(const field of ['EVENT_DATE','EVENT_TS']){
   const rate=name==='MISSING_RATE_PCT';metric('date-only',field,'DATE',['OVERALL','ALL'],name,value,rate?'NOT_EVALUATED':null,rate?0:null,rate?0:null);
  }
 }
-for(const file of ['91_dq_summary_views.sql','92_dq_numeric_review.sql','93_dq_basic_review.sql']){
+for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
   /* SQLite CAST AS DATE differs from Teradata; adapt date extraction only. */
@@ -64,7 +64,7 @@ for(const file of ['91_dq_summary_views.sql','92_dq_numeric_review.sql','93_dq_b
  db.exec(sql);
 }
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,224);
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_NUMERIC_REVIEW').get().n,8);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='NUMERIC'").get().n,8);
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW').get().n,50);
 const category=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='CATEGORY' AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(category.MISSING_COUNT,1);assert.equal(category.MISSING_RATE_PCT,25);

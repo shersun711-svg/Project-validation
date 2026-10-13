@@ -50,13 +50,12 @@ are needed. See [upgrade and selection instructions](BASIC_PROFILING_UPGRADE.md)
 
 DQ_METRIC_RESULT stores one row per metric. DQ_COMPLETED_RESULT exposes only
 successful runs in that same layout. DQ_BASIC_REVIEW is the final review view across all four types, including date counts
-and overall field availability. DQ_NUMERIC_REVIEW retains the ten numeric metrics as columns.
-Both contain one row per field and period. Values retain stored precision;
+and overall field availability. The view contains one row per field and period. Values retain stored precision;
 NULL statistics and NOT_EVALUATED classifications retain their meaning.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT are overall coverage for each
 non-missing field. Date counts use this same layout; unrelated metrics are NULL.
 MINIMUM/MAXIMUM are numeric and apply only to numeric fields. Read [availability semantics and upgrade](FIELD_AVAILABILITY.md).
-Both views and DQ_COMPLETED_RESULT include the short RUN_NUMBER.
+The review and DQ_COMPLETED_RESULT include the short RUN_NUMBER.
 
 ```sql
 SELECT *
@@ -70,7 +69,7 @@ ORDER BY FIELD_NAME;
 Remove the period filter for yearly/monthly results too; order by FIELD_NAME,
 PERIOD_LEVEL, PERIOD_VALUE. Always filter by RUN_NUMBER to keep historical runs
 separate. For 50 numeric fields only, OVERALL returns 50 rows. Categorical/identifier
-fields each store three metrics per period; date fields have review rows only.
+fields each store three metrics per period; date fields store four count/rate metrics.
 Do not divide mixed-module metric counts by ten to infer review row counts.
 
 Existing installations need the complete [upgrade](BASIC_PROFILING_UPGRADE.md)
@@ -108,15 +107,14 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 9. `teradata/setup/12_add_date_basic_metrics.sql`
 10. `teradata/results/90_colour_classification.sql`
 11. `teradata/results/91_dq_summary_views.sql`
-12. `teradata/results/92_dq_numeric_review.sql`
-13. `teradata/results/93_dq_basic_review.sql`
-15. `teradata/modules/01_assign_run_number.sql`
-16. `teradata/modules/10_numeric_basic.sql`
-17. `teradata/modules/15_other_basic.sql`
-18. `teradata/modules/20_categorical_basic.sql`
-19. `teradata/modules/30_date_basic.sql`
-20. `teradata/modules/40_identifier_basic.sql`
-21. `teradata/modules/00_run_engine.sql` (SP_DQ_RUN_BASIC, then SP_DQ_RUN_ENGINE)
+12. `teradata/results/93_dq_basic_review.sql`
+13. `teradata/modules/01_assign_run_number.sql`
+14. `teradata/modules/10_numeric_basic.sql`
+15. `teradata/modules/15_other_basic.sql`
+16. `teradata/modules/20_categorical_basic.sql`
+17. `teradata/modules/30_date_basic.sql`
+18. `teradata/modules/40_identifier_basic.sql`
+19. `teradata/modules/00_run_engine.sql` (SP_DQ_RUN_BASIC, then SP_DQ_RUN_ENGINE)
 
 Table CREATE files are one-time operations. Do not rerun them on an existing
 installation. File 00 installs fixed metric definitions; project configuration
@@ -142,7 +140,10 @@ Retain synthetic tests for regression checking; run them in an isolated test
 engine. Read-only RDS validation and performance checks are also available.
 [Validation evidence](VALIDATION_EVIDENCE.md) distinguishes local static checks
 from user-server observations. The user reported a successful Excel load and
-50-field RDS run with 139,000 metric rows and checked sample results; the new modules, run numbers and review views remain unverified on the server.
+50-field numeric RDS run with sample results checked, followed by a successful
+65-field mixed RDS run (50 numeric, 9 categorical, 4 date, 2 identifier). These
+are user-server reports; full RDS source reconciliation and benchmarks remain
+unverified. No live SAS/Teradata execution occurred in this workspace.
 
 - A missing macro means the helper files need running in the same session.
 - Workbook path errors require checking access on the selected SAS server.
@@ -167,7 +168,8 @@ is abandoned from elapsed time: verify it ended before operator recovery.
 |---|---|
 | `sas/` | Excel loader, controller and run entry program |
 | `config/` | Editable starter workbook and original input audit references |
-| `teradata/setup/` | One-time configuration, results and logging schema |
+| `teradata/setup/` | Current one-time configuration, results and logging schema |
+| `teradata/migrations/` | One-time upgrades for older installations only |
 | `teradata/modules/` | Numeric calculations and run orchestration |
 | `teradata/results/` | Classification, completed results and review views |
 | `tests/` | Optional database/SAS regression, source and performance checks |

@@ -30,7 +30,7 @@ Pause profiling/configuration loads, back up field configuration and resolve any
 pending staging load before upgrading. Replace DQ_DB with the approved schema
 (currently LAB_T_ORION_MVT) in deployment copies.
 
-1. Run setup/13_simplify_field_selection.sql once. It folds the old numeric
+1. Run migrations/13_simplify_field_selection.sql once. It folds the old numeric
    selection into ACTIVE_IND, then drops the old flag from configuration and
    Excel-field staging tables. Non-numeric flags/results/history are untouched.
 2. Recompile the complete setup/07_apply_excel_config.sql procedure.

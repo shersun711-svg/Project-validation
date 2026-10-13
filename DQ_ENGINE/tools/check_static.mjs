@@ -74,7 +74,7 @@ const files=walk(root);
     const cases=[['selected','NUMERIC','Y','Y','Y'],['unselected','NUMERIC','Y','N','N'],
         ['inactive','NUMERIC','N','Y','N'],['category','CATEGORICAL','Y','N','Y'],['date','DATE','N','N','N']];
     for(const [name,type,active,legacy] of cases)db.prepare('INSERT INTO DQ_FIELD_CONFIG VALUES (?,?,?,?)').run(name,type,active,legacy);
-    db.exec(read('teradata/setup/13_simplify_field_selection.sql').split('ALTER TABLE')[0].replaceAll('DQ_DB.',''));
+    db.exec(read('teradata/migrations/13_simplify_field_selection.sql').split('ALTER TABLE')[0].replaceAll('DQ_DB.',''));
     for(const [name,,,,expected] of cases)assert.equal(db.prepare('SELECT ACTIVE_IND FROM DQ_FIELD_CONFIG WHERE FIELD_NAME=?').get(name).ACTIVE_IND,expected);
     db.close();
 }

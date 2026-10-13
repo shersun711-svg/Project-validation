@@ -13,8 +13,7 @@ FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT describe overall non-missing avai
 selected field. [Availability upgrade](DQ_ENGINE/documentation/FIELD_AVAILABILITY.md).
 All field types support overall, yearly and monthly periods; percentages use
 the shared green/amber/red rules. Percentiles, outliers, PSI and Excel report
-export remain deferred. [Upgrade an existing engine](DQ_ENGINE/documentation/BASIC_PROFILING_UPGRADE.md)
-before enabling the new modules.
+export remain deferred.
 
 ## Start here
 
@@ -45,16 +44,15 @@ field mappings and enables all 415 numeric fields. To test fewer fields, set
 ACTIVE_IND=Y only for the desired fields and N for all unwanted fields,
 then reload Excel. In file 00 use project=RDS, numeric_basic=Y, new basic switches selected as needed and a blank retry_run_id for a new run.
 Every field type uses FIELD_TYPE and ACTIVE_IND; project-level SAS switches
-choose the tests for all active fields of that type. See [field selection and module switches](DQ_ENGINE/documentation/BASIC_PROFILING_UPGRADE.md#choose-fields-and-modules).
+choose the tests for all active fields of that type. See [field selection and module switches](DQ_ENGINE/documentation/ACTIVE_FIELD_SELECTION.md).
 
-Existing installations must apply the [simple field-selection upgrade](DQ_ENGINE/documentation/ACTIVE_FIELD_SELECTION.md) and convert their edited workbook before reload.
+Older installations must apply the [simple field-selection upgrade](DQ_ENGINE/documentation/ACTIVE_FIELD_SELECTION.md) and convert their edited workbook before reload.
 
 ## Final results
 
 Review DQ_BASIC_REVIEW: one row per field and period across all four types,
 with applicable metrics, classifications as columns. Date rows share the same layout; unrelated metrics are NULL.
-DQ_NUMERIC_REVIEW remains available for numeric-only review. Both include only
-successful runs. Filter by PROJECT_ID and the short RUN_NUMBER (1, 2, 3...) to
+Only successful runs appear. For numeric-only review, filter FIELD_TYPE=NUMERIC. Filter by PROJECT_ID and the short RUN_NUMBER (1, 2, 3...) to
 select the correct results. UUIDs remain internal RUN_ID values.
 See [review query and view deployment](DQ_ENGINE/documentation/README.md#review-the-final-result).
 
@@ -65,7 +63,6 @@ See [review query and view deployment](DQ_ENGINE/documentation/README.md#review-
 | `DQ_RUN_LOG` / `DQ_MODULE_LOG` | Run status, progress and errors |
 | `DQ_METRIC_RESULT` | Stored results, one row per metric |
 | `DQ_COMPLETED_RESULT` | Successful results, one row per metric |
-| `DQ_NUMERIC_REVIEW` | Numeric-only review, metrics as columns |
 | `DQ_BASIC_REVIEW` | Final review across all four field types |
 | `DQ_RUN_NUMBER` | Short number mapped to each internal run UUID |
 
@@ -76,7 +73,8 @@ DQ_ENGINE/
   config/          Excel workbook and original input audit references
   sas/             Four SAS files for configuration and execution
   teradata/
-    setup/         One-time database deployment
+    setup/         Current one-time database deployment
+    migrations/    Upgrades for older installations only
     modules/       Numeric profiling and run orchestration
     results/       Classification and result views
   documentation/   Deployment, settings, metrics and validation evidence

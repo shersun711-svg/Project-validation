@@ -29,8 +29,7 @@ an enclosing transaction.
 7. Recompile modules/10_numeric_basic.sql.
 8. Compile modules/00_run_engine.sql as two complete statements, basic runner
    first and the SP_DQ_RUN_ENGINE compatibility wrapper second.
-9. Replace results/91_dq_summary_views.sql, 92_dq_numeric_review.sql and
-   93_dq_basic_review.sql. File 90's
+9. Replace results/91_dq_summary_views.sql and 93_dq_basic_review.sql. File 90's
    shared classification logic is unchanged.
 10. Run the current SAS controller in the same session as the run/test file.
 
