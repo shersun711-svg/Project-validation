@@ -169,7 +169,6 @@ is abandoned from elapsed time: verify it ended before operator recovery.
 | `sas/` | Excel loader, controller and run entry program |
 | `config/` | Editable starter workbook and original input audit references |
 | `teradata/setup/` | Current one-time configuration, results and logging schema |
-| `teradata/migrations/` | One-time upgrades for older installations only |
 | `teradata/modules/` | Numeric calculations and run orchestration |
 | `teradata/results/` | Classification, completed results and review views |
 | `tests/` | Optional database/SAS regression, source and performance checks |
@@ -181,6 +180,5 @@ Further details: [configuration](CONFIGURATION_GUIDE.md),
 and [original input review](INPUT_REVIEW.md).
 
 
-For an existing installation, apply [active field selection](ACTIVE_FIELD_SELECTION.md)
-before using the simplified three-column workbook. Migration 13 is not part
-of a fresh installation; current schemas do not create the retired flag.
+See [field selection and module switches](ACTIVE_FIELD_SELECTION.md) to choose
+which fields and tests to run.

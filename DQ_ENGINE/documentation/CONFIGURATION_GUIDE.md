@@ -73,5 +73,4 @@ Excel report module are unchanged.
 
 
 The Fields workbook now has three columns: FIELD_NAME, FIELD_TYPE, ACTIVE_IND.
-See [migration and workbook conversion](ACTIVE_FIELD_SELECTION.md) before
-loading it into an older installation.
+See [field selection and module switches](ACTIVE_FIELD_SELECTION.md) for usage.

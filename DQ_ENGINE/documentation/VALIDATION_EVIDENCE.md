@@ -63,8 +63,8 @@ production calculation remains in SAS/Teradata.
 
 Retired date-table creation and the redundant numeric-only review scripts were
 removed. The current engine uses DQ_BASIC_REVIEW; numeric-only review filters
-FIELD_TYPE=NUMERIC. The old-schema migration is retained in teradata/migrations
-for other existing installations and is excluded from fresh setup instructions.
+FIELD_TYPE=NUMERIC. The completed field-selection migration and its upgrade
+instructions have also been removed; Git history preserves them.
 Runtime calculations, workbook and deployed database objects were untouched by
 this cleanup. Optional regression tests remain for maintenance.
 

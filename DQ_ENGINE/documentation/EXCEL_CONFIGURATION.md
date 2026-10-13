@@ -151,6 +151,5 @@ has not been confirmed executed. See VALIDATION_EVIDENCE.md for the distinction
 between local checks and user-server evidence.
 
 
-Existing four-column workbooks must be converted before loading. See
-[active field selection upgrade](ACTIVE_FIELD_SELECTION.md) for preserving your
-50-field numeric selection and migrating the schema without reseeding projects.
+See [field selection and module switches](ACTIVE_FIELD_SELECTION.md) for choosing
+fields in Excel and tests in SAS.

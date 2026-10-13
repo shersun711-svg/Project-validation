@@ -45,8 +45,7 @@ old test-result cleanup. Verify concurrent allocation with two sessions.
 
 ## Configuration and review
 
-The simplified Excel Fields sheet has three columns; apply
-ACTIVE_FIELD_SELECTION.md when migrating an old four-column installation. FIELD_TYPE/ACTIVE_IND select non-numeric fields;
+The Excel Fields sheet has three columns: FIELD_NAME, FIELD_TYPE and ACTIVE_IND.
 There are no per-field test flags; ACTIVE_IND selects all types consistently. Select the matching basic
 SAS switches. A selected module with no eligible fields fails explicitly.
 Percentiles/outliers/PSI/Excel export remain N.

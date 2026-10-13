@@ -46,8 +46,6 @@ then reload Excel. In file 00 use project=RDS, numeric_basic=Y, new basic switch
 Every field type uses FIELD_TYPE and ACTIVE_IND; project-level SAS switches
 choose the tests for all active fields of that type. See [field selection and module switches](DQ_ENGINE/documentation/ACTIVE_FIELD_SELECTION.md).
 
-Older installations must apply the [simple field-selection upgrade](DQ_ENGINE/documentation/ACTIVE_FIELD_SELECTION.md) and convert their edited workbook before reload.
-
 ## Final results
 
 Review DQ_BASIC_REVIEW: one row per field and period across all four types,
@@ -74,7 +72,6 @@ DQ_ENGINE/
   sas/             Four SAS files for configuration and execution
   teradata/
     setup/         Current one-time database deployment
-    migrations/    Upgrades for older installations only
     modules/       Numeric profiling and run orchestration
     results/       Classification and result views
   documentation/   Deployment, settings, metrics and validation evidence
