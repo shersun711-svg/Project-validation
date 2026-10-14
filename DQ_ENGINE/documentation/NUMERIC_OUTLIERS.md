@@ -204,6 +204,41 @@ Resolve permanent-space or DDL/grant errors before another run. Do not silently
 change the source population or statistical rule. Teradata compilation, storage
 and spool/runtime effects have not been verified from this workspace.
 
+## Check period keys after the rollup duplicate-key error
+
+The reported run 4 completed chunk counting and reached the rollup guard,
+which signalled `Outlier rollup contains duplicate period keys` (7693).
+Its logged UNION started with the untyped literal `'ALL'` as PERIOD_VALUE.
+That leaves the output width dependent on Teradata's set-operation type
+resolution and can truncate longer year/month keys. The revised procedure
+explicitly casts every rollup branch to VARCHAR(8) for PERIOD_LEVEL and
+VARCHAR(10) for PERIOD_VALUE, matching the result-table domains. Chunk keys
+also have explicit VARCHAR(10) widths. The duplicate-key guard is retained;
+no DISTINCT or deduplication is used to conceal collisions.
+
+Before another RDS run, execute [test_outlier_rollup.sql](../tests/test_outlier_rollup.sql)
+in a fresh SQL Assistant session. It uses five synthetic chunk rows and two
+volatile test tables, with no RDS reads or permanent engine changes. Expected
+summary: PERIOD_ROWS=10, UNIQUE_PERIOD_KEYS=10, BAD_ROWS=0. The detail output
+must retain full keys such as 2005-01, 2005-02, 2006-01, 2026-03 and UNKNOWN.
+The script drops its own test tables at the end. If it errors, stop and retain
+the error/output; disconnect that test session to discard its volatile tables.
+
+After this passes, recompile the complete updated `12_numeric_outliers.sql`
+and its included grant, replacing DQ_DB with the approved schema. No configuration
+reload, permanent schema migration or other procedure recompile is needed.
+Before another full RDS run, review the year-counting execution plan and runtime:
+the reported five-field run spent about 29.5 minutes in batch 1. The unpartitioned
+work table is read for each year/batch; a year filter does not establish partition
+elimination or bounded spool. Inspect scan volume, redistribution and AMP skew
+before choosing a physical-layout or join change. Volatile bounds/chunks and
+the permanent work table are normally removed by failure cleanup, so a logged
+query may require a controlled reconstruction of those objects before EXPLAIN.
+After addressing that performance review, use a fresh run with the same five
+active fields and only Outliers enabled.
+This targeted change does not alter the source reads, statistical calculations,
+chunk size or publication rules. It does not establish a spool or runtime guarantee.
+
 ## Recover working data after an external abort
 
 First confirm that the database request and session are no longer running.

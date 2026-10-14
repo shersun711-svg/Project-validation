@@ -39,6 +39,19 @@ These checks do not compile Teradata SPL or establish that year-sized chunks fit
 the site's spool limit. Teradata compilation, optimizer choices, spool use,
 elapsed time and workload remain unverified.
 
+The user subsequently reported RDS run number 4 failing with 7693 at the
+explicit duplicate-period guard after about 31 minutes; its log shows the
+year-chunk implementation reaching the final DQ_NO_CHUNKS rollup, not a 2646
+spool failure. The first UNION branch left PERIOD_VALUE as the untyped literal
+'ALL'. All rollup keys and chunk keys now have explicit widths to avoid
+truncation during type resolution. Local checks additionally cover 360 metrics
+across multiple years and 90 metrics with only NULL reporting dates. Generated
+SQL checks enforce the explicit widths because SQLite does not enforce VARCHAR
+lengths. A five-row Teradata regression, tests/test_outlier_rollup.sql, is
+generated from the procedure's actual rollup template; locally it produces ten
+distinct full period keys and the expected counts. Its execution on Teradata,
+the precise truncation diagnosis and a successful RDS rerun remain unverified.
+
 The focused rule-storage change reuses SP_DQ_CLASSIFY/DQ_COLOUR_RULE and leaves
 profiling calculations untouched. Synthetic SQLite checks execute the evaluator,
 INSERT and completed-result view, covering exact threshold boundaries, rounded

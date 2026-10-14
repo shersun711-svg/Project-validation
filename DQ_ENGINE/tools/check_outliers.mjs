@@ -77,8 +77,10 @@ function batch(first,last){const v={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:
   if(c.CHUNK_VALUE==='UNKNOWN')v.V_SOURCE_FILTER='"FACT_DT" IS NULL';
   else if(c.CHUNK_VALUE==='ALL')v.V_SOURCE_FILTER='1=0';
   else v.V_SOURCE_FILTER='EXTRACT(YEAR FROM "FACT_DT")='+c.CHUNK_VALUE;
-  assert.ok(c.CHUNK_VALUE==='ALL'||v.V_SOURCE_FILTER!=='1=1','nonempty populations must be month-filtered');
+  assert.ok(c.CHUNK_VALUE==='ALL'||v.V_SOURCE_FILTER!=='1=1','nonempty populations must be year-filtered or NULL-date filtered');
   v.V_PERIOD_QUERY=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),v);
+  assert.ok(v.V_PERIOD_QUERY.includes('END AS VARCHAR(10)) AS CHUNK_VALUE'));
+  assert.ok(v.V_PERIOD_QUERY.includes("AS VARCHAR(10)) AS CHUNK_YEAR"));
   assert.ok(v.V_PERIOD_QUERY.includes('GROUP BY EXTRACT(MONTH FROM S.DQ_DT)'));
   assert.ok(v.V_PERIOD_QUERY.includes('B0.L'+first)&&v.V_PERIOD_QUERY.includes('B1.L'+first)&&v.V_PERIOD_QUERY.includes('BM.L'+first));
   if(index===0)ctas(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE MULTISET VOLATILE TABLE DQ_NO_CHUNKS"),sql),v),'DQ_NO_CHUNKS');
@@ -88,6 +90,10 @@ function batch(first,last){const v={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:
  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_NO_CHUNKS').get().n,expectedChunkRows||1,
   'year chunks should emit one row per populated month, or one empty-source row');
  v.V_ROLLUP_QUERY=evaluate(assignment('V_ROLLUP_QUERY',sql.indexOf("SET V_ROLLUP_QUERY ="),sql),v);
+ // SQLite does not enforce VARCHAR lengths. Explicitly check the generated
+ // Teradata contract as well as values, including the first UNION branch.
+ assert.equal([...v.V_ROLLUP_QUERY.matchAll(/AS VARCHAR\(8\)\) AS PERIOD_LEVEL/g)].length,3);
+ assert.equal([...v.V_ROLLUP_QUERY.matchAll(/AS VARCHAR\(10\)\) AS PERIOD_VALUE/g)].length,3);
  ctas(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE VOLATILE TABLE DQ_NO_AGG"),sql),v),'DQ_NO_AGG');
  assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM
   (SELECT PERIOD_LEVEL,PERIOD_VALUE FROM DQ_NO_AGG
@@ -124,6 +130,30 @@ for(const row of db.prepare('SELECT * FROM DQ_METRIC_RESULT').all()){
 }
 assert.equal(db.prepare("SELECT METRIC_VALUE FROM DQ_METRIC_RESULT WHERE FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL' AND METRIC_NAME='OUTLIER_COUNT'").get().METRIC_VALUE,1);
 assert.equal(db.prepare("SELECT SUM(METRIC_VALUE) AS n FROM DQ_METRIC_RESULT WHERE FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='MONTHLY' AND METRIC_NAME='OUTLIER_COUNT'").get().n,2);
+// Repeated month numbers across years must retain full keys and independent
+// overall/yearly/monthly bounds. Use valid dates in non-leap years.
+for(const [label,population] of [
+ ['multiple years',[2005,2006,2026].flatMap((year,ix)=>raw.map(r=>[
+  r[0]===null?null:year+r[0].slice(4).replace('-02-29','-02-28'),
+  ...r.slice(1).map(x=>x===null||x===-9999?x:x+ix*100)]))],
+ ['NULL-only dates',raw.map(r=>[null,...r.slice(1)])]
+]){
+ db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT');
+ const load=db.prepare('INSERT INTO '+stageName+' VALUES (?,?,?,?,?,?,?)');population.forEach(r=>load.run(...r));
+ const populationGroups=new Map([['OVERALL/ALL',population]]);
+ for(const r of population)for(const [level,value]of [['YEARLY',r[0]?.slice(0,4)??'UNKNOWN'],['MONTHLY',r[0]?.slice(0,7)??'UNKNOWN']]){
+  const key=level+'/'+value;if(!populationGroups.has(key))populationGroups.set(key,[]);populationGroups.get(key).push(r);
+ }
+ snapshot(populationGroups);batch(1,5);batch(6,6);
+ const actual=db.prepare('SELECT * FROM DQ_METRIC_RESULT').all();
+ assert.equal(actual.length,populationGroups.size*fields.length*5);
+ for(const row of actual){
+  const expected=reference.get(row.FIELD_NAME+'/'+row.PERIOD_LEVEL+'/'+row.PERIOD_VALUE)[keys[row.METRIC_NAME]];
+  if(expected===null)assert.equal(row.METRIC_VALUE,null);
+  else assert.ok(Math.abs(row.METRIC_VALUE-expected)<1e-9,JSON.stringify(row));
+ }
+ console.log('Outlier '+label+' regression passed: '+actual.length+' independently checked metrics.');
+}
 // Empty source: one overall domain, all bounds/counts/rates undefined; valid=0.
 db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT;');snapshot(new Map([['OVERALL/ALL',[]]]));batch(1,5);batch(6,6);
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT').get().n,30);
@@ -177,7 +207,7 @@ const widths=Object.fromEntries([...sql.matchAll(/DECLARE (\w+) VARCHAR\((\d+)\)
 const maxv={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',V_FIRST:1,V_LAST:5,
  V_LIST:list,V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',V_BOUND_PROJECTION:'',V_PROJECTION:'',
  V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N'};
-maxv['C.CHUNK_VALUE']='2000-01';maxv.V_CHUNK_YEAR='2000';maxv.V_SOURCE_FILTER='EXTRACT(YEAR FROM \"FACT_DT\")=2000 AND EXTRACT(MONTH FROM \"FACT_DT\")=01';
+maxv['C.CHUNK_VALUE']='2000';maxv.V_CHUNK_YEAR='2000';maxv.V_SOURCE_FILTER='EXTRACT(YEAR FROM \"FACT_DT\")=2000';
 for(let i=1;i<=5;i++){maxv['F.FIELD_NAME']='F'+String(i).padStart(127,'X');maxv.V_SUFFIX=String(i);maxv.V_FIELD='S.DQ_C'+i;
  for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])maxv[part]=evaluate(assignment(part,cursor,sql),maxv);
 }
@@ -193,6 +223,65 @@ assert.ok(evaluate(assignment('V_PERIOD_QUERY',cursor,sql),declared).length<=wid
 assert.ok(evaluate(assignment('V_ROLLUP_QUERY',sql.indexOf("SET V_ROLLUP_QUERY ="),sql),declared).length<=widths.V_ROLLUP_QUERY);
 assert.ok(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE MULTISET VOLATILE TABLE DQ_NO_CHUNKS"),sql),declared).length<32000);
 console.log('Outlier SQL-size checks passed: five 128-character fields, full special list, '+maxQuery.length+' characters. Teradata/SAS NOT executed.');
+
+// Generate a tiny server-side CTAS/UNION regression from the actual template.
+// No engine configuration or source data is needed. Commit the generated file
+// after running this checker with DQ_WRITE_PERIOD_SMOKE=1.
+const smokeVars={V_SUFFIX:'1',V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:''};
+for(const part of Object.keys(smokeVars).filter(k=>k.startsWith('V_ROLLUP_')))
+ smokeVars[part]=evaluate(assignment(part,cursor,sql),smokeVars);
+const smokeQuery=evaluate(assignment('V_ROLLUP_QUERY',sql.indexOf('SET V_ROLLUP_QUERY ='),sql),smokeVars)
+ .replaceAll('DQ_NO_CHUNKS','DQ_TEST_OUT_CHUNKS').replaceAll(' UNION ALL ','\nUNION ALL ');
+const smokeColumns=['CHUNK_VALUE VARCHAR(10)','CHUNK_YEAR VARCHAR(10)',
+ 'OVERALL_TOTAL_N BIGINT','YEARLY_TOTAL_N BIGINT','MONTHLY_TOTAL_N BIGINT','ACTUAL_TOTAL BIGINT',
+ 'ON1 BIGINT','OL1 FLOAT','OU1 FLOAT','YN1 BIGINT','YL1 FLOAT','YU1 FLOAT',
+ 'MN1 BIGINT','ML1 FLOAT','MU1 FLOAT','ACTUAL1 BIGINT','OO1 BIGINT','YO1 BIGINT','MO1 BIGINT'];
+const smokeInsert=['2005-01','2005-02','2006-01','2026-03','UNKNOWN'].map(month=>{
+ const year=month==='UNKNOWN'?'UNKNOWN':month.slice(0,4),yearN=year==='2005'?20:10;
+ return `INSERT INTO DQ_TEST_OUT_CHUNKS VALUES ('${month}','${year}',50,${yearN},10,10,50,-3,3,${yearN},-2,2,10,-1,1,10,2,1,1);`;
+}).join('\n');
+const smokeSummary=`SELECT COUNT(*) AS PERIOD_ROWS,
+       COUNT(DISTINCT PERIOD_LEVEL || ':' || PERIOD_VALUE) AS UNIQUE_PERIOD_KEYS,
+       SUM(CASE
+         WHEN PERIOD_LEVEL='OVERALL' AND PERIOD_VALUE='ALL' AND TOTAL_N=50 AND N1=50 AND O1=10 THEN 0
+         WHEN PERIOD_LEVEL='YEARLY' AND PERIOD_VALUE='2005' AND TOTAL_N=20 AND N1=20 AND O1=2 THEN 0
+         WHEN PERIOD_LEVEL='YEARLY' AND PERIOD_VALUE IN ('2006','2026','UNKNOWN') AND TOTAL_N=10 AND N1=10 AND O1=1 THEN 0
+         WHEN PERIOD_LEVEL='MONTHLY' AND PERIOD_VALUE IN ('2005-01','2005-02','2006-01','2026-03','UNKNOWN') AND TOTAL_N=10 AND N1=10 AND O1=1 THEN 0
+         ELSE 1 END) AS BAD_ROWS
+FROM DQ_TEST_OUT_AGG;`;
+const smoke=`/* Generated by: DQ_WRITE_PERIOD_SMOKE=1 node DQ_ENGINE/tools/check_outliers.mjs
+   Run in a fresh SQL Assistant session, separately from profiling.
+   Uses five synthetic rows and two session-only tables; no RDS scan or engine changes.
+   Expected summary: PERIOD_ROWS=10, UNIQUE_PERIOD_KEYS=10, BAD_ROWS=0.
+   This checks Teradata CTAS/UNION period widths; it does not benchmark spool.
+   If interrupted, disconnect this test session to discard its volatile tables. */
+CREATE MULTISET VOLATILE TABLE DQ_TEST_OUT_CHUNKS (
+    ${smokeColumns.join(',\n    ')}
+) PRIMARY INDEX (CHUNK_VALUE) ON COMMIT PRESERVE ROWS;
+${smokeInsert}
+
+CREATE MULTISET VOLATILE TABLE DQ_TEST_OUT_AGG AS (
+${smokeQuery}
+) WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS;
+
+${smokeSummary}
+
+SELECT PERIOD_LEVEL,PERIOD_VALUE,TOTAL_N,ACTUAL_TOTAL,N1,ACTUAL1,O1
+FROM DQ_TEST_OUT_AGG ORDER BY PERIOD_LEVEL,PERIOD_VALUE;
+
+DROP TABLE DQ_TEST_OUT_AGG;
+DROP TABLE DQ_TEST_OUT_CHUNKS;
+`;
+lex(smoke,'outlier rollup server fixture');
+const smokeDb=new DatabaseSync(':memory:');
+smokeDb.exec('CREATE TABLE DQ_TEST_OUT_CHUNKS ('+smokeColumns.join(',')+');'+smokeInsert);
+smokeDb.exec('CREATE TABLE DQ_TEST_OUT_AGG AS '+smokeQuery);
+assert.deepEqual({...smokeDb.prepare(smokeSummary).get()},{PERIOD_ROWS:10,UNIQUE_PERIOD_KEYS:10,BAD_ROWS:0});
+smokeDb.close();
+const smokePath=new URL('../tests/test_outlier_rollup.sql',import.meta.url);
+if(process.env.DQ_WRITE_PERIOD_SMOKE==='1')fs.writeFileSync(smokePath,smoke);
+else assert.equal(fs.readFileSync(smokePath,'utf8'),smoke,'Regenerate the server fixture from the updated rollup template');
+console.log('Synthetic server rollup fixture checked locally: 10 distinct full period keys and correct counts. Teradata execution pending.');
 
 // Lifecycle/API structure: materialize once before internal statistics, use the
 // stage for subsequent reads, never overwrite another run's table, drop only
