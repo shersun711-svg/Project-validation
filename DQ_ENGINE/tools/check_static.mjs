@@ -291,25 +291,6 @@ const outlierExecutable=lex(outlierProcedure,'12_numeric_outliers.sql');
 assert.ok(!/\bDQ_NO_AGG\b/i.test(outlierExecutable),
     'Dynamically created outlier aggregate must not have static table references');
 
-/* The one-time history reset clears run-owned rows but keeps live project
-   configuration and the monotonic run-number counter. */
-const historyReset=read('teradata/setup/19_clear_run_history.sql');
-for(const table of ['DQ_RULE_RESULT','DQ_METRIC_RESULT','DQ_NUMERIC_STATISTICS',
-    'DQ_FIELD_AVAILABILITY','DQ_RUN_SPECIAL_VALUE','DQ_RUN_FIELD_CONFIG',
-    'DQ_MODULE_LOG','DQ_RUN_LOG','DQ_RUN_NUMBER']){
-    assert.ok(historyReset.includes(`DELETE FROM DQ_DB.${table};`),`History reset clears ${table}`);
-}
-assert.ok(!/DELETE FROM DQ_DB\.(DQ_RUN_COUNTER|DQ_PROJECT_CONFIG|DQ_FIELD_CONFIG|DQ_ENGINE_SETTINGS|DQ_CONFIG_LOAD_LOG)\b/i.test(historyReset),
-    'History reset retains counter and current configuration');
-assert.ok(/SELECT COUNT\(\*\) AS ACTIVE_RUNS[\s\S]*?WHERE STATUS='RUNNING'/i.test(historyReset),
-    'History reset includes a separate active-run preflight');
-assert.ok(/SELECT COUNT\(\*\) AS ACTIVE_CONFIG_LOADS[\s\S]*?WHERE STATUS='LOADING'/i.test(historyReset),
-    'History reset includes an active configuration-load preflight');
-assert.ok(/UPDATE DQ_DB\.DQ_RUN_COUNTER\s+SET LAST_NUMBER=0/i.test(historyReset),
-    'History reset restarts numbering after deleting run history');
-assert.ok(historyReset.includes('SELECT LAST_NUMBER AS RESET_RUN_NUMBER_COUNTER'),
-    'History reset reports the reset run-number counter');
-
 /* Optional authoritative input reconciliation; no Excel package dependency. */
 if(process.argv.length>2){
     assert.equal(process.argv.length,4,'Supply workbook and original view DDL paths');

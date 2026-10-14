@@ -22,7 +22,7 @@ No full RDS source reconciliation or performance acceptance has been established
 
 The manager's current scope excludes the retired distribution module. Its code,
 SAS switch, review columns and test cases were removed. No stored database history
-or running job was modified. Earlier evidence is retained in Git history and the history/ directory
+or running job was modified. Earlier evidence is retained in Git history
 for audit context; its instructions are not current deployment steps.
 
 The 2026-10-14 outlier calculation changes were checked locally against synthetic

@@ -64,43 +64,18 @@ protected. The seven-argument PROFILE, six-argument BASIC and two-argument ENGIN
 SQL APIs remain compatible for supported tests; the legacy reserved argument
 must be N. SAS fixes that argument to N in the eight-argument EXTENDED entry.
 
-## Deploy after the current run finishes
+## Deployment and test selection
 
-This upgrade assumes the current special-value schema and procedures
-are already deployed. Wait for profiling/configuration loads to finish. Replace
-DQ_DB with the approved schema, currently LAB_T_ORION_MVT, in deployment copies.
-No database deployment is performed by repository tools.
+For a fresh installation, use [the complete deployment sequence](README.md#one-time-deployment).
+For the current existing engine, follow [the reporting-level upgrade](REPORTING_LEVELS.md),
+which includes the statistics helper, outlier procedure and runner dependencies.
+Do not rerun table CREATE scripts on an existing installation. Replace DQ_DB with
+the approved schema in deployment copies, including grants. Wait for running
+profiling and configuration jobs to finish before deploying.
 
-1. Run setup/16_create_outlier_support.sql ONCE if it has not already been deployed.
-   It adds the shared aggregate table and five fixed metric definitions.
-2. The current rollout clears all run history: stop profiling and configuration
-   loads, verify there are no RUNNING rows, then run
-   setup/19_clear_run_history.sql once. It removes profiling/rule results,
-   run/module logs and run snapshots/mappings; it retains current configuration,
-   and configuration-load logs. Since all run history/mappings are removed, the
-   counter resets and the next run number is 1. Then run
-   setup/18_population_standard_deviation.sql once to update
-   Basic metric metadata to STDDEV_POP. The history reset removes old
-   STDDEV_SAMP results along with all other run history.
-3. In modules/03_numeric_statistics.sql, compile SP_DQ_NUMERIC_STATS_SOURCE and
-   execute its following GRANT, then compile the SP_DQ_NUMERIC_STATISTICS wrapper
-   and execute its grant. Submit the two complete procedures separately.
-4. Recompile modules/10_numeric_basic.sql to capture population statistics.
-5. Compile modules/12_numeric_outliers.sql as a complete procedure, then
-   execute its following GRANT statement.
-6. Recompile all four procedures in modules/00_run_engine.sql separately:
-   SP_DQ_RUN_EXTENDED, SP_DQ_RUN_PROFILE, SP_DQ_RUN_BASIC, SP_DQ_RUN_ENGINE.
-   Execute the GRANT following each before compiling the next wrapper.
-7. Replace results/93_dq_basic_review.sql. Classification/summary procedures do not need recompilation for this change.
-8. The deployment files include EXECUTE PROCEDURE grants to DQ_DB and the
-   statistics table SELECT/INSERT/DELETE grant. Replace DQ_DB in both ON and TO.
-   Verify runtime-user permissions and view-owner access separately. If setup 16
-   already ran, execute only its grant; do not rerun CREATE or metadata inserts.
-9. Run updated SAS 01 in your session; require controller version
-   20261013_BASIC_SPECIAL_OUTLIERS. File 05/configuration loader is unchanged.
-10. If Settings already has multiplier 3 and the intended field selection, no
-   Excel reload is needed. Otherwise edit/reload with 04 and require APPLIED.
-11. Test a small numeric selection with file 00 and numeric_outliers=Y.
+After deployment, load SAS 01 in your session. Edit the workbook and reload with
+04 only when changing configuration; require APPLIED. Test a small numeric
+selection with file 00 and numeric_outliers=Y:
 
 ```sas
 %let numeric_basic = Y;

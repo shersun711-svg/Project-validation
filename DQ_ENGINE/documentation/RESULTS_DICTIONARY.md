@@ -16,11 +16,7 @@ remain separate. The view reads aggregates, not the source dataset.
 
 `DQ_METRIC_RESULT` stores numeric metrics as DECIMAL(38,10): 28 integral digits, 10 fractional digits. Exact supported source min/max and counts are cast independently before CASE evaluation, avoiding implicit FLOAT promotion. Counts/rate denominators are also preserved as BIGINT where applicable. Mean, population standard deviation and reported rates use FLOAT arithmetic before storage, consistent with SAS floating-point calculations; they require numeric tolerances in reconciliation. Tiny differences and rates below storage scale can round. Colours use exact count comparisons, not the stored rounded rate. FLOAT source min/max already have source floating-point precision.
 
-New Numeric Basic runs store `STDDEV_POP` only. The selected one-time
-setup/19 reset removes all profiling, rule, run and module history, including
-old `STDDEV_SAMP` results; `DQ_BASIC_REVIEW` reads only `STDDEV_POP`. Current
-project/workbook configuration remains, and the counter resets so the next run
-number is 1.
+Numeric Basic stores `STDDEV_POP`; `DQ_BASIC_REVIEW` reads only `STDDEV_POP`.
 
 `DATE_METRIC_VALUE` remains reserved and unused. Date Basic emits its four count/missing metrics into DQ_METRIC_RESULT; no date-value extrema are calculated. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
 

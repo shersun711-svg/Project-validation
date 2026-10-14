@@ -53,7 +53,7 @@ choose the tests for all active fields of that type. See [field selection and mo
 ## Final results
 
 Review DQ_BASIC_REVIEW: one row per field and period across all four types,
-with applicable metrics, classifications as columns. Date rows share the same layout; unrelated metrics are NULL.
+with applicable profiling metrics as columns. Date rows share the same layout; unrelated metrics are NULL.
 Only successful runs appear. For numeric-only review, filter FIELD_TYPE=NUMERIC. Filter by PROJECT_ID and the short RUN_NUMBER (1, 2, 3...) to
 select the correct results. UUIDs remain internal RUN_ID values.
 See [review query and view deployment](DQ_ENGINE/documentation/README.md#review-the-final-result).

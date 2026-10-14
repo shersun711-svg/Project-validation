@@ -67,12 +67,9 @@ SAS status/summary imports, Excel configuration and procedure arguments require
 no change. Direct consumers of DQ_METRIC_RESULT.DQ_COLOUR must use the completed
 view or rule table for new classifications.
 
-Historical rule rows are not invented or recalculated. Without the optional
-history reset, existing metrics remain in the metric table and completed views;
-DQ_RULE_RESULT contains runs evaluated after deployment. For the current rollout,
-the user selected setup/19_clear_run_history.sql to clear run-owned history once
-before testing. It does not drop database objects or configuration, and no
-reporting or Excel export is implemented.
+Historical rule rows are not invented or recalculated. Existing metrics remain
+in the metric table and completed views; DQ_RULE_RESULT contains runs evaluated
+after deployment. No history reset, reporting or Excel export is required.
 
 For direct rule-table review, join the run log and require SUCCEEDED. This is a
 read-only query, not an additional reporting object:
@@ -99,22 +96,15 @@ No database deployment is performed from this repository workspace.
 1. Run setup/17_create_rule_results.sql once, including its SELECT WITH GRANT
    OPTION and INSERT/DELETE grants. Do not rerun table CREATE if it already exists;
    compare its SHOW TABLE output with the current definition first.
-2. Because this rollout clears all run history, stop all profiling jobs, verify
-   there are no RUNNING rows in DQ_RUN_LOG, then run setup/19_clear_run_history.sql.
-   It deletes run results, rules, run/module logs, run-number mappings, and other
-   per-run snapshots. Project/workbook configuration, configuration-load logs,
-   while project/workbook configuration and configuration-load logs remain.
-   The counter resets because all run history/mappings are removed, so the next
-   run number is 1.
-3. Replace DQ_COLOUR_RULE and compile the complete SP_DQ_CLASSIFY in
+2. Replace DQ_COLOUR_RULE and compile the complete SP_DQ_CLASSIFY in
    results/90_colour_classification.sql. Execute its included procedure grant.
-4. Replace both existing views in results/91_dq_summary_views.sql and recompile
+3. Replace both existing views in results/91_dq_summary_views.sql and recompile
    results/93_dq_basic_review.sql so the final review layout and display scales
    match this release.
-5. Recompile the four procedures in modules/00_run_engine.sql separately:
+4. Recompile the four procedures in modules/00_run_engine.sql separately:
    EXTENDED, PROFILE, BASIC, ENGINE, running each included grant before the next.
    The added cleanup is limited to DQ_RULE_RESULT for the owned run ID.
-6. Use the existing Excel and SAS files to run a small selection with a fresh
+5. Use the existing Excel and SAS files to run a small selection with a fresh
    UUID. Require SUCCEEDED and check the rule table and existing summary/review.
    No Excel reload is needed solely for this change.
 

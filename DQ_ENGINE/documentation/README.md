@@ -141,18 +141,10 @@ installation. File 00 installs fixed metric definitions; project configuration
 comes from Excel. Numbering is retained for compatibility with existing
 installations; missing numbers are not deployment steps.
 
-For an existing Numeric Basic installation, run
-`teradata/setup/18_population_standard_deviation.sql` once before compiling
-the updated Numeric Basic procedure and review view. It renames the metric
-definition for new runs. `DQ_BASIC_REVIEW` uses only `STDDEV_POP`.
-
-For this rollout, `teradata/setup/19_clear_run_history.sql` performs the
-requested destructive reset of profiling results, rule results, run/module
-logs, run-number mappings and per-run snapshots. It retains project/workbook
-configuration and configuration-load logs. Stop all
-jobs and run its two preflight queries separately; continue only when
-ACTIVE_RUNS and ACTIVE_CONFIG_LOADS are both zero. New run numbers continue
-from 1 because all run history and mappings are deleted and the counter resets.
+For existing installations, follow [the reporting-level upgrade](REPORTING_LEVELS.md).
+Completed one-time migrations and the earlier history reset are available in Git
+history; they are not part of current deployment. Fresh installations already
+seed `STDDEV_POP`. No history reset is required.
 
 Submit each REPLACE PROCEDURE as a complete SPL statement in a supported
 client; ordinary semicolon splitting breaks procedure bodies. With BTEQ use

@@ -78,7 +78,7 @@ approved schema, currently LAB_T_ORION_MVT. Use a Teradata-mode session.
 
 Fresh installations already get the flag columns from setup 00/02/06; run ONLY
 section B of setup 20 before compiling procedures. No view recompile or history
-reset is required. Do not run setup 19 as part of this upgrade.
+reset is required.
 
 ```sql
 SELECT PROJECT_ID,PROFILE_OVERALL,PROFILE_MONTHLY,PROFILE_YEARLY

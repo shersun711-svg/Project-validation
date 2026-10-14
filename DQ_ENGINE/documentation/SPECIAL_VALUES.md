@@ -51,10 +51,8 @@ special list. Availability dates still use non-NULL values, including specials.
 Basic Numeric stores 12 metrics per field/period; Categorical stores 5, Date 4
 and Identifier 3. DQ_BASIC_REVIEW presents the values in one field/period row;
 matching statuses are available in DQ_RULE_RESULT. Old runs without special
-calculations have NULL special columns. For this upgrade, setup/19 removes all
-prior profiling, rule, run and module history, including historical
-`STDDEV_SAMP` values; current project/workbook configuration and
-configuration-load logs remain. The counter resets, so the next run number is 1.
+calculations have NULL special columns. Configuration changes do not rewrite
+completed results.
 
 ## Test special values first
 
