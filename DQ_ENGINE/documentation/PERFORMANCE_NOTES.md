@@ -64,15 +64,16 @@ without casts, filters or deduplication. It uses permanent space and NO PRIMARY
 INDEX. Standalone statistics and all subsequent counting queries read that table;
 Basic statistics remain reusable as before.
 
-One GROUPING SETS aggregate per batch calculates OVERALL, YEARLY and MONTHLY
-counts together against the period-specific bounds. Batches are capped at five
-fields. At 415 numeric fields, this replaces about 21,165 month-level count
-statements over 255 months with 83 generated batch aggregates. That count
-reduction does not prove fewer physical reads or guarantee runtime; Teradata's
-installed optimizer may redistribute or spool the grouping work. Standalone
-statistics use three sequential aggregates capped at ten fields. Materialization
-itself may exhaust view spool; measured runtime, permanent space, I/O and AMP
-distribution require EXPLAIN/DBQL on the installed release.
+Three direct aggregates calculate OVERALL, YEARLY and MONTHLY outlier counts
+against the corresponding bounds. Each query references the narrow staged rows
+once, so a five-field batch has three grouped reads instead of one query per
+calendar month. At 415 numeric fields, that is 249 generated period aggregates
+across 83 batches (SQL_BATCH_SIZE 5), versus about 21,165 month-level statements
+in the old loop. This is a query-count comparison, not a physical-read/runtime
+claim: the optimizer may rescan or spool the stage. Standalone statistics use
+three sequential aggregates capped at ten fields. Materialization itself may
+exhaust view spool; runtime, permanent space, I/O and AMP distribution require
+EXPLAIN/DBQL on the installed release.
 
 Names include run UUID and attempt. The work table is dropped on success/handled
 failure. External abort/session loss can leave an orphan; batch-0 SQL_TEXT retains

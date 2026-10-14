@@ -6,8 +6,9 @@
    per-run/attempt MULTISET work table in DQ_DB, preserving types and duplicates.
    Use permanent space for the projection, not volatile raw-row spool. Drop it
    on success/handled failure; a terminated session may leave it for recovery.
-   Aggregate overall, yearly and monthly bounds together with one GROUPING SETS
-   query per field batch (maximum 5 fields); avoid the prior month-level loop.
+   Apply persisted period bounds in a set-based second pass per field batch.
+   Aggregate each requested period level directly; avoid GROUPING SETS and
+   per-month dynamic queries to limit peak spool and query count.
    The shared orchestrator owns status, rollback of partial output and retries. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_OUTLIERS
     (IN P_RUN_ID CHAR(36),IN P_PROJECT_ID VARCHAR(30))
@@ -33,10 +34,9 @@ main: BEGIN
     DECLARE V_SQL VARCHAR(32000);
     DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
     DECLARE V_PROJECTION VARCHAR(6000);
-    DECLARE V_FINAL_PROJECTION VARCHAR(6000);
     DECLARE V_BOUND_PROJECTION VARCHAR(6000);
-    DECLARE V_AGG_SELECT VARCHAR(8000);
-    DECLARE V_AGG_FROM VARCHAR(12000);
+    DECLARE V_AGG_SELECT VARCHAR(16000);
+    DECLARE V_AGG_FROM VARCHAR(24000);
     DECLARE V_CHECK VARCHAR(2000);
     DECLARE V_LIST VARCHAR(8000);
     DECLARE V_SUFFIX VARCHAR(12);
@@ -140,7 +140,6 @@ main: BEGIN
         SET V_SOURCE_PROJECTION='"' || V_DATE || '" AS DQ_DT,1 AS DQ_PRESENT';
         SET V_BOUND_PROJECTION='';
         SET V_PROJECTION='';
-        SET V_FINAL_PROJECTION='';
         SET V_CHECK='A.ACTUAL_TOTAL<>A.TOTAL_N';
         FOR F AS FIELDS_CURSOR CURSOR FOR
             SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
@@ -158,35 +157,13 @@ main: BEGIN
               || ',MAX(CASE WHEN FIELD_NAME=''' || TRIM(F.FIELD_NAME) || ''' THEN UB END) AS U' || V_SUFFIX;
             SET V_FIELD='S.DQ_C' || V_SUFFIX;
             SET V_PROJECTION=V_PROJECTION
-              || ',MAX(B0.N' || V_SUFFIX || ') AS N0_' || V_SUFFIX
-              || ',MAX(B1.N' || V_SUFFIX || ') AS N1_' || V_SUFFIX
-              || ',MAX(BM.N' || V_SUFFIX || ') AS N2_' || V_SUFFIX
-              || ',MAX(B0.L' || V_SUFFIX || ') AS L0_' || V_SUFFIX
-              || ',MAX(B1.L' || V_SUFFIX || ') AS L1_' || V_SUFFIX
-              || ',MAX(BM.L' || V_SUFFIX || ') AS L2_' || V_SUFFIX
-              || ',MAX(B0.U' || V_SUFFIX || ') AS U0_' || V_SUFFIX
-              || ',MAX(B1.U' || V_SUFFIX || ') AS U1_' || V_SUFFIX
-              || ',MAX(BM.U' || V_SUFFIX || ') AS U2_' || V_SUFFIX
+              || ',MAX(B.N' || V_SUFFIX || ') AS N' || V_SUFFIX
+              || ',MAX(B.L' || V_SUFFIX || ') AS L' || V_SUFFIX
+              || ',MAX(B.U' || V_SUFFIX || ') AS U' || V_SUFFIX
               || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL' || V_SUFFIX
-              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL AND B0.L' || V_SUFFIX
-              || ' IS NOT NULL AND (CAST(' || V_FIELD || ' AS FLOAT)<B0.L' || V_SUFFIX || ' OR CAST(' || V_FIELD
-              || ' AS FLOAT)>B0.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS O0_' || V_SUFFIX
-              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL AND B1.L' || V_SUFFIX
-              || ' IS NOT NULL AND (CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX || ' OR CAST(' || V_FIELD
-              || ' AS FLOAT)>B1.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS O1_' || V_SUFFIX
-              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL AND BM.L' || V_SUFFIX
-              || ' IS NOT NULL AND (CAST(' || V_FIELD || ' AS FLOAT)<BM.L' || V_SUFFIX || ' OR CAST(' || V_FIELD
-              || ' AS FLOAT)>BM.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS O2_' || V_SUFFIX;
-            SET V_FINAL_PROJECTION=V_FINAL_PROJECTION
-              || ',CASE WHEN X.GY=1 THEN X.N0_' || V_SUFFIX || ' WHEN X.GM=1 THEN X.N1_' || V_SUFFIX
-              || ' ELSE X.N2_' || V_SUFFIX || ' END AS N' || V_SUFFIX
-              || ',CASE WHEN X.GY=1 THEN X.L0_' || V_SUFFIX || ' WHEN X.GM=1 THEN X.L1_' || V_SUFFIX
-              || ' ELSE X.L2_' || V_SUFFIX || ' END AS L' || V_SUFFIX
-              || ',CASE WHEN X.GY=1 THEN X.U0_' || V_SUFFIX || ' WHEN X.GM=1 THEN X.U1_' || V_SUFFIX
-              || ' ELSE X.U2_' || V_SUFFIX || ' END AS U' || V_SUFFIX
-              || ',X.ACTUAL' || V_SUFFIX || ' AS ACTUAL' || V_SUFFIX
-              || ',CASE WHEN X.GY=1 THEN X.O0_' || V_SUFFIX || ' WHEN X.GM=1 THEN X.O1_' || V_SUFFIX
-              || ' ELSE X.O2_' || V_SUFFIX || ' END AS O' || V_SUFFIX;
+              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL AND B.L' || V_SUFFIX
+              || ' IS NOT NULL AND (CAST(' || V_FIELD || ' AS FLOAT)<B.L' || V_SUFFIX || ' OR CAST(' || V_FIELD
+              || ' AS FLOAT)>B.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS O' || V_SUFFIX;
             SET V_CHECK=V_CHECK || ' OR A.N' || V_SUFFIX || ' IS NULL OR A.ACTUAL' || V_SUFFIX || '<>A.N' || V_SUFFIX;
         END FOR;
         /* Bounds table contains period aggregates only. Fixed 3 is recorded
@@ -202,37 +179,32 @@ main: BEGIN
           || ' WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
         CALL DBC.SysExecSQL(V_SQL);
         SET V_BOUNDS_EXISTS=1;
-        /* One GROUPING SETS aggregate computes overall, yearly, and monthly
-           outlier counts in a single pass over the materialized rows per field
-           batch. Period bounds are joined once by year/month rather than
-           rescanning every month for every batch. */
-        SET V_AGG_SELECT='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
-          || 'EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,'
-          || 'GROUPING(EXTRACT(YEAR FROM S.DQ_DT)) AS GY,'
-          || 'GROUPING(EXTRACT(MONTH FROM S.DQ_DT)) AS GM,'
-          || 'MAX(B0.TOTAL_N) AS TOTAL0,MAX(B1.TOTAL_N) AS TOTAL1,MAX(BM.TOTAL_N) AS TOTAL2,'
-          || 'COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
-          || V_PROJECTION;
-        SET V_AGG_FROM=' FROM (SELECT * FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''OVERALL'' AND PERIOD_VALUE=''ALL'') B0'
-          || ' LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S ON 1=1'
-          || ' LEFT JOIN DQ_NO_BOUNDS B1 ON B1.PERIOD_LEVEL=''YEARLY'' AND B1.PERIOD_VALUE='
-          || 'CASE WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'' ELSE TRIM(CAST(EXTRACT(YEAR FROM S.DQ_DT) AS CHAR(4))) END'
-          || ' LEFT JOIN DQ_NO_BOUNDS BM ON BM.PERIOD_LEVEL=''MONTHLY'' AND BM.PERIOD_VALUE='
-          || 'CASE WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'' ELSE TRIM(CAST(EXTRACT(YEAR FROM S.DQ_DT) AS CHAR(4)))'
-          || '||''-''||SUBSTR(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))),'
+        /* Two-pass, set-based outlier counting. Bounds come from the captured
+           statistics; each period level is aggregated directly so Teradata
+           does not need a multi-level GROUPING SETS spool. This is three
+           grouped reads of the narrow run stage per batch, not one query per
+           calendar month. */
+        SET V_AGG_SELECT='SELECT ''OVERALL'' AS PERIOD_LEVEL,''ALL'' AS PERIOD_VALUE,'
+          || 'MAX(B.TOTAL_N) AS TOTAL_N,COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
+          || V_PROJECTION
+          || ' FROM (SELECT * FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''OVERALL'' AND PERIOD_VALUE=''ALL'') B'
+          || ' LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S ON 1=1';
+        SET V_AGG_FROM=' UNION ALL SELECT ''YEARLY'' AS PERIOD_LEVEL,B.PERIOD_VALUE AS PERIOD_VALUE,'
+          || 'MAX(B.TOTAL_N) AS TOTAL_N,COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
+          || V_PROJECTION
+          || ' FROM DQ_NO_BOUNDS B JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+          || ' ON B.PERIOD_LEVEL=''YEARLY'' AND B.PERIOD_VALUE=CASE WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'''
+          || ' ELSE TRIM(CAST(EXTRACT(YEAR FROM S.DQ_DT) AS CHAR(4))) END'
+          || ' GROUP BY B.PERIOD_VALUE'
+          || ' UNION ALL SELECT ''MONTHLY'' AS PERIOD_LEVEL,B.PERIOD_VALUE AS PERIOD_VALUE,'
+          || 'MAX(B.TOTAL_N) AS TOTAL_N,COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
+          || V_PROJECTION
+          || ' FROM DQ_NO_BOUNDS B JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+          || ' ON B.PERIOD_LEVEL=''MONTHLY'' AND B.PERIOD_VALUE=CASE WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'''
+          || ' ELSE TRIM(CAST(EXTRACT(YEAR FROM S.DQ_DT) AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))),'
           || 'CHARACTER_LENGTH(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))))-1,2) END'
-          || ' GROUP BY GROUPING SETS ((),(EXTRACT(YEAR FROM S.DQ_DT)),('
-          || 'EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)))'
-          || ' HAVING GROUPING(EXTRACT(YEAR FROM S.DQ_DT))=1 OR '
-          || 'SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT))>0';
-        SET V_SQL='CREATE VOLATILE TABLE DQ_NO_AGG AS (SELECT '
-          || 'CASE WHEN X.GY=1 THEN ''OVERALL'' WHEN X.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END AS PERIOD_LEVEL,'
-          || 'CASE WHEN X.GY=1 THEN ''ALL'' WHEN X.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
-          || 'WHEN X.GM=1 THEN TRIM(CAST(X.DQ_YEAR AS CHAR(4))) ELSE TRIM(CAST(X.DQ_YEAR AS CHAR(4)))'
-          || '||''-''||SUBSTR(''00''||TRIM(CAST(X.DQ_MONTH AS VARCHAR(2))),'
-          || 'CHARACTER_LENGTH(''00''||TRIM(CAST(X.DQ_MONTH AS VARCHAR(2))))-1,2) END AS PERIOD_VALUE,'
-          || 'CASE WHEN X.GY=1 THEN X.TOTAL0 WHEN X.GM=1 THEN X.TOTAL1 ELSE X.TOTAL2 END AS TOTAL_N,'
-          || 'X.ACTUAL_TOTAL' || V_FINAL_PROJECTION || ' FROM (' || V_AGG_SELECT || V_AGG_FROM || ') X'
+          || ' GROUP BY B.PERIOD_VALUE';
+        SET V_SQL='CREATE VOLATILE TABLE DQ_NO_AGG AS (' || V_AGG_SELECT || V_AGG_FROM
           || ') WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
         UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
          WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
