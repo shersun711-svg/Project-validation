@@ -53,24 +53,27 @@ Include materialization, statistics and retention cost in the comparison.
 Use a separate test project pointing to a DBA-approved persistent stage, with
 the same fields, settings and special lists. Do not mutate production source
 configuration for benchmarking. A permanent stage survives separate SAS
-sessions; a manually created volatile stage does not. The engine does not
-manage a permanent raw-data staging lifecycle.
+sessions; a manually created volatile stage does not. This manually managed benchmark stage is separate from the
+automatic outlier work table described below.
 
 ## Numeric Outliers
 
-Outliers cap batches at five fields and count one period per statement against
-one bounds row. This avoids detail redistribution on year/month join keys and
-retaining several period branches in a single UNION ALL statement. Small bounds
-and aggregate volatile tables remain; no raw staging or rank sorting is added.
-Basic supplies full FLOAT statistics through DQ_NUMERIC_STATISTICS. Standalone
-statistics execute overall/yearly/monthly aggregates sequentially, without
-GROUPING SETS, in batches capped at ten.
+Outliers materialize the final source view once into a narrow MULTISET work table
+in the engine schema, projecting the reporting date and selected numeric fields
+without casts, filters or deduplication. It uses permanent space and NO PRIMARY
+INDEX. Standalone statistics and all subsequent counting queries read that table;
+Basic statistics remain reusable as before.
 
-The revised execution trades additional source queries (one per period per batch
-for counting) for lower peak work per statement. Many months on a complex view
-may increase runtime substantially. The overall query still reads the complete
-population. SQL_TEXT holds the most recent period/pass query, including a failed
-statement. Check EXPLAIN/DBQL for source-view spool and AMP skew before expanding.
-No measured spool reduction or throughput improvement is claimed; the revised
-SPL has not been compiled or benchmarked on Teradata. Deployment steps are in
-[Numeric Outliers](NUMERIC_OUTLIERS.md#upgrade-an-existing-outlier-deployment-after-error-2646).
+Counting still uses one period per statement and batches capped at five fields.
+Standalone statistics use three sequential aggregates capped at ten fields.
+This avoids repeated evaluation of the complex source view while retaining the
+spool-conscious counting shape. The work table can still be scanned many times.
+Materialization itself may exhaust view spool; measured runtime, permanent space,
+I/O and AMP distribution require EXPLAIN/DBQL on the installed release.
+
+Names include run UUID and attempt. The work table is dropped on success/handled
+failure. External abort/session loss can leave an orphan; batch-0 SQL_TEXT retains
+its exact creation SQL for targeted recovery after the request has stopped.
+No measured speed/spool improvement or server compilation is claimed. See
+[Numeric Outliers](NUMERIC_OUTLIERS.md#upgrade-an-existing-outlier-deployment-after-error-2646)
+for the helper/wrapper compile order, privileges and working-data cleanup.

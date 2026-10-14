@@ -121,7 +121,7 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 16. `teradata/results/93_dq_basic_review.sql`
 17. `teradata/modules/01_assign_run_number.sql`
 18. `teradata/modules/02_special_value_list.sql`
-19. `teradata/modules/03_numeric_statistics.sql`
+19. `teradata/modules/03_numeric_statistics.sql` (source helper/grant, then compatible wrapper/grant)
 20. `teradata/modules/10_numeric_basic.sql`
 21. `teradata/modules/12_numeric_outliers.sql`
 22. `teradata/modules/15_other_basic.sql`

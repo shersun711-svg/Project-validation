@@ -43,3 +43,15 @@ period isolation, repeated evaluation, legacy-colour fallback and unchanged
 profiling rows. Guard SELECTs and cleanup structure are checked locally; SPL
 SIGNAL/transaction behaviour, grants and the supplied server fixtures still need
 Teradata execution. No historical rule backfill or reporting module was added.
+
+After the sequential outlier test exceeded 30 minutes, the user confirmed the
+request issue was resolved and requested an update. The next version materializes
+a narrow native-type source projection once, then reuses it for standalone
+statistics and counting. Generated CTAS/projection SQL was tested on synthetic
+SQLite data: rows/duplicates remain unchanged, and deleting the original source
+after projection leaves all 180 outlier results and 36 statistics correct.
+Run/attempt naming, creation-before-statistics, owner-reference grant and targeted
+cleanup paths were checked in the source. These do not test Teradata NOPI/DDL,
+physical storage, privileges, hard-abort cleanup or performance. The uploaded
+development-team procedure was reviewed as a reference only; no code was copied,
+and its population-deviation formula was not substituted for sample deviation.

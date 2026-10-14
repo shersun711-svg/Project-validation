@@ -30,6 +30,25 @@ function snapshot(population){db.exec('DELETE FROM DQ_NUMERIC_STATISTICS');refer
  reference.set(name+'/'+key,{valid:s.n,low,high,count,rate:count===null?null:100*count/s.n});
 }}}
 snapshot(groups);
+// Execute the actual narrow CTAS (only remove Teradata physical-table syntax).
+const stageName='DQ_OS_'+id.replaceAll('-','')+'_A1';
+function workName(run,attempt){return evaluate(assignment('V_STAGE',0,sql),{"OREPLACE(TRIM(P_RUN_ID),'-','')":run.replaceAll('-',''),V_ATTEMPT:attempt});}
+assert.equal(workName(id,1),stageName);assert.notEqual(workName(id,2),stageName);
+assert.notEqual(workName('40000000-0000-4000-8000-000000000002',1),stageName);
+const stageVars={V_STAGE:stageName,V_DATE:'FACT_DT',V_STAGE_PROJECTION:'"FACT_DT"',V_DB:'SOURCE',V_SOURCE:'FIXTURE'};
+for(const name of fields){stageVars['W.FIELD_NAME']=name;stageVars.V_STAGE_PROJECTION=evaluate(assignment('V_STAGE_PROJECTION',sql.indexOf('FOR W AS'),sql),stageVars);}
+const stageSql=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),stageVars);
+lex(stageSql,'outlier source materialization');assert.ok(stageSql.length<32000);
+const wideStage=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),{...stageVars,V_STAGE_PROJECTION:'X'.repeat(28000),V_STAGE:'X'.repeat(128),V_DB:'X'.repeat(128),V_SOURCE:'X'.repeat(128)});
+lex(wideStage,'maximum stage SQL width');assert.ok(wideStage.length<32000);
+assert.ok(!stageSql.includes('DISTINCT'));assert.ok(!stageSql.includes(' WHERE '));assert.ok(!stageSql.includes('CAST('));
+const stageSelect=stageSql.slice(stageSql.indexOf(' AS (')+5,stageSql.lastIndexOf(') WITH DATA'));
+db.exec('CREATE TABLE '+stageName+' AS '+stageSelect);
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+stageName).get().n,raw.length);
+assert.deepEqual(db.prepare('SELECT * FROM '+stageName).all(),db.prepare('SELECT * FROM SOURCE.FIXTURE').all());
+// Source changes after materialization must not affect standalone outlier scans.
+db.exec('DELETE FROM SOURCE.FIXTURE');
+
 const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURRENT_TIMESTAMP')
  .replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)")
  .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)")
@@ -37,7 +56,7 @@ const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURR
  .replaceAll('EXTRACT(MONTH FROM "FACT_DT")',"CAST(strftime('%m',FACT_DT) AS INTEGER)");
 function ctas(q,name){lex(q,'generated '+name);assert.ok(q.length<32000);const a=q.indexOf(' AS (')+5,b=q.lastIndexOf(') WITH DATA');db.exec('CREATE TABLE '+name+' AS '+adapt(q.slice(a,b)));}
 const cursor=sql.indexOf('FOR F AS'),resultCursor=sql.indexOf('FOR R AS');
-function batch(first,last){const v={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',
+function batch(first,last){const v={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'main',V_SOURCE:stageName,V_DATE:'FACT_DT',
  V_FIRST:first,V_LAST:last,V_LIST:'(-9999.0000000000)',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',
  V_BOUND_PROJECTION:'',V_PROJECTION:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N'};
  for(let i=first;i<=last;i++){v['F.FIELD_NAME']=fields[i-1];v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_C'+i;
@@ -82,10 +101,11 @@ db.exec('DELETE FROM DQ_METRIC_RESULT');for(let i=1;i<=6;i++)batch(i,i);
 const order=q=>q.map(({EXECUTION_TIMESTAMP,...values})=>values).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
 assert.deepEqual(order(db.prepare('SELECT * FROM DQ_METRIC_RESULT').all()),order(rows));
 // Empty source: one overall domain, all bounds/counts/rates undefined; valid=0.
-db.exec('DELETE FROM SOURCE.FIXTURE; DELETE FROM DQ_METRIC_RESULT;');snapshot(new Map([['OVERALL/ALL',[]]]));batch(1,5);batch(6,6);
+db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT;');snapshot(new Map([['OVERALL/ALL',[]]]));batch(1,5);batch(6,6);
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT').get().n,30);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT WHERE METRIC_NAME='OUTLIER_VALID_COUNT' AND METRIC_VALUE=0").get().n,6);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT WHERE METRIC_NAME<>'OUTLIER_VALID_COUNT' AND METRIC_VALUE IS NULL").get().n,24);
+db.exec('DROP TABLE '+stageName);
 db.close();console.log('Generated Outlier queries passed: 180 field/period/metric results, strict +/-3 boundaries, specials, NULL dates, zero deviation, insufficient/empty populations and valid rate denominators.');
 
 /* Execute all three sequential statistics templates and Basic's capture. */
@@ -95,8 +115,9 @@ check.function('CHARACTER_LENGTH',x=>x?.length??null);
 check.aggregate('STDDEV_SAMP',{start:()=>({n:0,mean:0,m2:0}),step:(s,x)=>{if(x!==null){s.n++;const d=x-s.mean;s.mean+=d/s.n;s.m2+=d*(x-s.mean);}return s;},result:s=>s.n<2?null:Math.sqrt(s.m2/(s.n-1))});
 check.exec('CREATE TABLE SOURCE.FIXTURE (FACT_DT TEXT,'+fields.map(f=>'"'+f+'" NUMERIC').join(',')+')');
 const put=check.prepare('INSERT INTO SOURCE.FIXTURE VALUES (?,?,?,?,?,?,?)');raw.forEach(r=>put.run(...r));
+check.exec('CREATE TABLE '+stageName+' AS '+stageSelect);check.exec('DELETE FROM SOURCE.FIXTURE');
 check.exec('CREATE TABLE DQ_NUMERIC_STATISTICS (RUN_ID TEXT,FIELD_NAME TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,TOTAL_COUNT INTEGER,VALID_COUNT INTEGER,MEAN_VALUE NUMERIC,STDDEV_VALUE NUMERIC)');
-const nv={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',
+const nv={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'main',V_SOURCE:stageName,V_DATE:'FACT_DT',
  V_LIST:'(-9999.0000000000)',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT'};
 const nc=ns.indexOf('FOR F AS');for(const [i,name]of fields.entries()){
  nv['F.FIELD_NAME']=name;nv.V_SUFFIX=String(i+1);nv.V_FIELD='S.DQ_C'+(i+1);
@@ -123,7 +144,7 @@ check.prepare('INSERT INTO DQ_NB_AGG VALUES (NULL,NULL,1,1,40,33,?,?)').run(mean
 check.exec('DELETE FROM DQ_NUMERIC_STATISTICS');
 check.exec(adapt(evaluate(assignment('V_SQL',basic.indexOf('/* Keep unrounded'),basic),{P_RUN_ID:id,'R.FIELD_NAME':'PRECISE',V_SUFFIX:'1'})));
 const precise=check.prepare('SELECT * FROM DQ_NUMERIC_STATISTICS').get();assert.equal(precise.MEAN_VALUE,mean);assert.equal(precise.STDDEV_VALUE,sd);
-check.close();console.log('Generated statistics prerequisite/capture passed: all 36 period statistics and full FLOAT precision beyond displayed decimal scale.');
+check.exec('DROP TABLE '+stageName);check.close();console.log('Generated statistics prerequisite/capture passed: all 36 period statistics and full FLOAT precision beyond displayed decimal scale.');
 
 // Maximum field-name lengths and the full configured numeric list exercise
 // SQL buffer guards and SPL's inferred concatenation widths.
@@ -144,3 +165,15 @@ const declared={...maxv,...Object.fromEntries(Object.entries(widths).map(([name,
 assert.ok(evaluate(assignment('V_PERIOD_QUERY',cursor,sql),declared).length<=widths.V_PERIOD_QUERY);
 assert.ok(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE VOLATILE TABLE DQ_NO_AGG"),sql),declared).length<32000);
 console.log('Outlier SQL-size checks passed: five 128-character fields, full special list, '+maxQuery.length+' characters. Teradata/SAS NOT executed.');
+
+// Lifecycle/API structure: materialize once before internal statistics, use the
+// stage for subsequent reads, never overwrite another run's table, drop only
+// the successfully-created table, and retain creation SQL for abort recovery.
+assert.equal([...sql.matchAll(/CREATE MULTISET TABLE DQ_DB\./g)].length,1);
+assert.ok(sql.indexOf('SET V_STAGE_EXISTS=1')<sql.indexOf('CALL DQ_DB.SP_DQ_NUMERIC_STATS_SOURCE'));
+assert.ok(sql.includes("SET V_DB ='DQ_DB'"));assert.ok(sql.includes('SET V_SOURCE =V_STAGE'));
+assert.equal([...sql.matchAll(/DROP TABLE DQ_DB\./g)].length,2);
+assert.ok(sql.includes("' TO DQ_DB WITH GRANT OPTION'"));
+assert.ok(ns.includes('REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_STATISTICS'));
+assert.ok(ns.includes('CALL DQ_DB.SP_DQ_NUMERIC_STATS_SOURCE(P_RUN_ID,P_PROJECT_ID,V_DB,V_SOURCE,V_DATE)'));
+console.log('Narrow stage checks passed: native column projection, unchanged rows/duplicates, source independence, standalone stage statistics and isolated cleanup structure. Server DDL/grants/abort cleanup NOT tested.');

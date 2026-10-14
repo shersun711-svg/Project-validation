@@ -44,8 +44,10 @@ Updated Numeric Basic saves its unrounded FLOAT mean/sample deviation and valid
 count in DQ_NUMERIC_STATISTICS while processing its existing aggregate. Outliers
 reuse those values, rather than rounded DECIMAL results. If Basic=N, the internal
 SP_DQ_NUMERIC_STATISTICS prerequisite calculates the same aggregates; it emits
-no Basic metric rows or availability dates. Its timing/status appears in module
-logs but not the metric-based run summary.
+no Basic metric rows or availability dates. Outliers now use the internal
+SP_DQ_NUMERIC_STATS_SOURCE helper against their narrow working table; the original
+two-argument statistics procedure remains a compatible wrapper. Statistics timing
+appears in module logs but not the metric-based run summary.
 
 DQ_METRIC_RESULT stores five OUTLIERS metrics per field/period. DQ_BASIC_REVIEW
 combines Outlier and Basic metrics in one field/period row. Old
@@ -68,8 +70,9 @@ No database deployment is performed by repository tools.
 
 1. Run setup/16_create_outlier_support.sql ONCE. It adds the shared aggregate
    table and five fixed metric definitions. Existing tables/results are preserved.
-2. Compile modules/03_numeric_statistics.sql as a complete procedure, then
-   execute its following GRANT statement.
+2. In modules/03_numeric_statistics.sql, compile SP_DQ_NUMERIC_STATS_SOURCE and
+   execute its following GRANT, then compile the SP_DQ_NUMERIC_STATISTICS wrapper
+   and execute its grant. Submit the two complete procedures separately.
 3. Recompile modules/10_numeric_basic.sql to capture unrounded statistics.
 4. Compile modules/12_numeric_outliers.sql as a complete procedure, then
    execute its following GRANT statement.
@@ -120,26 +123,36 @@ SQLite data with narrow dialect adaptations. They are not Teradata SPL or SAS
 execution. Actual procedure compilation, privileges, cleanup/transaction behaviour,
 numerical behaviour and workload must be verified on the installed release.
 
-Outliers now count one period at a time against a single bounds row, with a
-maximum of five fields. Each statement aggregates without a detail-row join on
-year/month keys or a UNION ALL of all period populations. Only small bounds and
-aggregate tables are retained. No raw-row staging or ranking is introduced.
-Standalone statistics run three separate aggregate statements (overall, yearly,
-monthly), avoiding GROUPING SETS expansion. They cap at ten fields.
+Outliers create a narrow MULTISET table in the engine schema containing only the
+reporting-date column and all selected numeric columns. The original final view
+is referenced once for this materialization, without extra row filters, DISTINCT,
+numeric casts or special removal. Native source types, NULLs and duplicate rows
+are retained. NO PRIMARY INDEX avoids choosing a skewed date/value primary index.
+The table uses permanent space, not a volatile raw-row spool.
 
-This reduces the opportunity for period joins/combined statements to create large
-intermediate spools. It is a query-shape change, not a measured spool guarantee.
-It trades more source references for lower peak work per statement: counting
-issues one source query per captured period per field batch. A complex view may
-be evaluated repeatedly, so elapsed time can increase substantially when many
-months are present. Actual scans and peak spool require Teradata EXPLAIN/DBQL.
-SQL_TEXT records the most recent period/pass statement, including the one that
-fails. The source view itself or the overall population may still exhaust spool.
-Shared SQL_BATCH_SIZE=1 remains supported. Source populations must be stable between statistics and counting.
-The module checks total/valid counts against captured statistics and fails on a
-mismatch, but unchanged counts cannot detect all value changes. FLOAT arithmetic
-and DECIMAL(38,10) storage require tolerance and range checks as in Basic profiling.
-PSI and Excel report generation remain deferred.
+Standalone statistics and period counting read that table thereafter. Counting
+still uses one period at a time and small bounds/aggregate volatile tables to
+avoid the earlier detail-row period joins. It may read the working table many
+times, but no longer re-evaluates the complex view for every field/period.
+SQL_BATCH_SIZE=1 remains supported. Basic statistics are still reused when
+available; keep the source stable during a combined Basic+Outlier run. The
+existing count checks detect population changes, not all value changes.
+
+Work tables are named DQ_OS_<UUID without hyphens>_A<attempt>, so concurrent runs
+and retries use distinct names. The outlier batch-0 SQL_TEXT retains the exact
+creation statement/table name. Successful or handled-failure paths drop only the
+table this invocation created. They do not overwrite/drop an existing table when
+creation fails. An external abort/session loss may bypass SPL cleanup and leave
+a work table; follow the recovery instructions below. No raw values are logged,
+read by SAS or copied into repository files.
+
+This trades permanent-space allocation and one materialization for avoiding
+repeated expensive view work. The CTAS can still need substantial source-view
+spool. Actual runtime, AMP distribution, permanent-space requirements, NO PRIMARY
+INDEX support, DDL/grant permissions and cleanup need server testing. No measured
+performance improvement is claimed. FLOAT calculations, DECIMAL storage, sample
+standard deviation and the five outlier metrics are unchanged. PSI and Excel
+report generation remain deferred.
 
 Grant statements are separate from SPL procedure definitions. A client that
 handles SPL deployment sequences can execute both from the same file. With
@@ -148,23 +161,58 @@ No grants have been executed from this workspace.
 
 ## Upgrade an existing outlier deployment after error 2646
 
-Wait until the failed job has ended. No tables, views, Excel columns, SAS files,
-runner wrappers or rule-result changes are needed for this optimisation.
+Wait until the old request has ended. The update changes only the statistics
+helper/wrapper and outlier procedure; it is independent of the rule-table upgrade.
+No configuration table, result view, Excel column, SAS file or runner wrapper
+change is required. Runtime needs free permanent space and approved CREATE TABLE,
+DROP TABLE and grantable SELECT access in the engine schema. The dynamic work-table
+SELECT grant is included in the outlier procedure. A procedure grant alone does
+not grant table-creation privileges.
 
 1. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of
-   modules/03_numeric_statistics.sql. Compile the complete procedure, then execute
-   its included GRANT EXECUTE PROCEDURE statement.
-2. Do the same for modules/12_numeric_outliers.sql and its included grant.
-3. Keep SQL_BATCH_SIZE=1. If this is already APPLIED, do not reload Excel simply
-   because these procedures changed. Use a fresh run (retry_run_id blank),
-   numeric_basic=N, numeric_outliers=Y, and all other tests=N. Initially test one
-   active numeric field; after success, expand to the five-field selection.
-4. Require SUCCEEDED and check the five outlier measurements and rate denominator.
-   Compare results on a stable population before accepting the new execution plan.
+   modules/03_numeric_statistics.sql. Compile SP_DQ_NUMERIC_STATS_SOURCE first,
+   then execute its GRANT EXECUTE PROCEDURE statement.
+2. Compile the complete SP_DQ_NUMERIC_STATISTICS wrapper from that same file,
+   then execute its included grant. Its original two-argument API is preserved.
+3. Replace DQ_DB in modules/12_numeric_outliers.sql, compile the complete
+   procedure, then execute its included grant.
+4. Keep SQL_BATCH_SIZE=1 for the initial comparison. No Excel reload is needed
+   solely for the procedure change if this is already APPLIED. Run with a fresh
+   UUID (retry_run_id blank), numeric_basic=N, numeric_outliers=Y and other tests=N.
+   Start with the same five active fields to compare the previous workload.
+5. Require SUCCEEDED and review the five outlier measurements/denominator.
+   Confirm work-table removal and compare elapsed minutes on a stable population
+   before expanding field selection or batch size.
 
-If error 2646 persists, read the failed NUMERIC_STATISTICS/NUMERIC_OUTLIERS batch
-in DQ_MODULE_LOG and obtain its SQL_TEXT for EXPLAIN. The field count alone cannot
-solve insufficient spool for a single field over the full source. Assess the
-view plan/AMP skew and an approved persistent projection of the final view with
-DBA support; do not silently reduce the population or change the statistical rule.
-No Teradata compilation, spool benchmark or deployment was performed here.
+If staging fails with error 2646, its batch-0 SQL_TEXT identifies the CTAS for
+EXPLAIN. The source view still needs enough spool for a single materialization;
+inspect its plan/AMP skew with DBA support. If permanent-space or DDL/grant errors
+occur, resolve the lab storage/permissions before another run. Do not silently
+change the source population or statistical rule. No Teradata deployment,
+compilation, storage or spool benchmark was performed here.
+
+## Recover working data after an external abort
+
+First confirm that the database request and session are no longer running.
+Find the exact work-table name in the NUMERIC_OUTLIERS batch-0 SQL_TEXT for the
+aborted RUN_ID/ATTEMPT_NO. SHOW TABLE that exact name in the engine schema to
+check whether it remains. Drop only that identified table after confirming it
+belongs to the stopped attempt; do not use wildcard or broad schema cleanup.
+If SHOW TABLE reports it absent, no working-data cleanup is needed.
+
+For example, the fixture run 40000000-0000-4000-8000-000000000001 attempt 1 uses
+DQ_OS_40000000000040008000000000000001_A1. This is an example, not a table name to
+reuse for a real run. A retry creates its own attempt-specific work table and
+will not delete an older orphan. Existing run recovery rules still apply: do not
+manually mark an active database request FAILED, and retain run-number mappings.
+An interruption during CTAS or a failed cleanup may require DBA assistance to
+verify/drop a leftover object. Working input has no historical retention purpose.
+
+## Development reference
+
+The supplied development-team numeric profile procedure was reviewed only as
+reference material. Its two-pass statistics/counting structure is relevant, but
+its STDDEV_POP choice, DBC.ColumnsV lookup and other result semantics were not
+adopted. This engine retains STDDEV_SAMP, trusted Excel field types, captured
+special lists and its existing five outlier metrics. No development-team code or
+uploaded source file was copied into the repository.
