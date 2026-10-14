@@ -4,6 +4,15 @@ import fs from 'node:fs';import assert from 'node:assert/strict';import {Databas
 import {assignment,evaluate,lex}from'./check_static.mjs';
 const read=p=>fs.readFileSync(new URL('../'+p,import.meta.url),'utf8');
 const sql=read('teradata/modules/12_numeric_outliers.sql').replace(/SET (\w+)=/g,'SET $1 =');
+function rollup(v,o='Y',y='Y',m='Y'){
+ const start=sql.indexOf("SET V_QUERY_OVERALL =''");const parts=[];
+ for(const [level,flag]of [['OVERALL',o],['YEARLY',y],['MONTHLY',m]]){
+  const key='V_QUERY_'+level;
+  v[key]=flag==='Y'?evaluate(assignment(key,sql.indexOf("IF V_PROFILE_"+level+"='Y' THEN",start),sql),v):'';
+  if(v[key]){if(parts.length)v[key]=' UNION ALL '+v[key];parts.push(key);}
+ }
+ return evaluate(assignment('V_ROLLUP_QUERY',start,sql),v);
+}
 const fields=['AMOUNT','BOUNDARY','CONSTANT_VALUE','SINGLE_VALUE','ALL_NULL','ALL_SPECIAL'];
 const raw=Array.from({length:40},(_,i)=>[i<33?'2000-01-31':i<37?'2000-02-29':null,
  i===0?-4:i===1?4:i<33?0:i<37?-9999:null,
@@ -34,7 +43,7 @@ function snapshot(population){db.exec('DELETE FROM DQ_NUMERIC_STATISTICS');refer
  reference.set(name+'/'+key,{valid:s.n,low,high,count,rate:count===null?null:100*count/s.n});
 }}}
 snapshot(groups);
-db.exec('CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT)');db.prepare('INSERT INTO DQ_RUN_LOG VALUES (?)').run(id);
+db.exec('CREATE TABLE DQ_OUTLIER_CHUNK_YEAR (RUN_ID TEXT,CHUNK_YEAR TEXT); CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT)');db.prepare('INSERT INTO DQ_RUN_LOG VALUES (?)').run(id);
 // Execute the actual narrow CTAS (only remove Teradata physical-table syntax).
 const stageName='DQ_OS_'+id.replaceAll('-','')+'_A1';
 function workName(run,attempt){return evaluate(assignment('V_STAGE',0,sql),{"OREPLACE(TRIM(P_RUN_ID),'-','')":run.replaceAll('-',''),V_ATTEMPT:attempt});}
@@ -61,15 +70,19 @@ const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURR
  .replaceAll('EXTRACT(MONTH FROM "FACT_DT")',"CAST(strftime('%m',FACT_DT) AS INTEGER)");
 function ctas(q,name){lex(q,'generated '+name);assert.ok(q.length<32000);const a=q.indexOf(' AS (')+5,b=q.lastIndexOf(') WITH DATA');db.exec('CREATE TABLE '+name+' AS '+adapt(q.slice(a,b)));}
 const cursor=sql.indexOf('FOR F AS'),resultCursor=sql.indexOf('FOR R AS');
-function batch(first,last){const v={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'main',V_SOURCE:stageName,V_DATE:'FACT_DT',
+function batch(first,last,levels=['Y','Y','Y']){const [o,y,m]=levels;const v={V_PROFILE_OVERALL:o,V_PROFILE_YEARLY:y,V_PROFILE_MONTHLY:m,P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'main',V_SOURCE:stageName,V_DATE:'FACT_DT',
  V_FIRST:first,V_LAST:last,V_LIST:'(-9999.0000000000)',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',
- V_BOUND_PROJECTION:'',V_PROJECTION:'',V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N'};
+ V_BOUND_PROJECTION:'',V_OVERALL_BOUND_PROJECTION:'',V_PROJECTION:'',V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N'};
  for(let i=first;i<=last;i++){v['F.FIELD_NAME']=fields[i-1];v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_C'+i;
-  for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])v[part]=evaluate(assignment(part,cursor,sql),v);
+  for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])v[part]=evaluate(assignment(part,cursor,sql),v);
  }
  ctas(evaluate(assignment('V_SQL',cursor,sql),v),'DQ_NO_BOUNDS');
- const cs=sql.slice(sql.indexOf('SELECT DISTINCT S.PERIOD_VALUE AS CHUNK_VALUE'),sql.indexOf('            DO',sql.indexOf('FOR C AS'))).trim();
- const chunks=db.prepare(adapt(cs).replaceAll('P_RUN_ID',"'"+id+"'").replaceAll('V_FIRST',String(first)).replaceAll('V_LAST',String(last))).all();
+ db.exec('DELETE FROM DQ_OUTLIER_CHUNK_YEAR');
+ const calendarStart=sql.indexOf('/* Scan scheduling');
+ db.exec(adapt(evaluate(assignment('V_SQL',calendarStart,sql),{P_RUN_ID:id,V_DATE:'FACT_DT',V_STAGE:stageName})));
+ db.exec("INSERT INTO DQ_OUTLIER_CHUNK_YEAR SELECT '"+id+"','ALL' WHERE NOT EXISTS (SELECT 1 FROM DQ_OUTLIER_CHUNK_YEAR)");
+ const cs=sql.slice(sql.indexOf('SELECT CHUNK_YEAR AS CHUNK_VALUE'),sql.indexOf('            DO',sql.indexOf('FOR C AS'))).trim();
+ const chunks=db.prepare(adapt(cs).replaceAll('P_RUN_ID',"'"+id+"'")).all();
  assert.ok(chunks.length>0);
  for(const [index,c]of chunks.entries()){
   v['C.CHUNK_VALUE']=c.CHUNK_VALUE;v.V_SOURCE_FILTER='1=1';
@@ -86,14 +99,14 @@ function batch(first,last){const v={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:
   if(index===0)ctas(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE MULTISET VOLATILE TABLE DQ_NO_CHUNKS"),sql),v),'DQ_NO_CHUNKS');
   else db.exec(adapt(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='INSERT INTO DQ_NO_CHUNKS"),sql),v)));
  }
- const expectedChunkRows=db.prepare("SELECT COUNT(DISTINCT PERIOD_VALUE) AS n FROM DQ_NUMERIC_STATISTICS WHERE RUN_ID=? AND PERIOD_LEVEL='MONTHLY'").get(id).n;
+ const expectedChunkRows=db.prepare("SELECT COUNT(DISTINCT COALESCE(substr(FACT_DT,1,7),'UNKNOWN')) AS n FROM "+stageName).get().n;
  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_NO_CHUNKS').get().n,expectedChunkRows||1,
   'year chunks should emit one row per populated month, or one empty-source row');
- v.V_ROLLUP_QUERY=evaluate(assignment('V_ROLLUP_QUERY',sql.indexOf("SET V_ROLLUP_QUERY ="),sql),v);
+ v.V_ROLLUP_QUERY=rollup(v,o,y,m);
  // SQLite does not enforce VARCHAR lengths. Explicitly check the generated
  // Teradata contract as well as values, including the first UNION branch.
- assert.equal([...v.V_ROLLUP_QUERY.matchAll(/AS VARCHAR\(8\)\) AS PERIOD_LEVEL/g)].length,3);
- assert.equal([...v.V_ROLLUP_QUERY.matchAll(/AS VARCHAR\(10\)\) AS PERIOD_VALUE/g)].length,3);
+ assert.equal([...v.V_ROLLUP_QUERY.matchAll(/AS VARCHAR\(8\)\) AS PERIOD_LEVEL/g)].length,levels.filter(f=>f==='Y').length);
+ assert.equal([...v.V_ROLLUP_QUERY.matchAll(/AS VARCHAR\(10\)\) AS PERIOD_VALUE/g)].length,levels.filter(f=>f==='Y').length);
  ctas(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE VOLATILE TABLE DQ_NO_AGG"),sql),v),'DQ_NO_AGG');
  assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM
   (SELECT PERIOD_LEVEL,PERIOD_VALUE FROM DQ_NO_AGG
@@ -154,6 +167,29 @@ for(const [label,population] of [
  }
  console.log('Outlier '+label+' regression passed: '+actual.length+' independently checked metrics.');
 }
+// Every nonempty reporting-level combination, including no OVERALL driver.
+// Compare selected results with independently calculated all-level references.
+for(const empty of [false,true])for(let mask=1;mask<8;mask++){
+ const levels=[1,2,4].map(bit=>(mask&bit)?'Y':'N');
+ db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT');
+ const population=empty?[]:raw;
+ const put=db.prepare('INSERT INTO '+stageName+' VALUES (?,?,?,?,?,?,?)');population.forEach(r=>put.run(...r));
+ const sourceGroups=empty?new Map([['OVERALL/ALL',[]]]):groups;
+ snapshot(sourceGroups);
+ const selected=['OVERALL','YEARLY','MONTHLY'].filter((_,i)=>levels[i]==='Y');
+ const marks=selected.map(()=>'?').join(',');
+ db.prepare('DELETE FROM DQ_NUMERIC_STATISTICS WHERE PERIOD_LEVEL NOT IN ('+marks+')').run(...selected);
+ batch(1,5,levels);batch(6,6,levels);
+ const actual=db.prepare('SELECT * FROM DQ_METRIC_RESULT').all();
+ assert.equal(actual.length,[...sourceGroups.keys()].filter(k=>selected.includes(k.split('/')[0])).length*fields.length*5);
+ for(const row of actual){
+  assert.ok(selected.includes(row.PERIOD_LEVEL));
+  const expected=reference.get(row.FIELD_NAME+'/'+row.PERIOD_LEVEL+'/'+row.PERIOD_VALUE)[keys[row.METRIC_NAME]];
+  if(expected===null)assert.equal(row.METRIC_VALUE,null);else assert.ok(Math.abs(row.METRIC_VALUE-expected)<1e-9,JSON.stringify(row));
+ }
+}
+console.log('Outlier reporting levels passed: all seven combinations, with populated/empty sources, specials and UNKNOWN dates.');
+
 // Empty source: one overall domain, all bounds/counts/rates undefined; valid=0.
 db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT;');snapshot(new Map([['OVERALL/ALL',[]]]));batch(1,5);batch(6,6);
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_METRIC_RESULT').get().n,30);
@@ -204,17 +240,17 @@ check.exec('DROP TABLE '+stageName);check.close();console.log('Generated statist
 // SQL buffer guards and SPL's inferred concatenation widths.
 const list='('+read('config/special_values.csv').trim().split('\n').slice(1).filter(l=>l.startsWith('NUMERIC,')).map(l=>Number(l.split(',')[1]).toFixed(10)).join(',')+')';
 const widths=Object.fromEntries([...sql.matchAll(/DECLARE (\w+) VARCHAR\((\d+)\)/g)].map(([,name,size])=>[name,+size]));
-const maxv={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',V_FIRST:1,V_LAST:5,
- V_LIST:list,V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',V_BOUND_PROJECTION:'',V_PROJECTION:'',
+const maxv={V_PROFILE_OVERALL:'Y',V_PROFILE_YEARLY:'Y',V_PROFILE_MONTHLY:'Y',P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',V_FIRST:1,V_LAST:5,
+ V_LIST:list,V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',V_BOUND_PROJECTION:'',V_OVERALL_BOUND_PROJECTION:'',V_PROJECTION:'',
  V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N'};
 maxv['C.CHUNK_VALUE']='2000';maxv.V_CHUNK_YEAR='2000';maxv.V_SOURCE_FILTER='EXTRACT(YEAR FROM \"FACT_DT\")=2000';
 for(let i=1;i<=5;i++){maxv['F.FIELD_NAME']='F'+String(i).padStart(127,'X');maxv.V_SUFFIX=String(i);maxv.V_FIELD='S.DQ_C'+i;
- for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])maxv[part]=evaluate(assignment(part,cursor,sql),maxv);
+ for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])maxv[part]=evaluate(assignment(part,cursor,sql),maxv);
 }
-for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])assert.ok(maxv[part].length<=widths[part]);
+for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])assert.ok(maxv[part].length<=widths[part]);
 maxv.V_PERIOD_QUERY=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),maxv);
 assert.ok(maxv.V_PERIOD_QUERY.length<=widths.V_PERIOD_QUERY);
-maxv.V_ROLLUP_QUERY=evaluate(assignment('V_ROLLUP_QUERY',sql.indexOf("SET V_ROLLUP_QUERY ="),sql),maxv);
+maxv.V_ROLLUP_QUERY=rollup(maxv);
 assert.ok(maxv.V_ROLLUP_QUERY.length<=widths.V_ROLLUP_QUERY);
 const maxQuery=evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE MULTISET VOLATILE TABLE DQ_NO_CHUNKS"),sql),maxv);
 lex(maxQuery,'max-sized outlier aggregate');assert.ok(maxQuery.length<32000);
@@ -230,7 +266,7 @@ console.log('Outlier SQL-size checks passed: five 128-character fields, full spe
 const smokeVars={V_SUFFIX:'1',V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:''};
 for(const part of Object.keys(smokeVars).filter(k=>k.startsWith('V_ROLLUP_')))
  smokeVars[part]=evaluate(assignment(part,cursor,sql),smokeVars);
-const smokeQuery=evaluate(assignment('V_ROLLUP_QUERY',sql.indexOf('SET V_ROLLUP_QUERY ='),sql),smokeVars)
+const smokeQuery=rollup(smokeVars)
  .replaceAll('DQ_NO_CHUNKS','DQ_TEST_OUT_CHUNKS').replaceAll(' UNION ALL ','\nUNION ALL ');
 const smokeColumns=['CHUNK_VALUE VARCHAR(10)','CHUNK_YEAR VARCHAR(10)',
  'OVERALL_TOTAL_N BIGINT','YEARLY_TOTAL_N BIGINT','MONTHLY_TOTAL_N BIGINT','ACTUAL_TOTAL BIGINT',

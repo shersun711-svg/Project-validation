@@ -5,22 +5,23 @@ Users maintain configuration in Excel, SAS loads it and starts profiling, and
 Teradata stores the configuration and calculates the results.
 
 Numeric Basic is implemented: total, non-missing, missing and zero counts,
-missing/zero percentages, minimum, maximum, mean and sample standard deviation.
+missing/zero percentages, minimum, maximum, mean and population standard deviation.
 Categorical and identifier basics add missing counts/percentages and distinct
 counts. Date Basic provides total, non-missing and missing counts plus missing percentage.
 See [metric definitions](DQ_ENGINE/documentation/RESULTS_DICTIONARY.md).
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT describe overall non-missing availability for every
 selected field. See [availability definitions](DQ_ENGINE/documentation/RESULTS_DICTIONARY.md#field-availability).
-All field types support overall, yearly and monthly periods; percentages use
+All field types support independently selected reporting levels (Excel defaults:
+overall Y, monthly Y, yearly N); percentages use
 the shared green/amber/red rules. Configurable special-value checks are implemented.
-Numeric Outliers uses mean +/- 3 times sample standard deviation.
+Numeric Outliers uses mean +/- 3 times population standard deviation.
 PSI and Excel report export remain deferred.
 See [outlier deployment and validation](DQ_ENGINE/documentation/NUMERIC_OUTLIERS.md).
 See [special-value configuration and validation](DQ_ENGINE/documentation/SPECIAL_VALUES.md) before using this extension.
 
 ## Start here
 
-- **Existing installation:** follow the everyday workflow below.
+- **Existing installation:** apply the [reporting-level upgrade](DQ_ENGINE/documentation/REPORTING_LEVELS.md) before using the updated code, then follow the everyday workflow below.
 - **New installation:** follow [one-time deployment instructions](DQ_ENGINE/documentation/README.md#one-time-deployment).
 - **Configuration changes:** see [Excel configuration instructions](DQ_ENGINE/documentation/EXCEL_CONFIGURATION.md).
 - **Result meanings:** see [metric definitions](DQ_ENGINE/documentation/RESULTS_DICTIONARY.md).

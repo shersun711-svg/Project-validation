@@ -25,6 +25,8 @@ SAS tests require the current controller loaded in the same server session.
 | `test_extended_config.sql` | Checks special-list replacement, escaped labels and rollback |
 | `03_create_outlier_fixture.sql` | Creates isolated strict-boundary and tail test populations |
 | `test_outliers.sql` | Checks outlier bounds/rates, Basic reuse, dependency and retry |
+| `test_reporting_levels.sql` | Isolated five-row test of all seven scopes, all-N rejection, snapshot and Excel apply/rollback |
+| `test_outlier_rollup.sql` | Five synthetic chunk rows; checks full period-key widths without an RDS scan |
 | `test_outliers.sas` | Checks switches and reconciles population deviation/bounds to SAS |
 
 Run fixture creation, numeric, colour and failure/restart SQL in that order,
@@ -46,6 +48,7 @@ constraint as documented in that script.
 Developer-only checks (Node 24 and unzip; no SAS/Teradata execution):
 
 ```sh
+node DQ_ENGINE/tools/check_reporting_levels.mjs
 node DQ_ENGINE/tools/check_extended.mjs
 node DQ_ENGINE/tools/check_outliers.mjs
 node DQ_ENGINE/tools/check_config_workbook.mjs

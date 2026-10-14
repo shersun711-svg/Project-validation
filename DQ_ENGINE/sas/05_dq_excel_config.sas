@@ -4,7 +4,8 @@
    The database merges the three tables in one transaction; no profiling runs.
    Requires 01_dq_controller.sas connection macros in the same SAS session. */
 %macro load_dq_config(config_workbook=);
-    %local _rc _load_id _status _load_sql _has_special;
+    %local _rc _load_id _status _load_sql _has_special _settings_dsid _close_rc
+        _has_overall _has_monthly _has_yearly;
     %global dq_config_status dq_config_load_id;
     %let dq_config_status=FAILED;
     %let dq_config_load_id=;
@@ -61,17 +62,61 @@
     run;
     %let _rc=&syserr;
     %if &_rc>4 %then %goto read_failed;
+    %let _settings_dsid=%sysfunc(open(dqbook.Settings,i));
+    %if &_settings_dsid=0 %then %goto read_failed;
+    %let _has_overall=%sysfunc(varnum(&_settings_dsid,PROFILE_OVERALL));
+    %let _has_monthly=%sysfunc(varnum(&_settings_dsid,PROFILE_MONTHLY));
+    %let _has_yearly=%sysfunc(varnum(&_settings_dsid,PROFILE_YEARLY));
+    %let _close_rc=%sysfunc(close(&_settings_dsid));
+    /* Read optional level columns through VVALUEX before assigning new names.
+       SAS only transports values; Teradata constraints/apply perform checks. */
     data work.dq_stage_settings;
         if _n_=1 then set work.dq_stage_project(keep=project_id);
         set dqbook.Settings(rename=(GREEN_THRESHOLD=_in_green RED_THRESHOLD=_in_red
             SQL_BATCH_SIZE=_in_batch OUTLIER_SD_MULTIPLIER=_in_sd));
-        length load_id $36;
+        length load_id $36 _level_overall _level_monthly _level_yearly $128;
+        %if &_has_overall>0 %then %do;
+            _level_overall=upcase(strip(vvaluex('PROFILE_OVERALL')));
+        %end;
+        %else %do;
+            _level_overall='Y';
+        %end;
+        %if &_has_monthly>0 %then %do;
+            _level_monthly=upcase(strip(vvaluex('PROFILE_MONTHLY')));
+        %end;
+        %else %do;
+            _level_monthly='Y';
+        %end;
+        %if &_has_yearly>0 %then %do;
+            _level_yearly=upcase(strip(vvaluex('PROFILE_YEARLY')));
+        %end;
+        %else %do;
+            _level_yearly='N';
+        %end;
         load_id="&_load_id";
         green_threshold=input(strip(vvaluex('_in_green')),best32.);
         red_threshold=input(strip(vvaluex('_in_red')),best32.);
         sql_batch_size=input(strip(vvaluex('_in_batch')),best32.);
         outlier_sd_multiplier=input(strip(vvaluex('_in_sd')),best32.);
-        keep load_id project_id green_threshold red_threshold sql_batch_size outlier_sd_multiplier;
+        keep load_id project_id green_threshold red_threshold sql_batch_size outlier_sd_multiplier
+            _level_overall _level_monthly _level_yearly;
+    run;
+    %let _rc=&syserr;
+    %if &_rc>4 %then %goto read_failed;
+    data work.dq_stage_settings;
+        set work.dq_stage_settings;
+        length profile_overall profile_monthly profile_yearly $1;
+        /* Default blank/absent columns; invalid values become '?' for rejection. */
+        if missing(_level_overall) or _level_overall='.' then profile_overall='Y';
+        else if _level_overall in ('Y','N') then profile_overall=_level_overall;
+        else profile_overall='?';
+        if missing(_level_monthly) or _level_monthly='.' then profile_monthly='Y';
+        else if _level_monthly in ('Y','N') then profile_monthly=_level_monthly;
+        else profile_monthly='?';
+        if missing(_level_yearly) or _level_yearly='.' then profile_yearly='N';
+        else if _level_yearly in ('Y','N') then profile_yearly=_level_yearly;
+        else profile_yearly='?';
+        drop _level_overall _level_monthly _level_yearly;
     run;
     %let _rc=&syserr;
     %if &_rc>4 %then %goto read_failed;

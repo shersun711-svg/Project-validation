@@ -9,6 +9,8 @@
 %let dq_database = LAB_T_ORION_MVT;
 %let project = RDS; /* Configuration and field selection are loaded from Excel. */
 
+/* Reporting levels are independent Excel Settings: PROFILE_OVERALL,
+   PROFILE_MONTHLY, PROFILE_YEARLY. RDS defaults Y/Y/N. Reload file 04 after edits. */
 /* SpecialValues in Excel: Basic counts specials; statistics exclude them. */
 %let numeric_basic = Y;
 %let numeric_outliers = N; /* Y applies mean +/- 3*population standard deviation. */

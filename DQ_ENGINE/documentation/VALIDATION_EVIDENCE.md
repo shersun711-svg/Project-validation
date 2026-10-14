@@ -78,3 +78,13 @@ procedure reports duplicate rollup keys or pre-existing field results before
 insertion and saves the generated metric INSERT in batch SQL_TEXT. These local
 checks do not identify the cause of the user's reported Teradata error without
 that run's module log. Its code was not copied.
+
+The user subsequently reported a successful outlier RDS run with the explicit
+period-width fix, while reporting that runtime remained too slow. The new
+reporting-level extension has not been deployed or tested on SAS/Teradata here.
+Local generated-query checks cover all seven nonempty scopes for four Basic
+types, standalone statistics and outliers, including empty populations, NULL
+reporting dates, specials, unchanged selected metrics and field availability.
+The starter workbook preserves all 589 mappings and adds Y/Y/N level defaults.
+Server tests for captured settings, all-N rejection and transactional application
+are supplied in tests/test_reporting_levels.sql; these are not claimed executed.

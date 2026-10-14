@@ -37,6 +37,13 @@ Enable numeric_outliers=Y for mean +/- 3*population-standard-deviation checks. P
 report export remain unavailable and must stay N. A selected module with no eligible
 fields fails explicitly; enabling no modules is also rejected.
 
+## Choose reporting levels in Excel
+
+Settings.PROFILE_OVERALL=Y, PROFILE_MONTHLY=Y and PROFILE_YEARLY=N are the
+defaults and the confirmed RDS selection. These apply to every selected module,
+independently of the SAS test switches. Choose any nonempty Y/N combination.
+See [deployment, compatibility and tests](REPORTING_LEVELS.md).
+
 ## Settings and special values
 
 Settings default to green below 1%, amber from 1% to below 5%, red from 5%,

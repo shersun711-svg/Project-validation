@@ -28,8 +28,9 @@ assert.ok(!xml('xl/worksheets/sheet2.xml').includes('NUMERIC_BASIC_IND'));
 assert.ok(xml('xl/worksheets/sheet2.xml').includes('ref="A1:C590"'));
 const csv=fs.readFileSync(path.join(root,'config/rds_fields.csv'),'utf8').trim().split('\n').slice(1).map(l=>l.split(','));
 assert.deepEqual(fields.slice(1),csv.map(([n,t])=>[n,t,'Y']));
-assert.deepEqual(settings[0],['GREEN_THRESHOLD','RED_THRESHOLD','SQL_BATCH_SIZE','OUTLIER_SD_MULTIPLIER']);
-assert.deepEqual(settings[1],[1,5,25,3]);
+assert.deepEqual(settings[0],['GREEN_THRESHOLD','RED_THRESHOLD','SQL_BATCH_SIZE','OUTLIER_SD_MULTIPLIER','PROFILE_OVERALL','PROFILE_MONTHLY','PROFILE_YEARLY']);
+assert.deepEqual(settings[1],[1,5,25,3,'Y','Y','N']);
+assert.ok(xml('xl/worksheets/sheet3.xml').includes('sqref="E2:G2"'));
 for(let i=1;i<=4;i++){assert.ok(!/<f[ >]/.test(xml(`xl/worksheets/sheet${i}.xml`)),'No formulas in starter workbook');}
 const sas=fs.readFileSync(path.join(root,'sas/05_dq_excel_config.sas'),'utf8');
 assert.ok(!/validate_dq_config|apply=N|APPLY=Y/i.test(sas),'No SAS workbook validation/preview phase');

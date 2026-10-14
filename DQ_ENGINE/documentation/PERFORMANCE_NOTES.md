@@ -81,3 +81,12 @@ its exact creation SQL for targeted recovery after the request has stopped.
 No measured speed/spool improvement or server compilation is claimed. See
 [Numeric Outliers](NUMERIC_OUTLIERS.md#upgrade-an-existing-outlier-deployment-after-error-2646)
 for the helper/wrapper compile order, privileges and working-data cleanup.
+
+## Configurable reporting levels
+
+Only selected Basic grouping sets/period queries and standalone statistics passes
+are executed. Outliers skip disabled comparison branches and rollups. Year chunks
+still schedule reads when YEARLY reporting is off; a small run-owned calendar
+is populated from the stage once. This does not establish a runtime improvement.
+RDS uses overall/monthly, with yearly disabled; benchmark the selected scope
+against the same population. See [reporting levels](REPORTING_LEVELS.md).

@@ -1,3 +1,6 @@
+For configurable overall/monthly/yearly output, follow the current
+[reporting-level upgrade](REPORTING_LEVELS.md) before using these procedures.
+
 # Numeric Outliers
 
 Enable numeric_outliers=Y in sas/00_run_dq_engine.sas. It runs for every active

@@ -13,7 +13,7 @@ Use one workbook per project. Keep these headers unchanged:
 |---|---|---|
 | Project | PROJECT_ID, SOURCE_DATABASE, SOURCE_TABLE, REPORTING_DATE_FIELD, ACCOUNT_ID_FIELD, ACTIVE_IND | One project row |
 | Fields | FIELD_NAME, FIELD_TYPE, ACTIVE_IND | One row per field |
-| Settings | GREEN_THRESHOLD, RED_THRESHOLD, SQL_BATCH_SIZE, OUTLIER_SD_MULTIPLIER | One settings row |
+| Settings | GREEN_THRESHOLD, RED_THRESHOLD, SQL_BATCH_SIZE, OUTLIER_SD_MULTIPLIER, PROFILE_OVERALL, PROFILE_MONTHLY, PROFILE_YEARLY | One settings row |
 | SpecialValues | FIELD_TYPE, SPECIAL_VALUE, ACTIVE_IND | One numeric/categorical special per row |
 
 The starter contains the original 589 RDS mappings. Project defaults to RDS,
@@ -27,7 +27,10 @@ edited workbook to preserve your field selection. An older workbook without
 SpecialValues preserves the stored special list; a present empty sheet with
 headers clears it. See [special-value semantics](SPECIAL_VALUES.md).
 
-Settings defaults are 1, 5, 25 and 3. Thresholds are percentage points: enter
+Settings defaults are 1, 5, 25 and 3 for the numeric settings, and Y/Y/N for
+PROFILE_OVERALL / PROFILE_MONTHLY / PROFILE_YEARLY. At least one level must be Y.
+Absent or blank level columns in older workbooks use those defaults on reload.
+See [reporting levels and the required upgrade](REPORTING_LEVELS.md). Thresholds are percentage points: enter
 1 and 5, not 1% and 5%. Batch size must be an integer from 1–30. Outlier multiplier must remain 3 when numeric_outliers=Y;
 the SAS switch enables that module. Names support 128 ASCII identifier
 characters, project IDs 30, flags one, logical types 16, special text 128.

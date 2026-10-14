@@ -117,6 +117,36 @@ function evaluate(expression,variables){
         assert.ok(Object.hasOwn(variables,p),`Unknown SQL-template variable ${p}`);return String(variables[p]);
     }).join('');
 }
+/* Evaluate the actual grouping-template assignments for a requested scope. */
+function groupingVariables(source,o='Y',y='Y',m='Y'){
+    const q=source.replace(/SET (\w+)=/g,'SET $1 =');
+    const v={V_GROUPS:''};
+    if(o==='Y')v.V_GROUPS=evaluate(assignment('V_GROUPS',q.indexOf("IF V_PROFILE_OVERALL='Y'"),q),v);
+    for(const [flag,part]of [[y,'YEARLY'],[m,'MONTHLY']])if(flag==='Y'){
+        if(v.V_GROUPS)v.V_GROUPS+=',';
+        const start=q.indexOf("IF V_PROFILE_"+part+"='Y' THEN",q.indexOf('SET V_GROUPS'));
+        v.V_GROUPS=evaluate(assignment('V_GROUPS',q.indexOf('END IF;',start)+7,q),v);
+    }
+    const start=q.indexOf("IF V_PROFILE_YEARLY='Y' OR V_PROFILE_MONTHLY='Y' THEN");
+    const branch=y==='Y'||m==='Y'?start:q.indexOf('    ELSE',start);
+    v.V_TIME_SELECT=evaluate(assignment('V_TIME_SELECT',branch,q),v);
+    v.V_GROUP_CLAUSE=evaluate(assignment('V_GROUP_CLAUSE',branch,q),v);
+    const month=q.indexOf("IF V_PROFILE_MONTHLY='Y' THEN",branch+1);
+    v.V_TIME_SELECT=evaluate(assignment('V_TIME_SELECT',m==='Y'?month:q.indexOf('    ELSE',month),q),v);
+    return v;
+}
+function periodUnion(source,v,o='Y',y='Y',m='Y'){
+    const parts=[];
+    for(const [key,flag]of [['V_OVERALL',o],['V_YEARLY',y],['V_MONTHLY',m]]){
+        const raw=evaluate(assignment(key,source.indexOf('/* Guard before assigning'),source),v);
+        v[key]=flag==='Y'?raw:'';
+        if(v[key])parts.push(v[key]);
+    }
+    // The procedure prefixes only non-first enabled branches.
+    v.V_PERIOD_QUERY=parts.join(' UNION ALL ');
+    return v;
+}
+export {groupingVariables,periodUnion};
 const specialXml=execFileSync('unzip',['-p',path.join(root,'config/DQ_RDS_config.xlsx'),'xl/worksheets/sheet4.xml'],{encoding:'utf8'});
 const specialRows=[...specialXml.matchAll(/<row[^>]*>(.*?)<\/row>/g)].map(m=>[...m[1].matchAll(/<t>(.*?)<\/t>/g)].map(t=>t[1]));
 const numericSpecialList='('+specialRows.filter(r=>r[0]==='NUMERIC').map(r=>Number(r[1]).toFixed(10)).join(',')+')';
@@ -125,7 +155,7 @@ const sourceProjection=assignment('V_SOURCE_PROJECTION',module.indexOf('FOR F AS
 const aggregate=assignment('V_SQL',module.indexOf('/* GROUPING distinguishes'));
 const insert=assignment('V_SQL',module.indexOf('FOR R AS'));
 for(const batch of [fields.filter(f=>f.type==='NUMERIC').slice(0,10),Array.from({length:10},(_,i)=>({name:'F'+String(i).padStart(127,'X')}))]){
-    const v={V_DB:'LAB_T_ORION_MVT',V_SOURCE:'VW_RDS_PHASE2_FACT',V_DATE:'FACT_DT',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_SPECIAL_LIST:numericSpecialList};
+    const v={...groupingVariables(module),V_DB:'LAB_T_ORION_MVT',V_SOURCE:'VW_RDS_PHASE2_FACT',V_DATE:'FACT_DT',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_SPECIAL_LIST:numericSpecialList};
     for(const [i,f] of batch.entries()){
         v.V_SUFFIX=String(i+1);v.V_FIELD='S.DQ_F'+v.V_SUFFIX;v.V_CLEAN='S.DQ_C'+v.V_SUFFIX;v['F.FIELD_NAME']=f.name;
         v.V_SOURCE_PROJECTION=evaluate(sourceProjection,v);
@@ -150,7 +180,7 @@ for(const batch of [fields.filter(f=>f.type==='NUMERIC').slice(0,10),Array.from(
    This checks generated SQL text/limits only, never Teradata semantics. */
 const other=read('teradata/modules/15_other_basic.sql').replace(/SET (\w+)=/g,'SET $1 =');
 for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
-    const v={P_RUN_ID:'20000000-0000-4000-8000-000000000001',P_PROJECT_ID:'RDS',
+    const v={...groupingVariables(other),P_RUN_ID:'20000000-0000-4000-8000-000000000001',P_PROJECT_ID:'RDS',
         P_TYPE:type,V_MODULE:type+'_BASIC',V_DB:'LAB_T_ORION_MVT',V_SOURCE:'VW_RDS_PHASE2_FACT',
         V_DATE:'FACT_DT',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT'};
     v.V_PERIOD_LEVEL=evaluate(assignment('V_PERIOD_LEVEL',0,other),v);
@@ -187,6 +217,7 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
             'SPL must not infer an oversized final concatenation from declared part widths');
         assert.ok(v.V_PROJECTION.length+v.V_SOURCE_PROJECTION.length+v.V_DB.length+v.V_SOURCE.length+600<=10000);
     }
+    if(type!=='DATE')periodUnion(other,v);
     const query=evaluate(assignment('V_SQL',aggregateStart,other),v);
     lex(query,'generated '+type+' aggregate');assert.ok(query.length<32000);
     assert.equal((query.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,type==='DATE'?1:3);
