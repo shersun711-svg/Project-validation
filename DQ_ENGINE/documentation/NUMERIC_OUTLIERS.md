@@ -139,17 +139,17 @@ numeric casts or special removal. Native source types, NULLs and duplicate rows
 are retained. NO PRIMARY INDEX avoids choosing a skewed date/value primary index.
 The table uses permanent space, not a volatile raw-row spool.
 
-Standalone statistics and period counting read that table thereafter. Counting
-filters the work table to one reporting month (or NULL-date rows) per statement
-and calculates outliers against that month's OVERALL, YEARLY and MONTHLY bounds
-in the same scan. It then rolls each set of counts up to its own period. This
-avoids both the prior full-population OVERALL aggregate and rescanning every month
-separately for each period level. A 255-month history needs 255 count statements
-per five-field batch, or about 2,550 for 50 numeric fields at the five-field cap.
-SQL_BATCH_SIZE=1 reduces fields per batch, but not the number of months. Runtime
-and spool still require Teradata testing. Basic statistics are reused when
-available; keep the source stable during a combined Basic+Outlier run. Existing
-count checks detect population changes, not all value changes.
+Standalone statistics and period counting read that table thereafter. The
+outlier procedure now joins the overall, yearly and monthly bounds and uses one
+GROUPING SETS aggregate per field batch to calculate all three period levels.
+This replaces the previous per-month loop and intermediate chunk table. For a
+255-month history and 415 numeric fields at the five-field cap, generated count
+statements fall from about 21,165 month-level statements to 83 batch aggregates.
+This is a reduction in generated query count, not a claim that Teradata performs
+one physical read: the installed optimizer may redistribute or spool data, and
+the source-view materialization still reads the source once. Basic statistics
+are reused when available; keep the source stable during a combined Basic+Outlier
+run. Existing count checks detect population changes, not all value changes.
 
 Work tables are named DQ_OS_<UUID without hyphens>_A<attempt>, so concurrent runs
 and retries use distinct names. The outlier batch-0 SQL_TEXT retains the exact
@@ -182,9 +182,10 @@ and approved CREATE TABLE, DROP TABLE and grantable SELECT access in the engine
 schema. The dynamic work-table SELECT grant is included in the procedure. A
 procedure grant alone does not grant table-creation privileges.
 
-1. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of
+1. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of the updated
    modules/12_numeric_outliers.sql. Compile the complete procedure, then execute
-   its included GRANT EXECUTE PROCEDURE statement.
+   its included GRANT EXECUTE PROCEDURE statement. This version creates one
+   GROUPING SETS aggregate per field batch and no longer creates DQ_NO_CHUNKS.
 2. Keep the already-applied field configuration and test with a fresh run
    (retry_run_id blank), numeric_basic=N, numeric_outliers=Y and other tests=N.
    Use the same small numeric selection for a comparable run.
@@ -194,8 +195,9 @@ procedure grant alone does not grant table-creation privileges.
    AMP skew before increasing the field selection.
 
 Batch-0 SQL_TEXT identifies the work-table CTAS. Later SQL_TEXT records the
-current chunk or rollup statement; a failed chunk statement is limited to one
-reporting month. The source view still needs enough spool for materialization.
+current batch aggregate or metric insert. A failed aggregate can cover all
+reporting periods for that batch. The source view still needs enough spool for
+materialization.
 Resolve permanent-space or DDL/grant errors before another run. Do not silently
 change the source population or statistical rule. Teradata compilation, storage
 and spool/runtime effects have not been verified from this workspace.

@@ -25,18 +25,20 @@ SAS switch, review columns and test cases were removed. No stored database histo
 or running job was modified. Earlier evidence is retained in Git history and the history/ directory
 for audit context; its instructions are not current deployment steps.
 
-The 2026-10-14 outlier count changes were checked locally against synthetic data:
-180 field/period/metric results match independent +/-3 population-deviation reference
-calculations; batching one versus five fields produces identical results; empty
-populations, UNKNOWN dates and valid rate denominators remain correct. All 36
-standalone period statistics agree with independent calculations. Generated SQL
-scans each reporting month once and compares its rows with overall, yearly and
-monthly bounds; it does not add monthly outlier counts to derive longer-period
-results. The largest checked five-field count query with 128-character field
-names and the complete configured special list is below 32,000 characters. The
-255-month RDS range will produce about 255 count statements per five-field batch
-(about 2,550 for 50 fields). These are SQLite/static checks, not Teradata
-optimizer, compiler or workload evidence.
+The 2026-10-14 outlier calculation changes were checked locally against synthetic
+data: 180 field/period/metric results match independent +/-3 population-deviation
+reference calculations; batching one versus five fields produces identical
+results; empty populations, UNKNOWN dates and valid rate denominators remain
+correct. All 36 standalone period statistics agree with independent calculations.
+The updated procedure uses one GROUPING SETS aggregate per five-field batch for
+overall, yearly and monthly periods, replacing the previous month-by-month query
+loop. The largest generated five-field query with 128-character field names and
+the complete configured special list is below 32,000 characters. If the 589
+configured fields include 415 numeric fields, the generated count-query total
+falls from about 21,165 month-level statements over 255 months to 83 batch
+aggregates. These are generated-query counts, not Teradata physical-read or
+runtime evidence. SQLite/static checks do not test the Teradata optimizer,
+compiler, spool or workload behavior.
 
 The focused rule-storage change reuses SP_DQ_CLASSIFY/DQ_COLOUR_RULE and leaves
 profiling calculations untouched. Synthetic SQLite checks execute the evaluator,
