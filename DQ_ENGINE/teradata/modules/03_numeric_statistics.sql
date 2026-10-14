@@ -1,7 +1,8 @@
 /* Internal prerequisite when Outliers=Y and Numeric Basic=N. Aggregates only;
    no Basic metrics or availability are emitted. Uses the captured numeric
    selection and special list, preserving source filters and row multiplicity.
-   Basic=Y supplies these same unrounded statistics in its existing aggregates. */
+   Basic=Y supplies these same unrounded statistics in its existing aggregates.
+   Three sequential aggregate statements avoid GROUPING SETS detail expansion. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_STATISTICS
     (IN P_RUN_ID CHAR(36),IN P_PROJECT_ID VARCHAR(30))
 SQL SECURITY INVOKER
@@ -26,6 +27,8 @@ main: BEGIN
     DECLARE V_FIELD VARCHAR(150);
     DECLARE V_LEVEL VARCHAR(200);
     DECLARE V_PERIOD VARCHAR(1000);
+    DECLARE V_PASS INTEGER;
+    DECLARE V_GROUP_QUERY VARCHAR(28000);
     DECLARE V_ERROR VARCHAR(2048) CHARACTER SET UNICODE;
     DECLARE V_ERROR_CODE INTEGER;
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -88,17 +91,35 @@ main: BEGIN
               || ',AVG(CAST(' || V_FIELD || ' AS FLOAT)) AS AV' || V_SUFFIX
               || ',STDDEV_SAMP(CAST(' || V_FIELD || ' AS FLOAT)) AS SD' || V_SUFFIX;
         END FOR;
-        SET V_SQL='CREATE VOLATILE TABLE DQ_NS_AGG AS ('
-          || 'SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,'
-          || 'GROUPING(EXTRACT(YEAR FROM S.DQ_DT)) AS GY,GROUPING(EXTRACT(MONTH FROM S.DQ_DT)) AS GM,'
-          || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N' || V_PROJECTION
-          || ' FROM (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
-          || ' GROUP BY GROUPING SETS ((),(EXTRACT(YEAR FROM S.DQ_DT)),(EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)))'
-          || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
-        UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
-         WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_STATISTICS' AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
-        CALL DBC.SysExecSQL(V_SQL);
-        SET V_EXISTS=1;
+        SET V_PASS=1;
+        WHILE V_PASS<=3 DO
+            IF V_PASS=1 THEN
+                SET V_GROUP_QUERY='SELECT CAST(NULL AS INTEGER) AS DQ_YEAR,CAST(NULL AS INTEGER) AS DQ_MONTH,'
+                  || '1 AS GY,1 AS GM,COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N' || V_PROJECTION
+                  || ' FROM (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S';
+            ELSEIF V_PASS=2 THEN
+                SET V_GROUP_QUERY='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,CAST(NULL AS INTEGER) AS DQ_MONTH,'
+                  || '0 AS GY,1 AS GM,COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N' || V_PROJECTION
+                  || ' FROM (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE
+                  || '") S GROUP BY EXTRACT(YEAR FROM S.DQ_DT)';
+            ELSE
+                SET V_GROUP_QUERY='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,'
+                  || '0 AS GY,0 AS GM,COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N' || V_PROJECTION
+                  || ' FROM (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE
+                  || '") S GROUP BY EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)';
+            END IF;
+            IF V_PASS=1 THEN
+                SET V_SQL='CREATE VOLATILE TABLE DQ_NS_AGG AS (' || V_GROUP_QUERY
+                  || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
+            ELSE
+                SET V_SQL='INSERT INTO DQ_NS_AGG ' || V_GROUP_QUERY;
+            END IF;
+            UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_STATISTICS' AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+            CALL DBC.SysExecSQL(V_SQL);
+            SET V_EXISTS=1;
+            SET V_PASS=V_PASS+1;
+        END WHILE;
         FOR R AS RESULTS_CURSOR CURSOR FOR
             SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
              WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC' AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST ORDER BY FIELD_ORDINAL

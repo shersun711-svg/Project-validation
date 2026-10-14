@@ -10,9 +10,11 @@ These checks do not compile Teradata SPL or execute SAS.
 
 The user previously reported successful Numeric Basic and mixed-type RDS runs
 with sampled results checked, and successful Excel configuration loads. The current
-special-value Basic test on 20 numeric/9 categorical fields is still running;
-no result is claimed. Outlier scripts are prepared but their deployment/execution
-and supplied SQL/SAS validation suites remain unverified on the user server.
+special-value Basic test on 20 numeric/9 categorical fields subsequently succeeded
+according to the user, who checked its results. The user deployed Outliers and
+reported error 2646 (no more spool space), including a five-field attempt with
+SQL_BATCH_SIZE=1. No successful RDS outlier run is claimed. Supplied SQL/SAS
+validation suites and the revised procedures remain unverified on the server.
 
 Verify installed-release syntax, source type compatibility, grants, transactional
 application, cleanup/retry, count ranges, spool and execution time on the server.
@@ -22,3 +24,13 @@ The manager's current scope excludes the retired distribution module. Its code,
 SAS switch, review columns and test cases were removed. No stored database history
 or running job was modified. Earlier evidence is retained in Git history and the history/ directory
 for audit context; its instructions are not current deployment steps.
+
+The 2026-10-14 spool optimisation was checked locally against synthetic data:
+180 field/period/metric results match independent +/-3 sample-deviation reference
+calculations; batching one versus five fields produces identical results; empty
+populations, UNKNOWN dates and valid rate denominators remain correct. All 36
+standalone period statistics agree with independent calculations. Generated SQL
+uses sequential period queries for counting and three separate statistics passes;
+the largest checked five-field counting query with 128-character field names and
+the complete configured special list is below 32,000 characters. These are
+SQLite/static checks, not Teradata optimizer, compiler or workload evidence.

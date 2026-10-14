@@ -3,7 +3,8 @@
    rate denominator. Reuse unrounded Basic statistics when present; otherwise
    calculate the prerequisite internally without producing Basic results.
    Only small bounds/aggregate volatile tables: no raw staging or rank sort.
-   Three explicit period queries share field batches (maximum 5 fields).
+   Count one period at a time against a single bounds row (maximum 5 fields).
+   Avoid redistributing detail rows to yearly/monthly period join keys.
    The shared orchestrator owns status, rollback of partial output and retries. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_OUTLIERS
     (IN P_RUN_ID CHAR(36),IN P_PROJECT_ID VARCHAR(30))
@@ -30,11 +31,8 @@ main: BEGIN
     DECLARE V_LIST VARCHAR(8000);
     DECLARE V_SUFFIX VARCHAR(12);
     DECLARE V_FIELD VARCHAR(150);
-    DECLARE V_YEAR VARCHAR(500);
-    DECLARE V_MONTH VARCHAR(800);
-    DECLARE V_OVERALL VARCHAR(10000);
-    DECLARE V_YEARLY VARCHAR(10000);
-    DECLARE V_MONTHLY VARCHAR(10000);
+    DECLARE V_SOURCE_FILTER VARCHAR(1000);
+    DECLARE V_PERIOD_QUERY VARCHAR(16000);
     DECLARE V_ERROR VARCHAR(2048) CHARACTER SET UNICODE;
     DECLARE V_ERROR_CODE INTEGER;
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -80,10 +78,6 @@ main: BEGIN
         AND S.FIELD_NAME=F.FIELD_NAME AND S.PERIOD_LEVEL='OVERALL' AND S.PERIOD_VALUE='ALL');
     IF V_COUNT>0 THEN SIGNAL SQLSTATE 'U0040' SET MESSAGE_TEXT='Captured numeric statistics are incomplete'; END IF;
     CALL DQ_DB.SP_DQ_SPECIAL_LIST(P_RUN_ID,'NUMERIC',V_LIST);
-    SET V_YEAR='CASE WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'' ELSE TRIM(CAST(EXTRACT(YEAR FROM S.DQ_DT) AS CHAR(4))) END';
-    SET V_MONTH='CASE WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'' ELSE TRIM(CAST(EXTRACT(YEAR FROM S.DQ_DT) AS CHAR(4)))'
-      || '||''-''||SUBSTR(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))),'
-      || 'CHARACTER_LENGTH(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))))-1,2) END';
     WHILE V_FIRST<=V_FIELDS DO
         SET V_BATCH=V_BATCH+1;
         SET V_LAST=LEAST(V_FIRST+V_SIZE-1,V_FIELDS);
@@ -129,31 +123,52 @@ main: BEGIN
           || ' WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
         CALL DBC.SysExecSQL(V_SQL);
         SET V_BOUNDS_EXISTS=1;
-        IF CHARACTER_LENGTH(V_PROJECTION)+CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_DB)
-           +CHARACTER_LENGTH(V_SOURCE)+CHARACTER_LENGTH(V_MONTH)+800>10000 THEN
-            SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Outlier period SQL too long; reduce SQL_BATCH_SIZE';
-        END IF;
-        SET V_OVERALL='SELECT B.PERIOD_LEVEL,B.PERIOD_VALUE,MAX(B.TOTAL_N) AS TOTAL_N,'
-          || 'COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
-          || V_PROJECTION || ' FROM DQ_NO_BOUNDS B LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION
-          || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S ON 1=1 WHERE B.PERIOD_LEVEL=''OVERALL'''
-          || ' GROUP BY B.PERIOD_LEVEL,B.PERIOD_VALUE';
-        SET V_YEARLY='SELECT B.PERIOD_LEVEL,B.PERIOD_VALUE,MAX(B.TOTAL_N) AS TOTAL_N,'
-          || 'COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
-          || V_PROJECTION || ' FROM DQ_NO_BOUNDS B LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION
-          || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S ON ' || V_YEAR
-          || '=B.PERIOD_VALUE WHERE B.PERIOD_LEVEL=''YEARLY'' GROUP BY B.PERIOD_LEVEL,B.PERIOD_VALUE';
-        SET V_MONTHLY='SELECT B.PERIOD_LEVEL,B.PERIOD_VALUE,MAX(B.TOTAL_N) AS TOTAL_N,'
-          || 'COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
-          || V_PROJECTION || ' FROM DQ_NO_BOUNDS B LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION
-          || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S ON ' || V_MONTH
-          || '=B.PERIOD_VALUE WHERE B.PERIOD_LEVEL=''MONTHLY'' GROUP BY B.PERIOD_LEVEL,B.PERIOD_VALUE';
-        SET V_SQL='CREATE VOLATILE TABLE DQ_NO_AGG AS (' || V_OVERALL || ' UNION ALL ' || V_YEARLY
-          || ' UNION ALL ' || V_MONTHLY || ') WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
-        UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
-         WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS' AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
-        CALL DBC.SysExecSQL(V_SQL);
-        SET V_AGG_EXISTS=1;
+        /* Each statement has exactly one bounds row and one period's source
+           population. Aggregate directly without grouping/redistributing raw
+           rows by period. The LEFT JOIN preserves empty OVERALL populations.
+           Statistics provide the period domain; UNKNOWN keeps NULL dates. */
+        FOR T AS PERIODS_CURSOR CURSOR FOR
+            SELECT DISTINCT S.PERIOD_LEVEL,S.PERIOD_VALUE
+              FROM DQ_DB.DQ_NUMERIC_STATISTICS S
+             WHERE S.RUN_ID=P_RUN_ID AND S.FIELD_NAME IN
+               (SELECT FIELD_NAME FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+                 WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC'
+                   AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST)
+             ORDER BY S.PERIOD_LEVEL,S.PERIOD_VALUE
+        DO
+            SET V_SOURCE_FILTER='1=1';
+            IF T.PERIOD_LEVEL<>'OVERALL' THEN
+                IF T.PERIOD_VALUE='UNKNOWN' THEN
+                    SET V_SOURCE_FILTER='"' || V_DATE || '" IS NULL';
+                ELSE
+                    SET V_SOURCE_FILTER='EXTRACT(YEAR FROM "' || V_DATE || '")='
+                      || SUBSTR(T.PERIOD_VALUE,1,4);
+                    IF T.PERIOD_LEVEL='MONTHLY' THEN
+                        SET V_SOURCE_FILTER=V_SOURCE_FILTER || ' AND EXTRACT(MONTH FROM "'
+                          || V_DATE || '")=' || SUBSTR(T.PERIOD_VALUE,6,2);
+                    END IF;
+                END IF;
+            END IF;
+            SET V_PERIOD_QUERY='SELECT ''' || T.PERIOD_LEVEL || ''' AS PERIOD_LEVEL,'''
+              || T.PERIOD_VALUE || ''' AS PERIOD_VALUE,MAX(B.TOTAL_N) AS TOTAL_N,'
+              || 'COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
+              || V_PROJECTION || ' FROM (SELECT * FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL='''
+              || T.PERIOD_LEVEL || ''' AND PERIOD_VALUE=''' || T.PERIOD_VALUE || ''') B LEFT JOIN (SELECT '
+              || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE
+              || '" WHERE ' || V_SOURCE_FILTER || ') S ON 1=1';
+            IF V_AGG_EXISTS=0 THEN
+                SET V_SQL='CREATE VOLATILE TABLE DQ_NO_AGG AS (' || V_PERIOD_QUERY
+                  || ') WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
+            ELSE
+                SET V_SQL='INSERT INTO DQ_NO_AGG ' || V_PERIOD_QUERY;
+            END IF;
+            /* SQL_TEXT is the most recent period statement, including failures. */
+            UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
+               AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+            CALL DBC.SysExecSQL(V_SQL);
+            SET V_AGG_EXISTS=1;
+        END FOR;
         /* Record the generated population check on the batch log, then read
            its flag through ordinary SPL SELECT against a permanent table. */
         SET V_SQL='UPDATE DQ_DB.DQ_MODULE_LOG SET ERROR_CODE=50041 WHERE RUN_ID=''' || P_RUN_ID

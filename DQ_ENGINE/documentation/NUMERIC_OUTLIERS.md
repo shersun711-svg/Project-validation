@@ -120,11 +120,22 @@ SQLite data with narrow dialect adaptations. They are not Teradata SPL or SAS
 execution. Actual procedure compilation, privileges, cleanup/transaction behaviour,
 numerical behaviour and workload must be verified on the installed release.
 
-Outliers use small period bounds/aggregate tables and three source references
-per field batch, with a maximum of five fields. There is no raw-row staging or
-ranking. Internal statistics cap at ten fields. Shared SQL_BATCH_SIZE=1 still
-works. Explain and time the logged SQL; the complex source view can still consume
-spool. Source populations must be stable between statistics and counting.
+Outliers now count one period at a time against a single bounds row, with a
+maximum of five fields. Each statement aggregates without a detail-row join on
+year/month keys or a UNION ALL of all period populations. Only small bounds and
+aggregate tables are retained. No raw-row staging or ranking is introduced.
+Standalone statistics run three separate aggregate statements (overall, yearly,
+monthly), avoiding GROUPING SETS expansion. They cap at ten fields.
+
+This reduces the opportunity for period joins/combined statements to create large
+intermediate spools. It is a query-shape change, not a measured spool guarantee.
+It trades more source references for lower peak work per statement: counting
+issues one source query per captured period per field batch. A complex view may
+be evaluated repeatedly, so elapsed time can increase substantially when many
+months are present. Actual scans and peak spool require Teradata EXPLAIN/DBQL.
+SQL_TEXT records the most recent period/pass statement, including the one that
+fails. The source view itself or the overall population may still exhaust spool.
+Shared SQL_BATCH_SIZE=1 remains supported. Source populations must be stable between statistics and counting.
 The module checks total/valid counts against captured statistics and fails on a
 mismatch, but unchanged counts cannot detect all value changes. FLOAT arithmetic
 and DECIMAL(38,10) storage require tolerance and range checks as in Basic profiling.
@@ -134,3 +145,26 @@ Grant statements are separate from SPL procedure definitions. A client that
 handles SPL deployment sequences can execute both from the same file. With
 BTEQ .COMPILE FILE, compile only the procedure block, then submit its GRANT.
 No grants have been executed from this workspace.
+
+## Upgrade an existing outlier deployment after error 2646
+
+Wait until the failed job has ended. No tables, views, Excel columns, SAS files,
+runner wrappers or rule-result changes are needed for this optimisation.
+
+1. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of
+   modules/03_numeric_statistics.sql. Compile the complete procedure, then execute
+   its included GRANT EXECUTE PROCEDURE statement.
+2. Do the same for modules/12_numeric_outliers.sql and its included grant.
+3. Keep SQL_BATCH_SIZE=1. If this is already APPLIED, do not reload Excel simply
+   because these procedures changed. Use a fresh run (retry_run_id blank),
+   numeric_basic=N, numeric_outliers=Y, and all other tests=N. Initially test one
+   active numeric field; after success, expand to the five-field selection.
+4. Require SUCCEEDED and check the five outlier measurements and rate denominator.
+   Compare results on a stable population before accepting the new execution plan.
+
+If error 2646 persists, read the failed NUMERIC_STATISTICS/NUMERIC_OUTLIERS batch
+in DQ_MODULE_LOG and obtain its SQL_TEXT for EXPLAIN. The field count alone cannot
+solve insufficient spool for a single field over the full source. Assess the
+view plan/AMP skew and an approved persistent projection of the final view with
+DBA support; do not silently reduce the population or change the statistical rule.
+No Teradata compilation, spool benchmark or deployment was performed here.

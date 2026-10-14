@@ -58,9 +58,19 @@ manage a permanent raw-data staging lifecycle.
 
 ## Numeric Outliers
 
-Outliers cap batches at five fields and use three explicit period source
-references plus small bounds/aggregate volatile tables. No raw source staging
-or rank sorting is introduced. Basic supplies full FLOAT statistics through
-DQ_NUMERIC_STATISTICS; standalone Outliers calculates a prerequisite aggregate
-in batches capped at ten. Actual scans/spool depend on the view and optimizer.
-No throughput/spool benchmark has been executed here.
+Outliers cap batches at five fields and count one period per statement against
+one bounds row. This avoids detail redistribution on year/month join keys and
+retaining several period branches in a single UNION ALL statement. Small bounds
+and aggregate volatile tables remain; no raw staging or rank sorting is added.
+Basic supplies full FLOAT statistics through DQ_NUMERIC_STATISTICS. Standalone
+statistics execute overall/yearly/monthly aggregates sequentially, without
+GROUPING SETS, in batches capped at ten.
+
+The revised execution trades additional source queries (one per period per batch
+for counting) for lower peak work per statement. Many months on a complex view
+may increase runtime substantially. The overall query still reads the complete
+population. SQL_TEXT holds the most recent period/pass query, including a failed
+statement. Check EXPLAIN/DBQL for source-view spool and AMP skew before expanding.
+No measured spool reduction or throughput improvement is claimed; the revised
+SPL has not been compiled or benchmarked on Teradata. Deployment steps are in
+[Numeric Outliers](NUMERIC_OUTLIERS.md#upgrade-an-existing-outlier-deployment-after-error-2646).
