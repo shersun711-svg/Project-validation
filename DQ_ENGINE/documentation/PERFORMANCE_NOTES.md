@@ -64,10 +64,12 @@ without casts, filters or deduplication. It uses permanent space and NO PRIMARY
 INDEX. Standalone statistics and all subsequent counting queries read that table;
 Basic statistics remain reusable as before.
 
-Counting still uses one period per statement and batches capped at five fields.
+Counting filters to one reporting month (or NULL-date rows) per statement,
+calculates counts against every applicable OVERALL, YEARLY or MONTHLY target
+bound, and rolls those month counts up. Batches are capped at five fields.
 Standalone statistics use three sequential aggregates capped at ten fields.
-This avoids repeated evaluation of the complex source view while retaining the
-spool-conscious counting shape. The work table can still be scanned many times.
+The work table is scanned once for each month in each applicable target period,
+so the smaller statements can increase total elapsed time across long histories.
 Materialization itself may exhaust view spool; measured runtime, permanent space,
 I/O and AMP distribution require EXPLAIN/DBQL on the installed release.
 

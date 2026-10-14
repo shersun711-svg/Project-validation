@@ -131,12 +131,15 @@ are retained. NO PRIMARY INDEX avoids choosing a skewed date/value primary index
 The table uses permanent space, not a volatile raw-row spool.
 
 Standalone statistics and period counting read that table thereafter. Counting
-still uses one period at a time and small bounds/aggregate volatile tables to
-avoid the earlier detail-row period joins. It may read the working table many
-times, but no longer re-evaluates the complex view for every field/period.
-SQL_BATCH_SIZE=1 remains supported. Basic statistics are still reused when
-available; keep the source stable during a combined Basic+Outlier run. The
-existing count checks detect population changes, not all value changes.
+filters the work table to one reporting month (or NULL-date rows) per statement,
+then rolls up those month counts using the target OVERALL, YEARLY or MONTHLY
+bounds. This avoids the prior full-population OVERALL aggregate and the detail-row
+period join. Each month is scanned again for applicable target periods, so a
+large date range can still take a long time. SQL_BATCH_SIZE=1 remains supported
+and reduces fields per batch, but does not reduce the number of reporting months.
+Basic statistics are still reused when available; keep the source stable during a
+combined Basic+Outlier run. Existing count checks detect population changes, not
+all value changes.
 
 Work tables are named DQ_OS_<UUID without hyphens>_A<attempt>, so concurrent runs
 and retries use distinct names. The outlier batch-0 SQL_TEXT retains the exact
@@ -161,35 +164,31 @@ No grants have been executed from this workspace.
 
 ## Upgrade an existing outlier deployment after error 2646
 
-Wait until the old request has ended. The update changes only the statistics
-helper/wrapper and outlier procedure; it is independent of the rule-table upgrade.
-No configuration table, result view, Excel column, SAS file or runner wrapper
-change is required. Runtime needs free permanent space and approved CREATE TABLE,
-DROP TABLE and grantable SELECT access in the engine schema. The dynamic work-table
-SELECT grant is included in the outlier procedure. A procedure grant alone does
-not grant table-creation privileges.
+Wait until the old request has ended. This update changes only the outlier
+procedure. It assumes the current narrow work-table and statistics helper/wrapper
+version is already deployed. No configuration table, result view, Excel column,
+SAS file or runner wrapper change is required. Runtime needs free permanent space
+and approved CREATE TABLE, DROP TABLE and grantable SELECT access in the engine
+schema. The dynamic work-table SELECT grant is included in the procedure. A
+procedure grant alone does not grant table-creation privileges.
 
 1. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of
-   modules/03_numeric_statistics.sql. Compile SP_DQ_NUMERIC_STATS_SOURCE first,
-   then execute its GRANT EXECUTE PROCEDURE statement.
-2. Compile the complete SP_DQ_NUMERIC_STATISTICS wrapper from that same file,
-   then execute its included grant. Its original two-argument API is preserved.
-3. Replace DQ_DB in modules/12_numeric_outliers.sql, compile the complete
-   procedure, then execute its included grant.
-4. Keep SQL_BATCH_SIZE=1 for the initial comparison. No Excel reload is needed
-   solely for the procedure change if this is already APPLIED. Run with a fresh
-   UUID (retry_run_id blank), numeric_basic=N, numeric_outliers=Y and other tests=N.
-   Start with the same five active fields to compare the previous workload.
-5. Require SUCCEEDED and review the five outlier measurements/denominator.
-   Confirm work-table removal and compare elapsed minutes on a stable population
-   before expanding field selection or batch size.
+   modules/12_numeric_outliers.sql. Compile the complete procedure, then execute
+   its included GRANT EXECUTE PROCEDURE statement.
+2. Keep the already-applied field configuration and test with a fresh run
+   (retry_run_id blank), numeric_basic=N, numeric_outliers=Y and other tests=N.
+   Use the same small numeric selection for a comparable run.
+3. Require SUCCEEDED and review the outlier measurements/denominator. Confirm
+   work-table removal and record elapsed time. If it is still too slow or fails
+   2646, keep the SQL_TEXT and ask the Teradata DBA to review EXPLAIN, spool and
+   AMP skew before increasing the field selection.
 
-If staging fails with error 2646, its batch-0 SQL_TEXT identifies the CTAS for
-EXPLAIN. The source view still needs enough spool for a single materialization;
-inspect its plan/AMP skew with DBA support. If permanent-space or DDL/grant errors
-occur, resolve the lab storage/permissions before another run. Do not silently
-change the source population or statistical rule. No Teradata deployment,
-compilation, storage or spool benchmark was performed here.
+Batch-0 SQL_TEXT identifies the work-table CTAS. Later SQL_TEXT records the
+current chunk or rollup statement; a failed chunk statement is limited to one
+reporting month. The source view still needs enough spool for materialization.
+Resolve permanent-space or DDL/grant errors before another run. Do not silently
+change the source population or statistical rule. Teradata compilation, storage
+and spool/runtime effects have not been verified from this workspace.
 
 ## Recover working data after an external abort
 
