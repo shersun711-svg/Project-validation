@@ -53,6 +53,9 @@ Back up project settings. Replace DQ_DB globally in deployment copies with the
 approved schema, currently LAB_T_ORION_MVT. Use a Teradata-mode session.
 
 1. Run `teradata/setup/20_configure_reporting_levels.sql` once (sections A and B).
+   Submit each statement separately; column additions and CHECK constraints use
+   separate ALTER statements to avoid error 3982. For a partial deployment,
+   inspect SHOW TABLE and skip columns/constraints already added successfully.
    It adds flags to settings, settings staging and run logs, plus the small
    outlier scan-calendar table. Existing projects and historical runs retain
    the previous Y/Y/Y scope until an explicit workbook reload; new settings
