@@ -34,3 +34,12 @@ uses sequential period queries for counting and three separate statistics passes
 the largest checked five-field counting query with 128-character field names and
 the complete configured special list is below 32,000 characters. These are
 SQLite/static checks, not Teradata optimizer, compiler or workload evidence.
+
+The focused rule-storage change reuses SP_DQ_CLASSIFY/DQ_COLOUR_RULE and leaves
+profiling calculations untouched. Synthetic SQLite checks execute the evaluator,
+INSERT and completed-result view, covering exact threshold boundaries, rounded
+display values, undefined/invalid input reasons, captured thresholds, run/project/
+period isolation, repeated evaluation, legacy-colour fallback and unchanged
+profiling rows. Guard SELECTs and cleanup structure are checked locally; SPL
+SIGNAL/transaction behaviour, grants and the supplied server fixtures still need
+Teradata execution. No historical rule backfill or reporting module was added.

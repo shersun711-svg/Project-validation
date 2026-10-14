@@ -50,6 +50,7 @@ node DQ_ENGINE/tools/check_extended.mjs
 node DQ_ENGINE/tools/check_outliers.mjs
 node DQ_ENGINE/tools/check_config_workbook.mjs
 node DQ_ENGINE/tools/check_review_views.mjs
+node DQ_ENGINE/tools/check_rule_results.mjs
 ```
 
 The extended check includes the static check and executes generated Basic
@@ -67,3 +68,9 @@ The workbook check verifies the repository's starter workbook against the
 original input audit CSV. It is not part of the SAS loader and is not intended
 to approve users' edited workbooks. Tests remain in version control even when
 synthetic test tables are removed from a deployed database.
+
+The current runner/classifier require setup/17_create_rule_results.sql.
+The updated test_colour.sql checks separate rule persistence and idempotence;
+review assertions use the compatible DQ_COMPLETED_RESULT colour column.
+Local rule checks exercise actual view/INSERT SQL, not Teradata SPL or grants.
+See [rule deployment and focused server checks](../documentation/RULE_RESULTS.md).

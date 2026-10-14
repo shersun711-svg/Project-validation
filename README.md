@@ -56,13 +56,17 @@ with applicable metrics, classifications as columns. Date rows share the same la
 Only successful runs appear. For numeric-only review, filter FIELD_TYPE=NUMERIC. Filter by PROJECT_ID and the short RUN_NUMBER (1, 2, 3...) to
 select the correct results. UUIDs remain internal RUN_ID values.
 See [review query and view deployment](DQ_ENGINE/documentation/README.md#review-the-final-result).
+The existing shared evaluator stores new decisions separately in DQ_RULE_RESULT.
+Review columns remain compatible; historical results are preserved. Existing
+installations need the [small rule-storage upgrade](DQ_ENGINE/documentation/RULE_RESULTS.md#upgrade-an-existing-engine) before using the updated runner.
 
 | Teradata object | Purpose |
 |---|---|
 | `DQ_CONFIG_LOAD_LOG` | Confirms the Excel load status |
 | `DQ_FIELD_CONFIG` | Confirms enabled fields |
 | `DQ_RUN_LOG` / `DQ_MODULE_LOG` | Run status, progress and errors |
-| `DQ_METRIC_RESULT` | Stored results, one row per metric |
+| `DQ_METRIC_RESULT` | Stored profiling measurements, one row per metric |
+| `DQ_RULE_RESULT` | Percentage rule decisions with threshold snapshots and reasons |
 | `DQ_COMPLETED_RESULT` | Successful results, one row per metric |
 | `DQ_BASIC_REVIEW` | Final review across all four field types |
 | `DQ_RUN_NUMBER` | Short number mapped to each internal run UUID |

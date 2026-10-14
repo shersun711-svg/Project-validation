@@ -1,32 +1,87 @@
-/* Shared results-layer classification. The counts preserve exact boundary
-   decisions even if a stored/displayed rate rounds to 1% or 5%.
-   Per-run thresholds are captured before profiling for audit reproducibility. */
+/* Reuse the existing shared evaluator; read calculated percentages and the
+   run's captured thresholds. No source scans or metric recalculation.
+   Exact count comparisons preserve boundary decisions before rate rounding. */
 REPLACE VIEW DQ_DB.DQ_COLOUR_RULE AS
-SELECT R.RUN_ID, R.FIELD_NAME, R.MODULE_NAME, R.PERIOD_LEVEL, R.PERIOD_VALUE,
-       R.METRIC_NAME,
+SELECT Q.RUN_ID,Q.FIELD_NAME,Q.MODULE_NAME,Q.PERIOD_LEVEL,Q.PERIOD_VALUE,
+       Q.METRIC_NAME,
        CAST(CASE
-           WHEN R.IS_PERCENTAGE <> 'Y' THEN NULL
-           WHEN R.RATE_DENOMINATOR IS NULL OR R.RATE_DENOMINATOR = 0
-               THEN 'NOT_EVALUATED'
-           WHEN CAST(R.RATE_NUMERATOR AS DECIMAL(28,0)) * 100
-                < CAST(R.RATE_DENOMINATOR AS DECIMAL(28,0)) * L.GREEN_THRESHOLD
+           WHEN Q.REASON IS NOT NULL THEN 'NOT_EVALUATED'
+           WHEN CAST(Q.RATE_NUMERATOR AS DECIMAL(28,0))*100
+                < CAST(Q.RATE_DENOMINATOR AS DECIMAL(28,0))*Q.GREEN_THRESHOLD
                THEN 'GREEN'
-           WHEN CAST(R.RATE_NUMERATOR AS DECIMAL(28,0)) * 100
-                < CAST(R.RATE_DENOMINATOR AS DECIMAL(28,0)) * L.RED_THRESHOLD
+           WHEN CAST(Q.RATE_NUMERATOR AS DECIMAL(28,0))*100
+                < CAST(Q.RATE_DENOMINATOR AS DECIMAL(28,0))*Q.RED_THRESHOLD
                THEN 'AMBER'
            ELSE 'RED'
-       END AS VARCHAR(16)) AS DQ_COLOUR
-FROM DQ_DB.DQ_METRIC_RESULT R
-JOIN DQ_DB.DQ_RUN_LOG L ON R.RUN_ID = L.RUN_ID;
+       END AS VARCHAR(16)) AS DQ_COLOUR,
+       Q.PROJECT_ID,Q.OBSERVED_VALUE,Q.GREEN_THRESHOLD,Q.RED_THRESHOLD,Q.REASON
+FROM
+(
+    SELECT R.RUN_ID,R.PROJECT_ID,R.FIELD_NAME,R.MODULE_NAME,
+           R.PERIOD_LEVEL,R.PERIOD_VALUE,R.METRIC_NAME,
+           R.METRIC_VALUE AS OBSERVED_VALUE,R.RATE_NUMERATOR,R.RATE_DENOMINATOR,
+           L.GREEN_THRESHOLD,L.RED_THRESHOLD,
+           CAST(CASE
+               WHEN R.RATE_DENOMINATOR IS NULL THEN 'Eligible population is unavailable'
+               WHEN R.RATE_DENOMINATOR=0 THEN 'No eligible observations'
+               WHEN R.RATE_NUMERATOR IS NULL THEN 'Rate numerator is unavailable'
+               WHEN R.RATE_DENOMINATOR<0 OR R.RATE_NUMERATOR<0
+                    OR R.RATE_NUMERATOR>R.RATE_DENOMINATOR THEN 'Invalid rate counts'
+               WHEN R.METRIC_VALUE IS NULL THEN 'Observed percentage is unavailable'
+               WHEN R.METRIC_VALUE<0 OR R.METRIC_VALUE>100 THEN 'Invalid observed percentage'
+               WHEN L.GREEN_THRESHOLD IS NULL OR L.RED_THRESHOLD IS NULL
+                   THEN 'Run thresholds are unavailable'
+               WHEN L.GREEN_THRESHOLD<=0 OR L.RED_THRESHOLD<=L.GREEN_THRESHOLD
+                    OR L.RED_THRESHOLD>100 THEN 'Invalid run thresholds'
+               ELSE NULL
+           END AS VARCHAR(128)) AS REASON
+    FROM DQ_DB.DQ_METRIC_RESULT R
+    JOIN DQ_DB.DQ_RUN_LOG L ON R.RUN_ID=L.RUN_ID AND R.PROJECT_ID=L.PROJECT_ID
+    WHERE R.IS_PERCENTAGE='Y'
+) Q;
 
 REPLACE PROCEDURE DQ_DB.SP_DQ_CLASSIFY (IN P_RUN_ID CHAR(36))
 SQL SECURITY INVOKER
 BEGIN
-    UPDATE R
-    FROM DQ_DB.DQ_METRIC_RESULT AS R, DQ_DB.DQ_COLOUR_RULE AS C
-    SET DQ_COLOUR = C.DQ_COLOUR
-    WHERE R.RUN_ID = P_RUN_ID AND R.RUN_ID = C.RUN_ID
-      AND R.FIELD_NAME = C.FIELD_NAME AND R.MODULE_NAME = C.MODULE_NAME
-      AND R.PERIOD_LEVEL = C.PERIOD_LEVEL AND R.PERIOD_VALUE = C.PERIOD_VALUE
-      AND R.METRIC_NAME = C.METRIC_NAME;
+    DECLARE V_COUNT INTEGER;
+    DECLARE V_IN_TX INTEGER DEFAULT 0;
+    DECLARE V_ROLLBACK_IGNORED INTEGER DEFAULT 0;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        IF V_IN_TX=1 THEN
+            BEGIN
+                DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET V_ROLLBACK_IGNORED=1;
+                ROLLBACK;
+            END;
+        END IF;
+        RESIGNAL;
+    END;
+    /* The orchestrator calls this before publication and cleans partial
+       decisions on failure/retry. Hold this run's row write lock through the
+       atomic replacement so completed history cannot be reclassified.
+       Like the existing allocator, use Teradata mode without an outer BT. */
+    BEGIN TRANSACTION;
+    SET V_IN_TX=1;
+    UPDATE DQ_DB.DQ_RUN_LOG SET STATUS=STATUS
+     WHERE RUN_ID=P_RUN_ID AND STATUS='RUNNING';
+    IF ACTIVITY_COUNT<>1 THEN
+        SIGNAL SQLSTATE 'U0050' SET MESSAGE_TEXT='Classification requires an active engine run';
+    END IF;
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_RESULT R
+    JOIN DQ_DB.DQ_RUN_LOG L ON R.RUN_ID=L.RUN_ID
+    WHERE R.RUN_ID=P_RUN_ID AND R.PROJECT_ID<>L.PROJECT_ID;
+    IF V_COUNT<>0 THEN
+        SIGNAL SQLSTATE 'U0051' SET MESSAGE_TEXT='Metric project does not match the active run';
+    END IF;
+    DELETE FROM DQ_DB.DQ_RULE_RESULT WHERE RUN_ID=P_RUN_ID;
+    INSERT INTO DQ_DB.DQ_RULE_RESULT
+        (RUN_ID,PROJECT_ID,FIELD_NAME,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,
+         RULE_NAME,OBSERVED_VALUE,GREEN_THRESHOLD,RED_THRESHOLD,STATUS,REASON)
+    SELECT RUN_ID,PROJECT_ID,FIELD_NAME,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,
+           METRIC_NAME,OBSERVED_VALUE,GREEN_THRESHOLD,RED_THRESHOLD,DQ_COLOUR,REASON
+      FROM DQ_DB.DQ_COLOUR_RULE WHERE RUN_ID=P_RUN_ID;
+    END TRANSACTION;
+    SET V_IN_TX=0;
 END;
+
+GRANT EXECUTE PROCEDURE ON DQ_DB.SP_DQ_CLASSIFY TO DQ_DB;

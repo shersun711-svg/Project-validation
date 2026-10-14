@@ -6,7 +6,9 @@ One logical result is `(RUN_ID, FIELD_NAME, MODULE_NAME, PERIOD_LEVEL, PERIOD_VA
 `DQ_COMPLETED_RESULT`: one row per run, project, field/type and period. Basic and optional Outlier metrics
 share the same numeric row when both modules are selected.
 Applicable metric names become columns, with MISSING_RATE_COLOUR and
-ZERO_RATE_COLOUR copied from the corresponding stored percentage results.
+ZERO_RATE_COLOUR read from the corresponding stored rule decisions, with a
+legacy-colour fallback for historical runs. New decisions are stored in
+DQ_RULE_RESULT, not written into profiling rows.
 Values remain DECIMAL(38,10), including the original NULL statistics. Colours
 are not recalculated from rounded rates or current configuration. Filter by
 RUN_ID and optionally PERIOD_LEVEL; historical runs and different periods
@@ -41,7 +43,9 @@ Only SQL NULL is missing. Teradata cannot recover SAS special missing codes lost
 
 A source with no rows produces twelve OVERALL results per eligible field: counts are zero, rates/statistics are NULL, and percentage colours are NOT_EVALUATED. No yearly/monthly rows are invented. All-NULL fields have 100% missing when population >0 and NULL extrema/mean/deviation. A singleton valid statistics population has NULL sample deviation; a constant field with at least two non-missing values has zero sample deviation.
 
-Green is strictly below 1%, amber is at least 1% but below 5%, and red is at least 5%, unless an approved project settings override applies. Exact thresholds are compared using numerator × 100 against denominator × threshold in DECIMAL arithmetic. A display that rounds up to 1% can therefore remain GREEN. Non-percentage metrics have NULL DQ_COLOUR. Colours are screening classifications, not proof of invalid data.
+Green is strictly below 1%, amber is at least 1% but below 5%, and red is at least 5%, unless an approved project settings override applies. Exact thresholds are compared using numerator × 100 against denominator × threshold in DECIMAL arithmetic. A display that rounds up to 1% can therefore remain GREEN. Non-percentage metrics have no rule result and NULL DQ_COLOUR.
+For new runs DQ_METRIC_RESULT.DQ_COLOUR remains NULL even for percentages;
+DQ_COMPLETED_RESULT supplies it from DQ_RULE_RESULT for compatibility. Colours are screening classifications, not proof of invalid data.
 
 `DQ_RUN_LOG` records first start, latest end, status, source/date, thresholds, batch size and attempt number. Its elapsed time can include time between failed attempts. `DQ_MODULE_LOG` preserves attempt/batch timings, field count, errors and aggregate SQL; batch 0 is the module summary. Successful earlier batches in an ultimately failed attempt remain marked successful in history, but their partial metric rows are removed. Actual run/module failure messages are retained; SAS status variables alone are not the audit store. `DQ_RUN_FIELD_CONFIG` holds the latest attempt's captured field selection; historical SQL_TEXT records retain prior batch expressions.
 
@@ -107,3 +111,6 @@ specials. Insufficient populations are NOT_EVALUATED; constants with n>=2 have
 zero outliers. Unrounded Basic/prerequisite statistics are retained in
 DQ_NUMERIC_STATISTICS; only percentage metrics receive colours. See
 [outlier definitions and validation](NUMERIC_OUTLIERS.md).
+
+See [shared rule evaluation](RULE_RESULTS.md) for the simple rule table,
+threshold/reason semantics, historical compatibility and deployment steps.
