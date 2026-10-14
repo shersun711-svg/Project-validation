@@ -64,16 +64,16 @@ without casts, filters or deduplication. It uses permanent space and NO PRIMARY
 INDEX. Standalone statistics and all subsequent counting queries read that table;
 Basic statistics remain reusable as before.
 
-Three direct aggregates calculate OVERALL, YEARLY and MONTHLY outlier counts
-against the corresponding bounds. Each query references the narrow staged rows
-once, so a five-field batch has three grouped reads instead of one query per
-calendar month. At 415 numeric fields, that is 249 generated period aggregates
-across 83 batches (SQL_BATCH_SIZE 5), versus about 21,165 month-level statements
-in the old loop. This is a query-count comparison, not a physical-read/runtime
-claim: the optimizer may rescan or spool the stage. Standalone statistics use
-three sequential aggregates capped at ten fields. Materialization itself may
-exhaust view spool; runtime, permanent space, I/O and AMP distribution require
-EXPLAIN/DBQL on the installed release.
+Outliers aggregate one calendar year at a time, grouping each year's rows into
+monthly summaries while counting against the overall, yearly and monthly bounds.
+This bounds each aggregate's input period instead of combining all history in one
+GROUPING SETS statement. At 415 numeric fields and 22 populated years, it is
+roughly 1,900 year-chunk and rollup statements across 83 batches (SQL_BATCH_SIZE
+5), versus about 21,165 month-level statements in the earlier loop. This is a
+query-count estimate; runtime, source scans and spool depend on Teradata's
+optimizer. Standalone statistics use three sequential aggregates capped at ten
+fields. Materialization itself may exhaust view spool; runtime, permanent space,
+I/O and AMP distribution require EXPLAIN/DBQL on the installed release.
 
 Names include run UUID and attempt. The work table is dropped on success/handled
 failure. External abort/session loss can leave an orphan; batch-0 SQL_TEXT retains

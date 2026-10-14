@@ -140,17 +140,18 @@ are retained. NO PRIMARY INDEX avoids choosing a skewed date/value primary index
 The table uses permanent space, not a volatile raw-row spool.
 
 Standalone statistics and period counting read that table thereafter. The
-outlier procedure uses the captured bounds in three direct aggregates: overall,
-yearly and monthly. This avoids the all-period GROUPING SETS aggregate that
-exhausted spool, without returning to one generated query per month. With 415
-numeric fields at the five-field cap, each batch generates three period queries:
-249 period aggregates across 83 batches, compared with about 21,165 month-level
-statements in the earlier loop.
-This is a reduction in generated query count, not a claim that Teradata performs
-one physical read: the installed optimizer may redistribute or spool data, and
-the source-view materialization still reads the source once. Basic statistics
-are reused when available; keep the source stable during a combined Basic+Outlier
-run. Existing count checks detect population changes, not all value changes.
+outlier procedure aggregates one calendar year per statement, grouping that
+year into at most twelve monthly summaries while retaining overall, yearly and
+monthly bounds/counts. It then rolls the compact summaries into final periods.
+This avoids the full-history aggregate that exhausted spool and avoids one
+query per month. For 415 numeric fields over 22 populated years, it generates
+roughly 1,900 year-chunk and rollup statements at the five-field cap, versus
+about 21,165 month-level statements in the earlier loop. This query-count
+estimate does not guarantee Teradata runtime or spool use. The source view is
+still materialized once; each year query filters the narrow stage. Basic
+statistics are reused when available; keep the source stable during a combined
+Basic+Outlier run. Existing count checks detect population changes, not all
+value changes.
 
 Work tables are named DQ_OS_<UUID without hyphens>_A<attempt>, so concurrent runs
 and retries use distinct names. The outlier batch-0 SQL_TEXT retains the exact
@@ -185,8 +186,8 @@ procedure grant alone does not grant table-creation privileges.
 
 1. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of the updated
    modules/12_numeric_outliers.sql. Compile the complete procedure, then execute
-   its included GRANT EXECUTE PROCEDURE statement. This version uses three
-   direct period aggregates per field batch and no longer creates DQ_NO_CHUNKS.
+   its included GRANT EXECUTE PROCEDURE statement. This version processes one
+   reporting year per chunk and rolls up the compact chunk table.
 2. Keep the already-applied field configuration and test with a fresh run
    (retry_run_id blank), numeric_basic=N, numeric_outliers=Y and other tests=N.
    Use the same small numeric selection for a comparable run.

@@ -6,9 +6,9 @@
    per-run/attempt MULTISET work table in DQ_DB, preserving types and duplicates.
    Use permanent space for the projection, not volatile raw-row spool. Drop it
    on success/handled failure; a terminated session may leave it for recovery.
-   Apply persisted period bounds in a set-based second pass per field batch.
-   Aggregate each requested period level directly; avoid GROUPING SETS and
-   per-month dynamic queries to limit peak spool and query count.
+   Aggregate one calendar year at a time to bound peak work while counting
+   against overall, yearly and monthly bounds (maximum 5 fields).
+   Roll up the compact yearly chunks after aggregation.
    The shared orchestrator owns status, rollback of partial output and retries. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_OUTLIERS
     (IN P_RUN_ID CHAR(36),IN P_PROJECT_ID VARCHAR(30))
@@ -28,6 +28,7 @@ main: BEGIN
     DECLARE V_OWNED INTEGER DEFAULT 0;
     DECLARE V_BOUNDS_EXISTS INTEGER DEFAULT 0;
     DECLARE V_AGG_EXISTS INTEGER DEFAULT 0;
+    DECLARE V_CHUNK_EXISTS INTEGER DEFAULT 0;
     DECLARE V_STAGE_EXISTS INTEGER DEFAULT 0;
     DECLARE V_STAGE VARCHAR(128);
     DECLARE V_STAGE_PROJECTION VARCHAR(28000);
@@ -35,12 +36,17 @@ main: BEGIN
     DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
     DECLARE V_PROJECTION VARCHAR(6000);
     DECLARE V_BOUND_PROJECTION VARCHAR(6000);
-    DECLARE V_AGG_SELECT VARCHAR(16000);
-    DECLARE V_AGG_FROM VARCHAR(24000);
     DECLARE V_CHECK VARCHAR(2000);
     DECLARE V_LIST VARCHAR(8000);
     DECLARE V_SUFFIX VARCHAR(12);
     DECLARE V_FIELD VARCHAR(150);
+    DECLARE V_SOURCE_FILTER VARCHAR(1000);
+    DECLARE V_CHUNK_YEAR VARCHAR(7);
+    DECLARE V_PERIOD_QUERY VARCHAR(24000);
+    DECLARE V_ROLLUP_OVERALL VARCHAR(6000);
+    DECLARE V_ROLLUP_YEARLY VARCHAR(6000);
+    DECLARE V_ROLLUP_MONTHLY VARCHAR(6000);
+    DECLARE V_ROLLUP_QUERY VARCHAR(24000);
     DECLARE V_ERROR VARCHAR(2048) CHARACTER SET UNICODE;
     DECLARE V_ERROR_CODE INTEGER;
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -56,6 +62,7 @@ main: BEGIN
         BEGIN
             DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET V_COUNT=0;
             IF V_AGG_EXISTS=1 THEN CALL DBC.SysExecSQL('DROP TABLE DQ_NO_AGG'); END IF;
+            IF V_CHUNK_EXISTS=1 THEN CALL DBC.SysExecSQL('DROP TABLE DQ_NO_CHUNKS'); END IF;
             IF V_BOUNDS_EXISTS=1 THEN CALL DBC.SysExecSQL('DROP TABLE DQ_NO_BOUNDS'); END IF;
             IF V_STAGE_EXISTS=1 THEN
                 CALL DBC.SysExecSQL('DROP TABLE DQ_DB.' || V_STAGE);
@@ -140,6 +147,9 @@ main: BEGIN
         SET V_SOURCE_PROJECTION='"' || V_DATE || '" AS DQ_DT,1 AS DQ_PRESENT';
         SET V_BOUND_PROJECTION='';
         SET V_PROJECTION='';
+        SET V_ROLLUP_OVERALL='';
+        SET V_ROLLUP_YEARLY='';
+        SET V_ROLLUP_MONTHLY='';
         SET V_CHECK='A.ACTUAL_TOTAL<>A.TOTAL_N';
         FOR F AS FIELDS_CURSOR CURSOR FOR
             SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
@@ -157,13 +167,40 @@ main: BEGIN
               || ',MAX(CASE WHEN FIELD_NAME=''' || TRIM(F.FIELD_NAME) || ''' THEN UB END) AS U' || V_SUFFIX;
             SET V_FIELD='S.DQ_C' || V_SUFFIX;
             SET V_PROJECTION=V_PROJECTION
-              || ',MAX(B.N' || V_SUFFIX || ') AS N' || V_SUFFIX
-              || ',MAX(B.L' || V_SUFFIX || ') AS L' || V_SUFFIX
-              || ',MAX(B.U' || V_SUFFIX || ') AS U' || V_SUFFIX
+              || ',MAX(B0.N' || V_SUFFIX || ') AS ON' || V_SUFFIX
+              || ',MAX(B0.L' || V_SUFFIX || ') AS OL' || V_SUFFIX
+              || ',MAX(B0.U' || V_SUFFIX || ') AS OU' || V_SUFFIX
+              || ',MAX(B1.N' || V_SUFFIX || ') AS YN' || V_SUFFIX
+              || ',MAX(B1.L' || V_SUFFIX || ') AS YL' || V_SUFFIX
+              || ',MAX(B1.U' || V_SUFFIX || ') AS YU' || V_SUFFIX
+              || ',MAX(BM.N' || V_SUFFIX || ') AS MN' || V_SUFFIX
+              || ',MAX(BM.L' || V_SUFFIX || ') AS ML' || V_SUFFIX
+              || ',MAX(BM.U' || V_SUFFIX || ') AS MU' || V_SUFFIX
               || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL' || V_SUFFIX
-              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL AND B.L' || V_SUFFIX
-              || ' IS NOT NULL AND (CAST(' || V_FIELD || ' AS FLOAT)<B.L' || V_SUFFIX || ' OR CAST(' || V_FIELD
-              || ' AS FLOAT)>B.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS O' || V_SUFFIX;
+              || ',COALESCE(SUM(CAST(CASE WHEN CAST(' || V_FIELD || ' AS FLOAT)<B0.L' || V_SUFFIX
+              || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B0.U' || V_SUFFIX || ' THEN 1 ELSE 0 END AS BIGINT)),0) AS OO' || V_SUFFIX
+              || ',COALESCE(SUM(CAST(CASE WHEN CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX
+              || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B1.U' || V_SUFFIX || ' THEN 1 ELSE 0 END AS BIGINT)),0) AS YO' || V_SUFFIX
+              || ',COALESCE(SUM(CAST(CASE WHEN CAST(' || V_FIELD || ' AS FLOAT)<BM.L' || V_SUFFIX
+              || ' OR CAST(' || V_FIELD || ' AS FLOAT)>BM.U' || V_SUFFIX || ' THEN 1 ELSE 0 END AS BIGINT)),0) AS MO' || V_SUFFIX;
+            SET V_ROLLUP_OVERALL=V_ROLLUP_OVERALL
+              || ',MAX(C.ON' || V_SUFFIX || ') AS N' || V_SUFFIX
+              || ',MAX(C.OL' || V_SUFFIX || ') AS L' || V_SUFFIX
+              || ',MAX(C.OU' || V_SUFFIX || ') AS U' || V_SUFFIX
+              || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
+              || ',SUM(C.OO' || V_SUFFIX || ') AS O' || V_SUFFIX;
+            SET V_ROLLUP_YEARLY=V_ROLLUP_YEARLY
+              || ',MAX(C.YN' || V_SUFFIX || ') AS N' || V_SUFFIX
+              || ',MAX(C.YL' || V_SUFFIX || ') AS L' || V_SUFFIX
+              || ',MAX(C.YU' || V_SUFFIX || ') AS U' || V_SUFFIX
+              || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
+              || ',SUM(C.YO' || V_SUFFIX || ') AS O' || V_SUFFIX;
+            SET V_ROLLUP_MONTHLY=V_ROLLUP_MONTHLY
+              || ',MAX(C.MN' || V_SUFFIX || ') AS N' || V_SUFFIX
+              || ',MAX(C.ML' || V_SUFFIX || ') AS L' || V_SUFFIX
+              || ',MAX(C.MU' || V_SUFFIX || ') AS U' || V_SUFFIX
+              || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
+              || ',SUM(C.MO' || V_SUFFIX || ') AS O' || V_SUFFIX;
             SET V_CHECK=V_CHECK || ' OR A.N' || V_SUFFIX || ' IS NULL OR A.ACTUAL' || V_SUFFIX || '<>A.N' || V_SUFFIX;
         END FOR;
         /* Bounds table contains period aggregates only. Fixed 3 is recorded
@@ -179,52 +216,102 @@ main: BEGIN
           || ' WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
         CALL DBC.SysExecSQL(V_SQL);
         SET V_BOUNDS_EXISTS=1;
-        /* Two-pass, set-based outlier counting. Bounds come from the captured
-           statistics; each period level is aggregated directly so Teradata
-           does not need a multi-level GROUPING SETS spool. This is three
-           grouped reads of the narrow run stage per batch, not one query per
-           calendar month. */
-        SET V_AGG_SELECT='SELECT ''OVERALL'' AS PERIOD_LEVEL,''ALL'' AS PERIOD_VALUE,'
-          || 'MAX(B.TOTAL_N) AS TOTAL_N,COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
-          || V_PROJECTION
-          || ' FROM (SELECT * FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''OVERALL'' AND PERIOD_VALUE=''ALL'') B'
-          || ' LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S ON 1=1';
-        SET V_AGG_FROM=' UNION ALL SELECT ''YEARLY'' AS PERIOD_LEVEL,B.PERIOD_VALUE AS PERIOD_VALUE,'
-          || 'MAX(B.TOTAL_N) AS TOTAL_N,COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
-          || V_PROJECTION
-          || ' FROM DQ_NO_BOUNDS B JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
-          || ' ON B.PERIOD_LEVEL=''YEARLY'' AND B.PERIOD_VALUE=CASE WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'''
-          || ' ELSE TRIM(CAST(EXTRACT(YEAR FROM S.DQ_DT) AS CHAR(4))) END'
-          || ' GROUP BY B.PERIOD_VALUE'
-          || ' UNION ALL SELECT ''MONTHLY'' AS PERIOD_LEVEL,B.PERIOD_VALUE AS PERIOD_VALUE,'
-          || 'MAX(B.TOTAL_N) AS TOTAL_N,COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
-          || V_PROJECTION
-          || ' FROM DQ_NO_BOUNDS B JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
-          || ' ON B.PERIOD_LEVEL=''MONTHLY'' AND B.PERIOD_VALUE=CASE WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'''
-          || ' ELSE TRIM(CAST(EXTRACT(YEAR FROM S.DQ_DT) AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))),'
-          || 'CHARACTER_LENGTH(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))))-1,2) END'
-          || ' GROUP BY B.PERIOD_VALUE';
-        SET V_SQL='CREATE VOLATILE TABLE DQ_NO_AGG AS (' || V_AGG_SELECT || V_AGG_FROM
-          || ') WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
-        UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
-         WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
-           AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
-        CALL DBC.SysExecSQL(V_SQL);
-        SET V_AGG_EXISTS=1;
-        /* DQ_NO_AGG is created dynamically, so keep its duplicate-key
-           check dynamic too; a static reference fails procedure compile. */
-        SET V_SQL='UPDATE DQ_DB.DQ_MODULE_LOG SET ERROR_CODE=50042 WHERE RUN_ID=''' || P_RUN_ID
-          || ''' AND MODULE_NAME=''NUMERIC_OUTLIERS'' AND ATTEMPT_NO=' || TRIM(CAST(V_ATTEMPT AS VARCHAR(12)))
-          || ' AND BATCH_ID=' || TRIM(CAST(V_BATCH AS VARCHAR(12)))
-          || ' AND EXISTS (SELECT 1 FROM (SELECT PERIOD_LEVEL,PERIOD_VALUE FROM DQ_NO_AGG'
-          || ' GROUP BY PERIOD_LEVEL,PERIOD_VALUE HAVING COUNT(*)>1) D)';
-        CALL DBC.SysExecSQL(V_SQL);
-        SELECT COALESCE(ERROR_CODE,0) INTO V_COUNT FROM DQ_DB.DQ_MODULE_LOG
-         WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
-           AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
-        IF V_COUNT=50042 THEN
-            SIGNAL SQLSTATE 'U0044' SET MESSAGE_TEXT='Outlier rollup contains duplicate period keys';
-        END IF;
+        /* Aggregate one calendar year per statement. Normal chunks produce
+           at most twelve monthly summaries; UNKNOWN and empty populations
+           each use one small special chunk. */
+        FOR C AS CHUNKS_CURSOR CURSOR FOR
+                SELECT DISTINCT S.PERIOD_VALUE AS CHUNK_VALUE
+                  FROM DQ_DB.DQ_NUMERIC_STATISTICS S
+                 WHERE S.RUN_ID=P_RUN_ID AND S.PERIOD_LEVEL='YEARLY'
+                   AND S.FIELD_NAME IN
+                     (SELECT FIELD_NAME FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+                       WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC'
+                         AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST)
+                UNION ALL
+                SELECT 'ALL' AS CHUNK_VALUE FROM DQ_DB.DQ_RUN_LOG
+                 WHERE RUN_ID=P_RUN_ID
+                   AND NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_NUMERIC_STATISTICS
+                                    WHERE RUN_ID=P_RUN_ID AND PERIOD_LEVEL='YEARLY')
+            DO
+                IF C.CHUNK_VALUE='UNKNOWN' THEN
+                    SET V_SOURCE_FILTER='"' || V_DATE || '" IS NULL';
+                    SET V_CHUNK_YEAR='UNKNOWN';
+                ELSEIF C.CHUNK_VALUE='ALL' THEN
+                    SET V_SOURCE_FILTER='1=0';
+                    SET V_CHUNK_YEAR='ALL';
+                ELSE
+                    SET V_SOURCE_FILTER='EXTRACT(YEAR FROM "' || V_DATE || '")='
+                      || TRIM(C.CHUNK_VALUE);
+                    SET V_CHUNK_YEAR=TRIM(C.CHUNK_VALUE);
+                END IF;
+                SET V_PERIOD_QUERY='SELECT CASE WHEN ''' || C.CHUNK_VALUE || '''=''ALL'' THEN ''ALL'''
+                  || ' WHEN ''' || C.CHUNK_VALUE || '''=''UNKNOWN'' THEN ''UNKNOWN'' ELSE CAST('''
+                  || V_CHUNK_YEAR || '-''||SUBSTR(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))),'
+                  || 'CHARACTER_LENGTH(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))))-1,2) AS VARCHAR(7)) END AS CHUNK_VALUE,'
+                  || 'CAST(''' || V_CHUNK_YEAR || ''' AS VARCHAR(7)) AS CHUNK_YEAR,'
+                  || 'MAX(B0.TOTAL_N) AS OVERALL_TOTAL_N,MAX(B1.TOTAL_N) AS YEARLY_TOTAL_N,MAX(BM.TOTAL_N) AS MONTHLY_TOTAL_N,'
+                  || 'COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
+                  || V_PROJECTION
+                  || ' FROM (SELECT * FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''OVERALL'' AND PERIOD_VALUE=''ALL'') B0'
+                  || ' LEFT JOIN (SELECT * FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''YEARLY'' AND PERIOD_VALUE='''
+                  || V_CHUNK_YEAR || ''') B1 ON 1=1'
+                  || ' LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE
+                  || '" WHERE ' || V_SOURCE_FILTER || ') S ON 1=1'
+                  || ' LEFT JOIN DQ_NO_BOUNDS BM ON BM.PERIOD_LEVEL=''MONTHLY'' AND BM.PERIOD_VALUE=CASE'
+                  || ' WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'' ELSE CAST(''' || V_CHUNK_YEAR
+                  || '-''||SUBSTR(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))),'
+                  || 'CHARACTER_LENGTH(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))))-1,2) AS VARCHAR(7)) END'
+                  || ' GROUP BY EXTRACT(MONTH FROM S.DQ_DT)';
+                IF V_CHUNK_EXISTS=0 THEN
+                    SET V_SQL='CREATE MULTISET VOLATILE TABLE DQ_NO_CHUNKS AS (' || V_PERIOD_QUERY
+                      || ') WITH DATA PRIMARY INDEX (CHUNK_VALUE) ON COMMIT PRESERVE ROWS';
+                ELSE
+                    SET V_SQL='INSERT INTO DQ_NO_CHUNKS ' || V_PERIOD_QUERY;
+                END IF;
+                /* SQL_TEXT identifies the current year or special chunk. */
+                UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+                 WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
+                   AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+                CALL DBC.SysExecSQL(V_SQL);
+                SET V_CHUNK_EXISTS=1;
+            END FOR;
+        SET V_ROLLUP_QUERY='SELECT ''OVERALL'' AS PERIOD_LEVEL,''ALL'' AS PERIOD_VALUE,'
+          || 'MAX(C.OVERALL_TOTAL_N) AS TOTAL_N,SUM(C.ACTUAL_TOTAL) AS ACTUAL_TOTAL'
+          || V_ROLLUP_OVERALL || ' FROM DQ_NO_CHUNKS C'
+          || ' UNION ALL SELECT ''YEARLY'' AS PERIOD_LEVEL,C.CHUNK_YEAR AS PERIOD_VALUE,'
+          || 'MAX(C.YEARLY_TOTAL_N) AS TOTAL_N,SUM(C.ACTUAL_TOTAL) AS ACTUAL_TOTAL'
+          || V_ROLLUP_YEARLY || ' FROM DQ_NO_CHUNKS C WHERE C.CHUNK_VALUE<>''ALL'''
+          || ' GROUP BY C.CHUNK_YEAR UNION ALL SELECT ''MONTHLY'' AS PERIOD_LEVEL,C.CHUNK_VALUE AS PERIOD_VALUE,'
+          || 'MAX(C.MONTHLY_TOTAL_N) AS TOTAL_N,SUM(C.ACTUAL_TOTAL) AS ACTUAL_TOTAL'
+          || V_ROLLUP_MONTHLY || ' FROM DQ_NO_CHUNKS C WHERE C.CHUNK_VALUE<>''ALL'''
+          || ' GROUP BY C.CHUNK_VALUE';
+            IF V_AGG_EXISTS=0 THEN
+                SET V_SQL='CREATE VOLATILE TABLE DQ_NO_AGG AS (' || V_ROLLUP_QUERY
+                  || ') WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
+            ELSE
+                SET V_SQL='INSERT INTO DQ_NO_AGG ' || V_ROLLUP_QUERY;
+            END IF;
+            UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
+               AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+            CALL DBC.SysExecSQL(V_SQL);
+            SET V_AGG_EXISTS=1;
+            /* DQ_NO_AGG is created dynamically, so keep its duplicate-key
+               check dynamic too; a static reference fails procedure compile. */
+            SET V_SQL='UPDATE DQ_DB.DQ_MODULE_LOG SET ERROR_CODE=50042 WHERE RUN_ID=''' || P_RUN_ID
+              || ''' AND MODULE_NAME=''NUMERIC_OUTLIERS'' AND ATTEMPT_NO=' || TRIM(CAST(V_ATTEMPT AS VARCHAR(12)))
+              || ' AND BATCH_ID=' || TRIM(CAST(V_BATCH AS VARCHAR(12)))
+              || ' AND EXISTS (SELECT 1 FROM (SELECT PERIOD_LEVEL,PERIOD_VALUE FROM DQ_NO_AGG'
+              || ' GROUP BY PERIOD_LEVEL,PERIOD_VALUE HAVING COUNT(*)>1) D)';
+            CALL DBC.SysExecSQL(V_SQL);
+            SELECT COALESCE(ERROR_CODE,0) INTO V_COUNT FROM DQ_DB.DQ_MODULE_LOG
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
+               AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+            IF V_COUNT=50042 THEN
+                SIGNAL SQLSTATE 'U0044' SET MESSAGE_TEXT='Outlier rollup contains duplicate period keys';
+            END IF;
+            CALL DBC.SysExecSQL('DROP TABLE DQ_NO_CHUNKS');
+            SET V_CHUNK_EXISTS=0;
         /* Record the generated population check on the batch log, then read
            its flag through ordinary SPL SELECT against a permanent table. */
         SET V_SQL='UPDATE DQ_DB.DQ_MODULE_LOG SET ERROR_CODE=50041 WHERE RUN_ID=''' || P_RUN_ID

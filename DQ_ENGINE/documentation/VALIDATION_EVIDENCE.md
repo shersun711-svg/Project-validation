@@ -30,15 +30,14 @@ data: 180 field/period/metric results match independent +/-3 population-deviatio
 reference calculations; batching one versus five fields produces identical
 results; empty populations, UNKNOWN dates and valid rate denominators remain
 correct. All 36 standalone period statistics agree with independent calculations.
-The revised procedure uses three direct period-level aggregates (overall,
-yearly and monthly) against the narrow staged rows and captured bounds, replacing
-the failed all-period GROUPING SETS aggregate. It performs three grouped stage
-references per five-field batch rather than one query per month. The largest
-generated query with five 128-character field names and the complete configured
-special list is below 32,000 characters. Synthetic checks validate the generated
-period results and unchanged +/-3 population-deviation calculations. This is not
-Teradata evidence: compilation, optimizer choices, spool use, elapsed time and
-workload remain unverified.
+The next procedure revision processes one reporting year at a time, groups its
+rows into monthly summaries and then rolls up overall/yearly/monthly results.
+This follows the latest reported spool failure in the all-period aggregate.
+Local synthetic checks validate the generated year-chunk and rollup results,
+including specials, NULL dates, empty populations, bounds and rate denominators.
+These checks do not compile Teradata SPL or establish that year-sized chunks fit
+the site's spool limit. Teradata compilation, optimizer choices, spool use,
+elapsed time and workload remain unverified.
 
 The focused rule-storage change reuses SP_DQ_CLASSIFY/DQ_COLOUR_RULE and leaves
 profiling calculations untouched. Synthetic SQLite checks execute the evaluator,
