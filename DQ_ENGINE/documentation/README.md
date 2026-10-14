@@ -54,9 +54,10 @@ are needed. See [field selection](CONFIGURATION_GUIDE.md).
 ## Review the final result
 
 DQ_METRIC_RESULT stores one row per metric. DQ_COMPLETED_RESULT exposes only
-successful runs in that same layout. DQ_BASIC_REVIEW is the final review view across all four types, including date counts
-and overall field availability. The view contains one row per field and period. Values retain stored precision;
-NULL statistics and NOT_EVALUATED classifications retain their meaning.
+successful runs in that same layout. DQ_BASIC_REVIEW is the final profiling view across all four types, including date counts
+and overall field availability. The view contains one row per field and period. Counts display as whole numbers,
+percentages to two decimals and descriptive numeric values to four decimals; DQ_METRIC_RESULT keeps full precision.
+Rule statuses are separate in DQ_RULE_RESULT. NULL statistics retain their meaning.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT are overall coverage for each
 non-missing field. Date counts use this same layout; unrelated metrics are NULL.
 MINIMUM/MAXIMUM are numeric and apply only to numeric fields. Read [availability definitions](RESULTS_DICTIONARY.md#field-availability).
@@ -80,9 +81,9 @@ Do not divide mixed-module metric counts by ten to infer review row counts.
 
 Existing results and UUIDs are preserved. The views read stored aggregates, not the source dataset.
 SAS imports run status/summary; detailed review is available in Teradata.
-New classifications are stored in DQ_RULE_RESULT; existing review columns read
-these decisions. Older saved colours remain available through the completed
-views. No DQ_RULE_REVIEW view is created. See [rule storage and review SQL](RULE_RESULTS.md).
+New classifications are stored in DQ_RULE_RESULT. DQ_COMPLETED_RESULT keeps its
+legacy DQ_COLOUR column for compatibility; DQ_BASIC_REVIEW contains profiling
+values only. No DQ_RULE_REVIEW view is created. See [rule storage and review SQL](RULE_RESULTS.md).
 
 ## One-time deployment
 

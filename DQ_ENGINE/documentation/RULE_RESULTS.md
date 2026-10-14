@@ -59,7 +59,10 @@ DQ_METRIC_RESULT and its legacy DQ_COLOUR column are retained. New runs leave
 that column NULL; their classifications are stored only in DQ_RULE_RESULT.
 DQ_COMPLETED_RESULT retains its existing column order/names, reading new statuses
 from the rule table and falling back to the saved metric colour for older runs.
-DQ_BASIC_REVIEW and DQ_RUN_SUMMARY retain their existing interfaces. Existing
+DQ_RUN_SUMMARY retains its existing interface. DQ_BASIC_REVIEW is the final
+profiling view: it omits colour columns and formats counts as integers,
+percentages to two decimals and descriptive values to four decimals. The casts
+affect display only; stored metric precision and rule evaluation are unchanged.
 SAS status/summary imports, Excel configuration and procedure arguments require
 no change. Direct consumers of DQ_METRIC_RESULT.DQ_COLOUR must use the completed
 view or rule table for new classifications.
@@ -96,7 +99,9 @@ No database deployment is performed from this repository workspace.
    compare its SHOW TABLE output with the current definition first.
 2. Replace DQ_COLOUR_RULE and compile the complete SP_DQ_CLASSIFY in
    results/90_colour_classification.sql. Execute its included procedure grant.
-3. Replace both existing views in results/91_dq_summary_views.sql.
+3. Replace both existing views in results/91_dq_summary_views.sql and recompile
+   results/93_dq_basic_review.sql so the final review layout and display scales
+   match this release.
 4. Recompile the four procedures in modules/00_run_engine.sql separately:
    EXTENDED, PROFILE, BASIC, ENGINE, running each included grant before the next.
    The added cleanup is limited to DQ_RULE_RESULT for the owned run ID.

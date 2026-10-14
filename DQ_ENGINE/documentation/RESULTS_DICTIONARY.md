@@ -5,12 +5,12 @@ One logical result is `(RUN_ID, FIELD_NAME, MODULE_NAME, PERIOD_LEVEL, PERIOD_VA
 `DQ_BASIC_REVIEW` is the common final review layout over
 `DQ_COMPLETED_RESULT`: one row per run, project, field/type and period. Basic and optional Outlier metrics
 share the same numeric row when both modules are selected.
-Applicable metric names become columns, with MISSING_RATE_COLOUR and
-ZERO_RATE_COLOUR read from the corresponding stored rule decisions, with a
-legacy-colour fallback for historical runs. New decisions are stored in
-DQ_RULE_RESULT, not written into profiling rows.
-Values remain DECIMAL(38,10), including the original NULL statistics. Colours
-are not recalculated from rounded rates or current configuration. Filter by
+Applicable metric names become columns. The view contains profiling values only;
+rule statuses are read separately from DQ_RULE_RESULT. Counts display with zero
+fractional digits, percentages with two, and descriptive numeric statistics and
+bounds with four. These are presentation casts only: stored values in
+DQ_METRIC_RESULT remain DECIMAL(38,10), including the original NULL statistics.
+Rule outcomes are not recalculated from displayed rates or current configuration. Filter by
 RUN_ID and optionally PERIOD_LEVEL; historical runs and different periods
 remain separate. The view reads aggregates, not the source dataset.
 
@@ -41,9 +41,9 @@ Only SQL NULL is missing. Teradata cannot recover SAS special missing codes lost
 | MONTHLY | `YYYY-MM`, derived from the same date |
 | YEARLY / MONTHLY null date | `UNKNOWN`, distinct from rollup NULLs via GROUPING |
 
-A source with no rows produces twelve OVERALL results per eligible field: counts are zero, rates/statistics are NULL, and percentage colours are NOT_EVALUATED. No yearly/monthly rows are invented. All-NULL fields have 100% missing when population >0 and NULL extrema/mean/deviation. A singleton valid statistics population has NULL sample deviation; a constant field with at least two non-missing values has zero sample deviation.
+A source with no rows produces twelve OVERALL results per eligible field: counts are zero, rates/statistics are NULL, and percentage rules are NOT_EVALUATED in DQ_RULE_RESULT. No yearly/monthly rows are invented. All-NULL fields have 100% missing when population >0 and NULL extrema/mean/deviation. A singleton valid statistics population has NULL sample deviation; a constant field with at least two non-missing values has zero sample deviation.
 
-Green is strictly below 1%, amber is at least 1% but below 5%, and red is at least 5%, unless an approved project settings override applies. Exact thresholds are compared using numerator × 100 against denominator × threshold in DECIMAL arithmetic. A display that rounds up to 1% can therefore remain GREEN. Non-percentage metrics have no rule result and NULL DQ_COLOUR.
+Green is strictly below 1%, amber is at least 1% but below 5%, and red is at least 5%, unless an approved project settings override applies. Exact thresholds are compared using numerator × 100 against denominator × threshold in DECIMAL arithmetic. A display that rounds up to 1% can therefore remain GREEN. Non-percentage metrics have no rule result.
 For new runs DQ_METRIC_RESULT.DQ_COLOUR remains NULL even for percentages;
 DQ_COMPLETED_RESULT supplies it from DQ_RULE_RESULT for compatibility. Colours are screening classifications, not proof of invalid data.
 
@@ -73,7 +73,7 @@ saved. Their review population counts are derived from saved rate counts.
 
 DATE_BASIC emits TOTAL_COUNT, NON_MISSING_COUNT, MISSING_COUNT and
 MISSING_RATE_PCT into DQ_METRIC_RESULT. No date-value extrema or distinct counts
-are emitted. DQ_BASIC_REVIEW shows these four metrics and missing colour,
+are emitted. DQ_BASIC_REVIEW shows these four metrics,
 with unrelated numeric/distinct columns NULL. Empty sources have zero counts and NULL/NOT_EVALUATED rates. Legacy date
 extrema remain stored but are excluded from current review/summary views.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT in DQ_BASIC_REVIEW describe
@@ -109,7 +109,8 @@ Five metrics store lower/upper mean +/-3 sample-deviation bounds, outlier count,
 valid count and outlier percentage. The denominator excludes NULL and configured
 specials. Insufficient populations are NOT_EVALUATED; constants with n>=2 have
 zero outliers. Unrounded Basic/prerequisite statistics are retained in
-DQ_NUMERIC_STATISTICS; only percentage metrics receive colours. See
+DQ_NUMERIC_STATISTICS; only percentage metrics receive rule assessments in
+DQ_RULE_RESULT. See
 [outlier definitions and validation](NUMERIC_OUTLIERS.md).
 
 See [shared rule evaluation](RULE_RESULTS.md) for the simple rule table,

@@ -23,13 +23,12 @@ Settings; the engine rejects a different value when outliers are selected.
 | OUTLIER_LOWER_BOUND / OUTLIER_UPPER_BOUND | Period-specific mean minus/plus 3 times sample deviation |
 | OUTLIER_COUNT | Number of valid values strictly outside bounds |
 | OUTLIER_RATE_PCT | 100 * OUTLIER_COUNT / OUTLIER_VALID_COUNT |
-| OUTLIER_RATE_COLOUR | Shared exact-count percentage classification |
 
 Fewer than two valid observations cannot define a sample deviation: bounds,
-outlier count and rate are NULL; colour is NOT_EVALUATED. VALID_COUNT still
+outlier count and rate are NULL; the matching rule status is NOT_EVALUATED. VALID_COUNT still
 shows 0 or 1. Empty sources produce only OVERALL with these same undefined
 results. A constant population with at least two valid observations has zero
-deviation, equal bounds, zero outliers and a GREEN zero rate. All-special fields
+deviation, equal bounds and zero outliers; the rule status is GREEN. All-special fields
 remain non-missing in Basic but have zero valid outlier observations.
 
 This valid-population denominator implements the user's special-value exclusion;
@@ -50,7 +49,8 @@ two-argument statistics procedure remains a compatible wrapper. Statistics timin
 appears in module logs but not the metric-based run summary.
 
 DQ_METRIC_RESULT stores five OUTLIERS metrics per field/period. DQ_BASIC_REVIEW
-combines Outlier and Basic metrics in one field/period row. Old
+combines Outlier and Basic profiling metrics in one field/period row, without
+colour columns. Read OUTLIER_RATE_PCT status and reason from DQ_RULE_RESULT. Old
 runs have NULL outlier columns. Outliers-only rows have NULL Basic/availability
 columns and expose their own valid count. DQ_RUN_SUMMARY groups by module, so
 field counts overlap when several numeric modules are selected.

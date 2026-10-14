@@ -79,8 +79,8 @@ for(const [name,value]of Object.entries({OUTLIER_VALID_COUNT:33,OUTLIER_LOWER_BO
 db.exec(`INSERT INTO DQ_RULE_RESULT
  SELECT RUN_ID,PROJECT_ID,FIELD_NAME,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,METRIC_NAME,
  METRIC_VALUE,1,5,DQ_COLOUR,CASE WHEN DQ_COLOUR='NOT_EVALUATED' THEN 'No eligible observations' END
- FROM DQ_METRIC_RESULT WHERE DQ_COLOUR IS NOT NULL AND (RUN_ID='outlier-only' OR FIELD_TYPE='DATE');
- UPDATE DQ_METRIC_RESULT SET DQ_COLOUR=NULL WHERE RUN_ID='outlier-only' OR FIELD_TYPE='DATE';`);
+ FROM DQ_METRIC_RESULT WHERE DQ_COLOUR IS NOT NULL;
+ UPDATE DQ_METRIC_RESULT SET DQ_COLOUR=NULL;`);
 for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
@@ -94,12 +94,15 @@ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW').get().n,51)
 const category=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='CATEGORY' AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(category.MISSING_COUNT,1);assert.equal(category.MISSING_RATE_PCT,25);
 assert.equal(category.DISTINCT_COUNT,2);assert.equal(category.TOTAL_COUNT,4);
-assert.equal(category.NON_MISSING_COUNT,3);assert.equal(category.MISSING_RATE_COLOUR,'RED');
+assert.equal(category.NON_MISSING_COUNT,3);
 assert.equal(category.MINIMUM,null);assert.equal(category.FIRST_AVAILABLE_FACT_DT,'2000-01-31');
 const date=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE FIELD_NAME='EVENT_TS' AND RUN_NUMBER=1 AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(date.MINIMUM,null);assert.equal(date.MAXIMUM,null);assert.equal(date.DISTINCT_COUNT,null);
 assert.equal(date.FIRST_AVAILABLE_FACT_DT,'2000-01-31');assert.equal(date.LAST_AVAILABLE_FACT_DT,'2000-02-29');
-assert.equal(date.MISSING_COUNT,1);assert.equal(date.TOTAL_COUNT,4);assert.equal(date.MISSING_RATE_COLOUR,'RED');
+assert.equal(date.MISSING_COUNT,1);assert.equal(date.TOTAL_COUNT,4);
+assert.equal(db.prepare("SELECT STATUS FROM DQ_RULE_RESULT WHERE RUN_ID='mixed' AND FIELD_NAME='CATEGORY' AND PERIOD_LEVEL='OVERALL' AND RULE_NAME='MISSING_RATE_PCT'").get().STATUS,'RED');
+assert.equal(db.prepare("SELECT STATUS FROM DQ_RULE_RESULT WHERE RUN_ID='mixed' AND FIELD_NAME='EVENT_TS' AND PERIOD_LEVEL='OVERALL' AND RULE_NAME='MISSING_RATE_PCT'").get().STATUS,'RED');
+assert.equal(Object.keys(category).some(column=>column.endsWith('_COLOUR')),false);
 
 const summary=db.prepare("SELECT * FROM DQ_RUN_SUMMARY WHERE RUN_ID='date-only'").all();
 assert.equal(summary.length,1);assert.equal(summary[0].FIELDS_TESTED,2);
@@ -115,9 +118,16 @@ const combined=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND 
 assert.equal(combined.MINIMUM,0);assert.equal(combined.SPECIAL_COUNT,0);
 assert.equal(combined.MODULE_NAME,'NUMERIC_BASIC+OUTLIERS');
 assert.equal(date.SPECIAL_COUNT,null);
-assert.equal(combined.OUTLIER_VALID_COUNT,3);assert.equal(combined.OUTLIER_COUNT,0);assert.equal(combined.OUTLIER_RATE_COLOUR,'GREEN');
+assert.equal(combined.OUTLIER_VALID_COUNT,3);assert.equal(combined.OUTLIER_COUNT,0);
+assert.equal(db.prepare("SELECT STATUS FROM DQ_RULE_RESULT WHERE RUN_ID='mixed' AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL' AND RULE_NAME='OUTLIER_RATE_PCT'").get().STATUS,'GREEN');
+assert.equal(Object.keys(combined).some(column=>column.endsWith('_COLOUR')),false);
 assert.equal(date.OUTLIER_COUNT,null);
 const only=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_ID='outlier-only'").get();
 assert.equal(only.OUTLIER_COUNT,2);assert.equal(only.OUTLIER_VALID_COUNT,33);assert.equal(only.TOTAL_COUNT,null);assert.equal(only.MODULE_NAME,'NUMERIC_OUTLIERS');
+const reviewDdl=fs.readFileSync(path.join(root,'teradata/results','93_dq_basic_review.sql'),'utf8');
+assert.doesNotMatch(reviewDdl,/AS "[A-Z_]*COLOUR"/);
+assert.match(reviewDdl,/AS DECIMAL\(38,0\)\) AS "TOTAL_COUNT"/);
+assert.match(reviewDdl,/AS DECIMAL\(9,2\)\) AS "MISSING_RATE_PCT"/);
+assert.match(reviewDdl,/AS DECIMAL\(38,4\)\) AS "MINIMUM"/);
 db.close();
 console.log('Portable review logic checks passed: pivot, period separation, date-only summary, short numbers and completed-run filtering. Teradata/SAS execution NOT tested.');
