@@ -26,6 +26,7 @@ SAS tests require the current controller loaded in the same server session.
 | `03_create_outlier_fixture.sql` | Creates isolated strict-boundary and tail test populations |
 | `test_outliers.sql` | Checks outlier bounds/rates, Basic reuse, dependency and retry |
 | `test_reporting_levels.sql` | Isolated five-row test of all seven scopes, all-N rejection, snapshot and Excel apply/rollback |
+| `test_outlier_partition.sql` | Eight synthetic rows; checks partitioned CTAS, duplicate preservation, key ranges, statistics and EXPLAIN before RDS |
 | `test_outlier_rollup.sql` | Five synthetic chunk rows; checks full period-key widths without an RDS scan |
 | `test_outliers.sas` | Checks switches and reconciles population deviation/bounds to SAS |
 

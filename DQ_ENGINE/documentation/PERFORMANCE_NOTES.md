@@ -60,8 +60,13 @@ automatic outlier work table described below.
 
 Outliers materialize the final source view once into a narrow MULTISET work table
 in the engine schema, projecting the reporting date and selected numeric fields
-without casts, filters or deduplication. It uses permanent space and NO PRIMARY
-INDEX. Standalone statistics and all subsequent counting queries read that table;
+without source-column casts, filters or deduplication. It uses permanent space,
+with a stored year partition key (0 for NULL dates) and an independent random
+bucket as its nonunique primary index. Internal keys preserve all source rows
+and values. Partition/year statistics are collected once after loading. Counting
+queries constrain the stored partition key directly instead of extracting the
+year from every staged row for every batch. Standalone statistics and counting
+queries read that table;
 Basic statistics remain reusable as before.
 
 Outliers aggregate one calendar year at a time, grouping each year's rows into
@@ -71,9 +76,14 @@ GROUPING SETS statement. At 415 numeric fields and 22 populated years, it is
 roughly 1,900 year-chunk and rollup statements across 83 batches (SQL_BATCH_SIZE
 5), versus about 21,165 month-level statements in the earlier loop. This is a
 query-count estimate; runtime, source scans and spool depend on Teradata's
-optimizer. Standalone statistics use three sequential aggregates capped at ten
+optimizer. Confirm that each counting request eliminates the other year
+partitions. The new layout adds distribution, partition storage and statistics
+cost during staging; measure total elapsed time, not just chunk timing.
+Standalone statistics use the selected sequential aggregates capped at ten
 fields. Materialization itself may exhaust view spool; runtime, permanent space,
 I/O and AMP distribution require EXPLAIN/DBQL on the installed release.
+Use tests/test_outlier_partition.sql first to check the physical DDL and partition
+predicates on eight synthetic rows before a controlled five-field RDS comparison.
 
 Names include run UUID and attempt. The work table is dropped on success/handled
 failure. External abort/session loss can leave an orphan; batch-0 SQL_TEXT retains

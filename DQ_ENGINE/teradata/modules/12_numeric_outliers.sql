@@ -4,6 +4,8 @@
    calculate the prerequisite internally without producing Basic results.
    Materialize reporting date and selected numeric fields ONCE into a narrow
    per-run/attempt MULTISET work table in DQ_DB, preserving types and duplicates.
+   Partition the projection by a stored year key (0 for NULL dates); distribute
+   rows by an independent random bucket, not by date or a possibly skewed value.
    Use permanent space for the projection, not volatile raw-row spool. Drop it
    on success/handled failure; a terminated session may leave it for recovery.
    Aggregate one calendar year at a time to bound peak work while counting
@@ -34,6 +36,9 @@ main: BEGIN
     DECLARE V_CHUNK_EXISTS INTEGER DEFAULT 0;
     DECLARE V_STAGE_EXISTS INTEGER DEFAULT 0;
     DECLARE V_STAGE VARCHAR(128);
+    DECLARE V_STAGE_BUCKET VARCHAR(30);
+    DECLARE V_STAGE_YEAR VARCHAR(30);
+    DECLARE V_KEY_SUFFIX INTEGER DEFAULT 0;
     DECLARE V_STAGE_PROJECTION VARCHAR(28000);
     DECLARE V_SQL VARCHAR(32000);
     DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
@@ -46,6 +51,10 @@ main: BEGIN
     DECLARE V_FIELD VARCHAR(150);
     DECLARE V_SOURCE_FILTER VARCHAR(1000);
     DECLARE V_CHUNK_YEAR VARCHAR(7);
+    DECLARE V_YEAR_BOUNDS VARCHAR(500);
+    DECLARE V_YEAR_COUNT VARCHAR(1000);
+    DECLARE V_YEAR_TOTAL VARCHAR(100);
+    DECLARE V_YEAR_JOIN VARCHAR(500);
     DECLARE V_PERIOD_QUERY VARCHAR(24000);
     DECLARE V_ROLLUP_OVERALL VARCHAR(6000);
     DECLARE V_ROLLUP_YEARLY VARCHAR(6000);
@@ -104,7 +113,7 @@ main: BEGIN
     END IF;
     /* Materialize the final configured view once. No DISTINCT, extra row
        filters, numeric casts or special removal: preserve the view population.
-       NO PRIMARY INDEX avoids concentrating rows with common date/value keys.
+       Internal keys affect physical placement only, never the test population.
        A different name per run/attempt isolates concurrent work and retries. */
     IF REGEXP_SIMILAR(TRIM(P_RUN_ID),
        '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$','c')<>1
@@ -114,6 +123,18 @@ main: BEGIN
         SIGNAL SQLSTATE 'U0004' SET MESSAGE_TEXT='Unsafe outlier source or run identifier';
     END IF;
     SET V_STAGE='DQ_OS_' || OREPLACE(TRIM(P_RUN_ID),'-','') || '_A' || TRIM(CAST(V_ATTEMPT AS VARCHAR(12)));
+    /* Choose internal column names outside the projected source namespace.
+       A source field may legitimately have one of these names. */
+    SET V_COUNT=1;
+    WHILE V_COUNT>0 DO
+        SET V_STAGE_BUCKET='DQ_OS_BUCKET_' || TRIM(CAST(V_KEY_SUFFIX AS VARCHAR(10)));
+        SET V_STAGE_YEAR='DQ_OS_YEAR_' || TRIM(CAST(V_KEY_SUFFIX AS VARCHAR(10)));
+        SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+         WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC'
+           AND UPPER(TRIM(FIELD_NAME)) IN (V_STAGE_BUCKET,V_STAGE_YEAR);
+        IF UPPER(V_DATE) IN (V_STAGE_BUCKET,V_STAGE_YEAR) THEN SET V_COUNT=V_COUNT+1; END IF;
+        SET V_KEY_SUFFIX=V_KEY_SUFFIX+1;
+    END WHILE;
     SET V_STAGE_PROJECTION='"' || V_DATE || '"';
     FOR W AS STAGE_FIELDS_CURSOR CURSOR FOR
         SELECT FIELD_NAME FROM DQ_DB.DQ_RUN_FIELD_CONFIG
@@ -128,7 +149,11 @@ main: BEGIN
         END IF;
     END FOR;
     SET V_SQL='CREATE MULTISET TABLE DQ_DB.' || V_STAGE || ' AS (SELECT ' || V_STAGE_PROJECTION
-      || ' FROM "' || V_DB || '"."' || V_SOURCE || '") WITH DATA NO PRIMARY INDEX';
+      || ',RANDOM(1,2147483647) AS "' || V_STAGE_BUCKET || '"'
+      || ',COALESCE(EXTRACT(YEAR FROM "' || V_DATE || '"),0) AS "' || V_STAGE_YEAR || '"'
+      || ' FROM "' || V_DB || '"."' || V_SOURCE || '") WITH DATA'
+      || ' PRIMARY INDEX ("' || V_STAGE_BUCKET || '")'
+      || ' PARTITION BY RANGE_N("' || V_STAGE_YEAR || '" BETWEEN 0 AND 9999 EACH 1)';
     /* Batch 0 retains creation SQL/table identity for operator recovery. */
     UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
      WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS' AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=0;
@@ -137,14 +162,19 @@ main: BEGIN
     /* Include owner-reference access for the dynamic work table. */
     SET V_SQL='GRANT SELECT ON DQ_DB.' || V_STAGE || ' TO DQ_DB WITH GRANT OPTION';
     CALL DBC.SysExecSQL(V_SQL);
+    /* One statistics request after loading, not once per field batch/year.
+       Batch 0 keeps the CTAS so operators can identify an orphan work table. */
+    SET V_SQL='COLLECT STATISTICS COLUMN (PARTITION), COLUMN ("' || V_STAGE_YEAR
+      || '") ON DQ_DB.' || V_STAGE;
+    CALL DBC.SysExecSQL(V_SQL);
     SET V_DB='DQ_DB';
     SET V_SOURCE=V_STAGE;
     /* Scan scheduling is independent of reporting levels. This small run-owned
        calendar contains no profile metrics and is removed on completion/failure. */
     DELETE FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR WHERE RUN_ID=P_RUN_ID;
     SET V_SQL='INSERT INTO DQ_DB.DQ_OUTLIER_CHUNK_YEAR (RUN_ID,CHUNK_YEAR) SELECT DISTINCT '''
-      || P_RUN_ID || ''',CAST(CASE WHEN "' || V_DATE || '" IS NULL THEN ''UNKNOWN'' '
-      || 'ELSE TRIM(CAST(EXTRACT(YEAR FROM "' || V_DATE || '") AS CHAR(4))) END AS VARCHAR(7)) '
+      || P_RUN_ID || ''',CAST(CASE WHEN "' || V_STAGE_YEAR || '"=0 THEN ''UNKNOWN'' '
+      || 'ELSE TRIM(CAST("' || V_STAGE_YEAR || '" AS CHAR(4))) END AS VARCHAR(7)) '
       || 'FROM DQ_DB.' || V_STAGE;
     CALL DBC.SysExecSQL(V_SQL);
     INSERT INTO DQ_DB.DQ_OUTLIER_CHUNK_YEAR (RUN_ID,CHUNK_YEAR)
@@ -195,21 +225,32 @@ main: BEGIN
               || ',MAX(L' || V_SUFFIX || ') AS L' || V_SUFFIX
               || ',MAX(U' || V_SUFFIX || ') AS U' || V_SUFFIX;
             SET V_FIELD='S.DQ_C' || V_SUFFIX;
+            /* Keep the small chunk layout stable without generating yearly
+               comparisons or a yearly bounds join when that level is off. */
+            IF V_PROFILE_YEARLY='Y' THEN
+                SET V_YEAR_BOUNDS=',MAX(B1.N' || V_SUFFIX || ') AS YN' || V_SUFFIX
+                  || ',MAX(B1.L' || V_SUFFIX || ') AS YL' || V_SUFFIX
+                  || ',MAX(B1.U' || V_SUFFIX || ') AS YU' || V_SUFFIX;
+                SET V_YEAR_COUNT=',COALESCE(SUM(CAST(CASE WHEN CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX
+                  || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B1.U' || V_SUFFIX
+                  || ' THEN 1 ELSE 0 END AS BIGINT)),0) AS YO' || V_SUFFIX;
+            ELSE
+                SET V_YEAR_BOUNDS=',CAST(NULL AS BIGINT) AS YN' || V_SUFFIX
+                  || ',CAST(NULL AS FLOAT) AS YL' || V_SUFFIX || ',CAST(NULL AS FLOAT) AS YU' || V_SUFFIX;
+                SET V_YEAR_COUNT=',CAST(0 AS BIGINT) AS YO' || V_SUFFIX;
+            END IF;
             SET V_PROJECTION=V_PROJECTION
               || ',MAX(B0.N' || V_SUFFIX || ') AS ON' || V_SUFFIX
               || ',MAX(B0.L' || V_SUFFIX || ') AS OL' || V_SUFFIX
               || ',MAX(B0.U' || V_SUFFIX || ') AS OU' || V_SUFFIX
-              || ',MAX(B1.N' || V_SUFFIX || ') AS YN' || V_SUFFIX
-              || ',MAX(B1.L' || V_SUFFIX || ') AS YL' || V_SUFFIX
-              || ',MAX(B1.U' || V_SUFFIX || ') AS YU' || V_SUFFIX
+              || V_YEAR_BOUNDS
               || ',MAX(BM.N' || V_SUFFIX || ') AS MN' || V_SUFFIX
               || ',MAX(BM.L' || V_SUFFIX || ') AS ML' || V_SUFFIX
               || ',MAX(BM.U' || V_SUFFIX || ') AS MU' || V_SUFFIX
               || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL' || V_SUFFIX
               || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_OVERALL || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<B0.L' || V_SUFFIX
               || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B0.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS OO' || V_SUFFIX
-              || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_YEARLY || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX
-              || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B1.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS YO' || V_SUFFIX
+              || V_YEAR_COUNT
               || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_MONTHLY || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<BM.L' || V_SUFFIX
               || ' OR CAST(' || V_FIELD || ' AS FLOAT)>BM.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS MO' || V_SUFFIX;
             SET V_ROLLUP_OVERALL=V_ROLLUP_OVERALL
@@ -245,36 +286,43 @@ main: BEGIN
           || ' WITH DATA PRIMARY INDEX (PERIOD_LEVEL,PERIOD_VALUE) ON COMMIT PRESERVE ROWS';
         CALL DBC.SysExecSQL(V_SQL);
         SET V_BOUNDS_EXISTS=1;
-        /* Aggregate one calendar year per statement. Normal chunks produce
+        /* Read one physical year partition per statement. Normal chunks produce
            at most twelve monthly summaries; UNKNOWN and empty populations
-           each use one small special chunk. */
+           each use one small special chunk. Filter the stored partition key
+           directly, including 0 for NULL dates. Verify elimination in EXPLAIN. */
         FOR C AS CHUNKS_CURSOR CURSOR FOR
                 SELECT CHUNK_YEAR AS CHUNK_VALUE FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR
                  WHERE RUN_ID=P_RUN_ID ORDER BY CHUNK_YEAR
             DO
                 IF C.CHUNK_VALUE='UNKNOWN' THEN
-                    SET V_SOURCE_FILTER='"' || V_DATE || '" IS NULL';
+                    SET V_SOURCE_FILTER='"' || V_STAGE_YEAR || '"=0';
                     SET V_CHUNK_YEAR='UNKNOWN';
                 ELSEIF C.CHUNK_VALUE='ALL' THEN
                     SET V_SOURCE_FILTER='1=0';
                     SET V_CHUNK_YEAR='ALL';
                 ELSE
-                    SET V_SOURCE_FILTER='EXTRACT(YEAR FROM "' || V_DATE || '")='
+                    SET V_SOURCE_FILTER='"' || V_STAGE_YEAR || '"='
                       || TRIM(C.CHUNK_VALUE);
                     SET V_CHUNK_YEAR=TRIM(C.CHUNK_VALUE);
+                END IF;
+                SET V_YEAR_TOTAL='CAST(NULL AS BIGINT)';
+                SET V_YEAR_JOIN='';
+                IF V_PROFILE_YEARLY='Y' THEN
+                    SET V_YEAR_TOTAL='MAX(B1.TOTAL_N)';
+                    SET V_YEAR_JOIN=' LEFT JOIN (SELECT * FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''YEARLY'' AND PERIOD_VALUE='''
+                      || V_CHUNK_YEAR || ''') B1 ON 1=1';
                 END IF;
                 SET V_PERIOD_QUERY='SELECT CAST(CASE WHEN ''' || C.CHUNK_VALUE || '''=''ALL'' THEN ''ALL'''
                   || ' WHEN ''' || C.CHUNK_VALUE || '''=''UNKNOWN'' THEN ''UNKNOWN'' ELSE CAST('''
                   || V_CHUNK_YEAR || '-''||SUBSTR(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))),'
                   || 'CHARACTER_LENGTH(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))))-1,2) AS VARCHAR(7)) END AS VARCHAR(10)) AS CHUNK_VALUE,'
                   || 'CAST(''' || V_CHUNK_YEAR || ''' AS VARCHAR(10)) AS CHUNK_YEAR,'
-                  || 'MAX(B0.TOTAL_N) AS OVERALL_TOTAL_N,MAX(B1.TOTAL_N) AS YEARLY_TOTAL_N,MAX(BM.TOTAL_N) AS MONTHLY_TOTAL_N,'
+                  || 'MAX(B0.TOTAL_N) AS OVERALL_TOTAL_N,' || V_YEAR_TOTAL || ' AS YEARLY_TOTAL_N,MAX(BM.TOTAL_N) AS MONTHLY_TOTAL_N,'
                   || 'COALESCE(SUM(CAST(CASE WHEN S.DQ_PRESENT=1 THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL_TOTAL'
                   || V_PROJECTION
                   || ' FROM (SELECT MAX(TOTAL_N) AS TOTAL_N' || V_OVERALL_BOUND_PROJECTION
                   || ' FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''OVERALL'' AND PERIOD_VALUE=''ALL'') B0'
-                  || ' LEFT JOIN (SELECT * FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''YEARLY'' AND PERIOD_VALUE='''
-                  || V_CHUNK_YEAR || ''' AND ''' || V_PROFILE_YEARLY || '''=''Y'') B1 ON 1=1'
+                  || V_YEAR_JOIN
                   || ' LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE
                   || '" WHERE ' || V_SOURCE_FILTER || ') S ON 1=1'
                   || ' LEFT JOIN DQ_NO_BOUNDS BM ON ''' || V_PROFILE_MONTHLY || '''=''Y'' AND BM.PERIOD_LEVEL=''MONTHLY'' AND BM.PERIOD_VALUE=CASE'

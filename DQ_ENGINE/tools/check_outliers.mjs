@@ -44,12 +44,21 @@ function snapshot(population){db.exec('DELETE FROM DQ_NUMERIC_STATISTICS');refer
 }}}
 snapshot(groups);
 db.exec('CREATE TABLE DQ_OUTLIER_CHUNK_YEAR (RUN_ID TEXT,CHUNK_YEAR TEXT); CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT)');db.prepare('INSERT INTO DQ_RUN_LOG VALUES (?)').run(id);
+const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURRENT_TIMESTAMP')
+ .replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)")
+ .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)")
+ .replaceAll('EXTRACT(YEAR FROM "FACT_DT")',"CAST(strftime('%Y',FACT_DT) AS INTEGER)")
+ .replaceAll('EXTRACT(MONTH FROM "FACT_DT")',"CAST(strftime('%m',FACT_DT) AS INTEGER)");
 // Execute the actual narrow CTAS (only remove Teradata physical-table syntax).
 const stageName='DQ_OS_'+id.replaceAll('-','')+'_A1';
 function workName(run,attempt){return evaluate(assignment('V_STAGE',0,sql),{"OREPLACE(TRIM(P_RUN_ID),'-','')":run.replaceAll('-',''),V_ATTEMPT:attempt});}
 assert.equal(workName(id,1),stageName);assert.notEqual(workName(id,2),stageName);
 assert.notEqual(workName('40000000-0000-4000-8000-000000000002',1),stageName);
-const stageVars={V_STAGE:stageName,V_DATE:'FACT_DT',V_STAGE_PROJECTION:'"FACT_DT"',V_DB:'SOURCE',V_SOURCE:'FIXTURE'};
+const stageYear='DQ_OS_YEAR_0',stageBucket='DQ_OS_BUCKET_0';
+// The distribution key must not affect result values; SQLite emulates values,
+// not Teradata's random generator, row hashing or physical partitions.
+let bucket=0;db.function('RANDOM',(lo,hi)=>lo+(bucket++%(hi-lo+1)));
+const stageVars={V_STAGE:stageName,V_STAGE_YEAR:stageYear,V_STAGE_BUCKET:stageBucket,V_DATE:'FACT_DT',V_STAGE_PROJECTION:'"FACT_DT"',V_DB:'SOURCE',V_SOURCE:'FIXTURE'};
 for(const name of fields){stageVars['W.FIELD_NAME']=name;stageVars.V_STAGE_PROJECTION=evaluate(assignment('V_STAGE_PROJECTION',sql.indexOf('FOR W AS'),sql),stageVars);}
 const stageSql=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),stageVars);
 lex(stageSql,'outlier source materialization');assert.ok(stageSql.length<32000);
@@ -57,29 +66,63 @@ const wideStage=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),{...sta
 lex(wideStage,'maximum stage SQL width');assert.ok(wideStage.length<32000);
 assert.ok(!stageSql.includes('DISTINCT'));assert.ok(!stageSql.includes(' WHERE '));assert.ok(!stageSql.includes('CAST('));
 const stageSelect=stageSql.slice(stageSql.indexOf(' AS (')+5,stageSql.lastIndexOf(') WITH DATA'));
-db.exec('CREATE TABLE '+stageName+' AS '+stageSelect);
+db.exec('CREATE TABLE '+stageName+' AS '+adapt(stageSelect));
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+stageName).get().n,raw.length);
-assert.deepEqual(db.prepare('SELECT * FROM '+stageName).all(),db.prepare('SELECT * FROM SOURCE.FIXTURE').all());
+const sourceColumns=['FACT_DT',...fields].map(f=>'"'+f+'"').join(',');
+assert.deepEqual(db.prepare('SELECT '+sourceColumns+' FROM '+stageName).all(),db.prepare('SELECT * FROM SOURCE.FIXTURE').all());
+assert.ok(stageSql.includes('PRIMARY INDEX ("DQ_OS_BUCKET_0") PARTITION BY RANGE_N("DQ_OS_YEAR_0" BETWEEN 0 AND 9999 EACH 1)'));
+assert.ok(!stageSql.includes('NO PRIMARY INDEX'));
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+stageName+' WHERE "'+stageYear+'"<>COALESCE(CAST(substr(FACT_DT,1,4) AS INTEGER),0)').get().n,0);
+// Exercise the real internal-name count query. Even a source reporting date
+// or numeric field named like our internal key must remain a native column.
+const keyLoop=sql.indexOf('WHILE V_COUNT>0 DO');
+const collisionQuery=sql.slice(sql.indexOf('SELECT COUNT(*) INTO V_COUNT',keyLoop),sql.indexOf(';',sql.indexOf('SELECT COUNT(*) INTO V_COUNT',keyLoop)))
+ .replace('INTO V_COUNT','AS N').replaceAll('DQ_DB.','').replaceAll('P_RUN_ID',':run')
+ .replaceAll('V_STAGE_BUCKET',':bucket').replaceAll('V_STAGE_YEAR',':year');
+for(const [date,extra,expected]of [['FACT_DT',[],0],['dq_os_year_0',[],1],
+ ['FACT_DT',['dq_os_bucket_0','DQ_OS_YEAR_1'],2]]){
+ const testId='physical-key-test';
+ extra.forEach((f,i)=>db.prepare('INSERT INTO DQ_RUN_FIELD_CONFIG VALUES (?,?,?,?)').run(testId,f,'NUMERIC',i+1));
+ let chosen;
+ for(let suffix=0;suffix<10;suffix++){
+  const v={V_KEY_SUFFIX:suffix};
+  const b=evaluate(assignment('V_STAGE_BUCKET',keyLoop,sql),v),y=evaluate(assignment('V_STAGE_YEAR',keyLoop,sql),v);
+  const n=db.prepare(collisionQuery).get({run:testId,bucket:b,year:y}).N;
+  if(n===0&&![b,y].includes(date.toUpperCase())){chosen=suffix;break;}
+ }
+ assert.equal(chosen,expected);
+ db.prepare('DELETE FROM DQ_RUN_FIELD_CONFIG WHERE RUN_ID=?').run(testId);
+}
+// Reloads update the physical keys too, exactly as a fresh materialization does.
+function loadStage(population){
+ const put=db.prepare('INSERT INTO '+stageName+' ('+sourceColumns+',"'+stageBucket+'","'+stageYear+'") VALUES (?,?,?,?,?,?,?,?,?)');
+ population.forEach((r,i)=>put.run(...r,i+1,r[0]===null?0:Number(r[0].slice(0,4))));
+}
 // Source changes after materialization must not affect standalone outlier scans.
 db.exec('DELETE FROM SOURCE.FIXTURE');
 
-const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURRENT_TIMESTAMP')
- .replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)")
- .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)")
- .replaceAll('EXTRACT(YEAR FROM "FACT_DT")',"CAST(strftime('%Y',FACT_DT) AS INTEGER)")
- .replaceAll('EXTRACT(MONTH FROM "FACT_DT")',"CAST(strftime('%m',FACT_DT) AS INTEGER)");
 function ctas(q,name){lex(q,'generated '+name);assert.ok(q.length<32000);const a=q.indexOf(' AS (')+5,b=q.lastIndexOf(') WITH DATA');db.exec('CREATE TABLE '+name+' AS '+adapt(q.slice(a,b)));}
 const cursor=sql.indexOf('FOR F AS'),resultCursor=sql.indexOf('FOR R AS');
+function yearField(v){
+ const on=sql.indexOf("IF V_PROFILE_YEARLY='Y' THEN",cursor);
+ const start=v.V_PROFILE_YEARLY==='Y'?on:sql.indexOf('\n            ELSE',on);
+ for(const part of ['V_YEAR_BOUNDS','V_YEAR_COUNT'])v[part]=evaluate(assignment(part,start,sql),v);
+}
+function yearJoin(v){
+ const defaults=sql.indexOf("SET V_YEAR_TOTAL =");
+ const start=v.V_PROFILE_YEARLY==='Y'?sql.indexOf("IF V_PROFILE_YEARLY='Y' THEN",defaults):defaults;
+ for(const part of ['V_YEAR_TOTAL','V_YEAR_JOIN'])v[part]=evaluate(assignment(part,start,sql),v);
+}
 function batch(first,last,levels=['Y','Y','Y']){const [o,y,m]=levels;const v={V_PROFILE_OVERALL:o,V_PROFILE_YEARLY:y,V_PROFILE_MONTHLY:m,P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'main',V_SOURCE:stageName,V_DATE:'FACT_DT',
  V_FIRST:first,V_LAST:last,V_LIST:'(-9999.0000000000)',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',
  V_BOUND_PROJECTION:'',V_OVERALL_BOUND_PROJECTION:'',V_PROJECTION:'',V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N'};
- for(let i=first;i<=last;i++){v['F.FIELD_NAME']=fields[i-1];v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_C'+i;
+ for(let i=first;i<=last;i++){v['F.FIELD_NAME']=fields[i-1];v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_C'+i;yearField(v);
   for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])v[part]=evaluate(assignment(part,cursor,sql),v);
  }
  ctas(evaluate(assignment('V_SQL',cursor,sql),v),'DQ_NO_BOUNDS');
  db.exec('DELETE FROM DQ_OUTLIER_CHUNK_YEAR');
  const calendarStart=sql.indexOf('/* Scan scheduling');
- db.exec(adapt(evaluate(assignment('V_SQL',calendarStart,sql),{P_RUN_ID:id,V_DATE:'FACT_DT',V_STAGE:stageName})));
+ db.exec(adapt(evaluate(assignment('V_SQL',calendarStart,sql),{P_RUN_ID:id,V_STAGE_YEAR:stageYear,V_STAGE:stageName})));
  db.exec("INSERT INTO DQ_OUTLIER_CHUNK_YEAR SELECT '"+id+"','ALL' WHERE NOT EXISTS (SELECT 1 FROM DQ_OUTLIER_CHUNK_YEAR)");
  const cs=sql.slice(sql.indexOf('SELECT CHUNK_YEAR AS CHUNK_VALUE'),sql.indexOf('            DO',sql.indexOf('FOR C AS'))).trim();
  const chunks=db.prepare(adapt(cs).replaceAll('P_RUN_ID',"'"+id+"'")).all();
@@ -87,15 +130,18 @@ function batch(first,last,levels=['Y','Y','Y']){const [o,y,m]=levels;const v={V_
  for(const [index,c]of chunks.entries()){
   v['C.CHUNK_VALUE']=c.CHUNK_VALUE;v.V_SOURCE_FILTER='1=1';
   v.V_CHUNK_YEAR=c.CHUNK_VALUE==='UNKNOWN'?'UNKNOWN':c.CHUNK_VALUE==='ALL'?'ALL':c.CHUNK_VALUE.slice(0,4);
-  if(c.CHUNK_VALUE==='UNKNOWN')v.V_SOURCE_FILTER='"FACT_DT" IS NULL';
-  else if(c.CHUNK_VALUE==='ALL')v.V_SOURCE_FILTER='1=0';
-  else v.V_SOURCE_FILTER='EXTRACT(YEAR FROM "FACT_DT")='+c.CHUNK_VALUE;
+  if(c.CHUNK_VALUE==='UNKNOWN')v.V_SOURCE_FILTER=evaluate(assignment('V_SOURCE_FILTER',sql.indexOf("IF C.CHUNK_VALUE='UNKNOWN'"),sql),{V_STAGE_YEAR:stageYear});
+  else if(c.CHUNK_VALUE==='ALL')v.V_SOURCE_FILTER=evaluate(assignment('V_SOURCE_FILTER',sql.indexOf("ELSEIF C.CHUNK_VALUE='ALL'"),sql),{});
+  else v.V_SOURCE_FILTER=evaluate(assignment('V_SOURCE_FILTER',sql.indexOf("SET V_CHUNK_YEAR ='ALL'"),sql),{V_STAGE_YEAR:stageYear,'C.CHUNK_VALUE':c.CHUNK_VALUE});
+  assert.ok(!v.V_SOURCE_FILTER.includes('EXTRACT('),'year filtering must directly constrain the stored partition key');
   assert.ok(c.CHUNK_VALUE==='ALL'||v.V_SOURCE_FILTER!=='1=1','nonempty populations must be year-filtered or NULL-date filtered');
+  yearJoin(v);
   v.V_PERIOD_QUERY=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),v);
   assert.ok(v.V_PERIOD_QUERY.includes('END AS VARCHAR(10)) AS CHUNK_VALUE'));
   assert.ok(v.V_PERIOD_QUERY.includes("AS VARCHAR(10)) AS CHUNK_YEAR"));
   assert.ok(v.V_PERIOD_QUERY.includes('GROUP BY EXTRACT(MONTH FROM S.DQ_DT)'));
-  assert.ok(v.V_PERIOD_QUERY.includes('B0.L'+first)&&v.V_PERIOD_QUERY.includes('B1.L'+first)&&v.V_PERIOD_QUERY.includes('BM.L'+first));
+  assert.ok(v.V_PERIOD_QUERY.includes('B0.L'+first)&&v.V_PERIOD_QUERY.includes('BM.L'+first));
+  assert.equal(v.V_PERIOD_QUERY.includes('B1.'),y==='Y','disabled yearly level must not join or compare yearly bounds');
   if(index===0)ctas(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE MULTISET VOLATILE TABLE DQ_NO_CHUNKS"),sql),v),'DQ_NO_CHUNKS');
   else db.exec(adapt(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='INSERT INTO DQ_NO_CHUNKS"),sql),v)));
  }
@@ -150,9 +196,10 @@ for(const [label,population] of [
   r[0]===null?null:year+r[0].slice(4).replace('-02-29','-02-28'),
   ...r.slice(1).map(x=>x===null||x===-9999?x:x+ix*100)]))],
  ['NULL-only dates',raw.map(r=>[null,...r.slice(1)])]
+ ,['timestamp dates',raw.map(r=>[r[0]===null?null:r[0]+' 23:59:59.123456',...r.slice(1)])]
 ]){
  db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT');
- const load=db.prepare('INSERT INTO '+stageName+' VALUES (?,?,?,?,?,?,?)');population.forEach(r=>load.run(...r));
+ loadStage(population);
  const populationGroups=new Map([['OVERALL/ALL',population]]);
  for(const r of population)for(const [level,value]of [['YEARLY',r[0]?.slice(0,4)??'UNKNOWN'],['MONTHLY',r[0]?.slice(0,7)??'UNKNOWN']]){
   const key=level+'/'+value;if(!populationGroups.has(key))populationGroups.set(key,[]);populationGroups.get(key).push(r);
@@ -173,7 +220,7 @@ for(const empty of [false,true])for(let mask=1;mask<8;mask++){
  const levels=[1,2,4].map(bit=>(mask&bit)?'Y':'N');
  db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT');
  const population=empty?[]:raw;
- const put=db.prepare('INSERT INTO '+stageName+' VALUES (?,?,?,?,?,?,?)');population.forEach(r=>put.run(...r));
+ loadStage(population);
  const sourceGroups=empty?new Map([['OVERALL/ALL',[]]]):groups;
  snapshot(sourceGroups);
  const selected=['OVERALL','YEARLY','MONTHLY'].filter((_,i)=>levels[i]==='Y');
@@ -205,7 +252,8 @@ check.function('CHARACTER_LENGTH',x=>x?.length??null);
 check.aggregate('STDDEV_POP',{start:()=>({n:0,mean:0,m2:0}),step:(s,x)=>{if(x!==null){s.n++;const d=x-s.mean;s.mean+=d/s.n;s.m2+=d*(x-s.mean);}return s;},result:s=>s.n===0?null:Math.sqrt(s.m2/s.n)});
 check.exec('CREATE TABLE SOURCE.FIXTURE (FACT_DT TEXT,'+fields.map(f=>'"'+f+'" NUMERIC').join(',')+')');
 const put=check.prepare('INSERT INTO SOURCE.FIXTURE VALUES (?,?,?,?,?,?,?)');raw.forEach(r=>put.run(...r));
-check.exec('CREATE TABLE '+stageName+' AS '+stageSelect);check.exec('DELETE FROM SOURCE.FIXTURE');
+check.function('RANDOM',(lo,hi)=>lo+(bucket++%(hi-lo+1)));
+check.exec('CREATE TABLE '+stageName+' AS '+adapt(stageSelect));check.exec('DELETE FROM SOURCE.FIXTURE');
 check.exec('CREATE TABLE DQ_NUMERIC_STATISTICS (RUN_ID TEXT,FIELD_NAME TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,TOTAL_COUNT INTEGER,VALID_COUNT INTEGER,MEAN_VALUE NUMERIC,STDDEV_VALUE NUMERIC)');
 const nv={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'main',V_SOURCE:stageName,V_DATE:'FACT_DT',
  V_LIST:'(-9999.0000000000)',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT'};
@@ -243,11 +291,12 @@ const widths=Object.fromEntries([...sql.matchAll(/DECLARE (\w+) VARCHAR\((\d+)\)
 const maxv={V_PROFILE_OVERALL:'Y',V_PROFILE_YEARLY:'Y',V_PROFILE_MONTHLY:'Y',P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',V_FIRST:1,V_LAST:5,
  V_LIST:list,V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',V_BOUND_PROJECTION:'',V_OVERALL_BOUND_PROJECTION:'',V_PROJECTION:'',
  V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N'};
-maxv['C.CHUNK_VALUE']='2000';maxv.V_CHUNK_YEAR='2000';maxv.V_SOURCE_FILTER='EXTRACT(YEAR FROM \"FACT_DT\")=2000';
-for(let i=1;i<=5;i++){maxv['F.FIELD_NAME']='F'+String(i).padStart(127,'X');maxv.V_SUFFIX=String(i);maxv.V_FIELD='S.DQ_C'+i;
+maxv['C.CHUNK_VALUE']='2000';maxv.V_CHUNK_YEAR='2000';maxv.V_SOURCE_FILTER='"DQ_OS_YEAR_0"=2000';
+for(let i=1;i<=5;i++){maxv['F.FIELD_NAME']='F'+String(i).padStart(127,'X');maxv.V_SUFFIX=String(i);maxv.V_FIELD='S.DQ_C'+i;yearField(maxv);
  for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])maxv[part]=evaluate(assignment(part,cursor,sql),maxv);
 }
 for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])assert.ok(maxv[part].length<=widths[part]);
+yearJoin(maxv);
 maxv.V_PERIOD_QUERY=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),maxv);
 assert.ok(maxv.V_PERIOD_QUERY.length<=widths.V_PERIOD_QUERY);
 maxv.V_ROLLUP_QUERY=rollup(maxv);
@@ -318,6 +367,63 @@ const smokePath=new URL('../tests/test_outlier_rollup.sql',import.meta.url);
 if(process.env.DQ_WRITE_PERIOD_SMOKE==='1')fs.writeFileSync(smokePath,smoke);
 else assert.equal(fs.readFileSync(smokePath,'utf8'),smoke,'Regenerate the server fixture from the updated rollup template');
 console.log('Synthetic server rollup fixture checked locally: 10 distinct full period keys and correct counts. Teradata execution pending.');
+
+// A small server preflight uses the real CTAS and statistics templates. It
+// checks syntax and partition selection before an expensive RDS rerun.
+const partitionVars={...stageVars,V_STAGE:'DQ_TEST_OUT_PART_STAGE',V_STAGE_PROJECTION:'"FACT_DT","AMOUNT"',
+ V_DB:'DQ_DB',V_SOURCE:'DQ_TEST_OUT_PART_INPUT'};
+const partitionCreate=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),partitionVars);
+const partitionStats=evaluate(assignment('V_SQL',sql.indexOf('/* One statistics request'),sql),partitionVars);
+const partitionDates=[['2005-01-31',7],['2005-01-31',7],['2005-02-28',-9999],
+ ['2006-01-31',4],['2026-03-31',5],[null,null],['0001-01-01',-2],['9999-12-31',9]];
+const partitionInserts=partitionDates.map(([date,value])=>
+ `INSERT INTO DQ_DB.DQ_TEST_OUT_PART_INPUT VALUES (${date===null?'NULL':"DATE '"+date+"'"},${value===null?'NULL':value});`).join('\n');
+const partitionSmoke=`/* Generated by: DQ_WRITE_PARTITION_SMOKE=1 node DQ_ENGINE/tools/check_outliers.mjs
+   Replace DQ_DB with an approved test schema. No RDS scans or config changes.
+   Creates two tiny permanent test tables; verify these names are unused first.
+   Submit statements separately in Teradata mode. Stop on any error; do not
+   continue into DROP if CREATE failed because a name already existed.
+   Expected: TOTAL_ROWS=8, YEAR_KEYS=6, BAD_KEYS=0, DUPLICATE_ROWS=2.
+   EXPLAIN must show partition elimination for the equality predicates.
+   Tiny-row spool estimates do not establish RDS performance or AMP balance. */
+CREATE MULTISET TABLE DQ_DB.DQ_TEST_OUT_PART_INPUT
+    (FACT_DT DATE,AMOUNT DECIMAL(18,2)) NO PRIMARY INDEX;
+${partitionInserts}
+
+${partitionCreate};
+${partitionStats};
+
+SHOW TABLE DQ_DB.DQ_TEST_OUT_PART_STAGE;
+SELECT COUNT(*) AS TOTAL_ROWS,COUNT(DISTINCT "DQ_OS_YEAR_0") AS YEAR_KEYS,
+       SUM(CASE WHEN "DQ_OS_YEAR_0"=COALESCE(EXTRACT(YEAR FROM FACT_DT),0) THEN 0 ELSE 1 END) AS BAD_KEYS
+FROM DQ_DB.DQ_TEST_OUT_PART_STAGE;
+SELECT COUNT(*) AS DUPLICATE_ROWS FROM DQ_DB.DQ_TEST_OUT_PART_STAGE
+WHERE FACT_DT=DATE '2005-01-31' AND AMOUNT=7;
+
+EXPLAIN SELECT COUNT(*) FROM DQ_DB.DQ_TEST_OUT_PART_STAGE WHERE "DQ_OS_YEAR_0"=2005;
+EXPLAIN SELECT COUNT(*) FROM DQ_DB.DQ_TEST_OUT_PART_STAGE WHERE "DQ_OS_YEAR_0"=0;
+
+/* Run only after inspecting the results and saving EXPLAIN output. */
+DROP TABLE DQ_DB.DQ_TEST_OUT_PART_STAGE;
+DROP TABLE DQ_DB.DQ_TEST_OUT_PART_INPUT;
+`;
+lex(partitionSmoke,'outlier partition server fixture');
+const partitionDb=new DatabaseSync(':memory:');
+partitionDb.function('RANDOM',(lo,hi)=>lo+(bucket++%(hi-lo+1)));
+partitionDb.exec('CREATE TABLE DQ_TEST_OUT_PART_INPUT (FACT_DT TEXT,AMOUNT NUMERIC)');
+const partitionPut=partitionDb.prepare('INSERT INTO DQ_TEST_OUT_PART_INPUT VALUES (?,?)');
+partitionDates.forEach(r=>partitionPut.run(...r));
+const partitionSelect=partitionCreate.slice(partitionCreate.indexOf(' AS (')+5,partitionCreate.lastIndexOf(') WITH DATA'));
+partitionDb.exec('CREATE TABLE DQ_TEST_OUT_PART_STAGE AS '+adapt(partitionSelect).replaceAll('"DQ_DB".',''));
+assert.equal(partitionDb.prepare('SELECT COUNT(*) AS N FROM DQ_TEST_OUT_PART_STAGE').get().N,8);
+assert.deepEqual(partitionDb.prepare('SELECT DQ_OS_YEAR_0 AS Y,COUNT(*) AS N FROM DQ_TEST_OUT_PART_STAGE GROUP BY 1 ORDER BY 1').all().map(r=>({...r})),
+ [{Y:0,N:1},{Y:1,N:1},{Y:2005,N:3},{Y:2006,N:1},{Y:2026,N:1},{Y:9999,N:1}]);
+assert.equal(partitionDb.prepare("SELECT COUNT(*) AS N FROM DQ_TEST_OUT_PART_STAGE WHERE FACT_DT='2005-01-31' AND AMOUNT=7").get().N,2);
+partitionDb.close();
+const partitionPath=new URL('../tests/test_outlier_partition.sql',import.meta.url);
+if(process.env.DQ_WRITE_PARTITION_SMOKE==='1')fs.writeFileSync(partitionPath,partitionSmoke);
+else assert.equal(fs.readFileSync(partitionPath,'utf8'),partitionSmoke,'Regenerate partition server preflight after template changes');
+console.log('Partition key checks passed: collisions, NULL dates, year limits, timestamps and duplicate preservation. Physical partition elimination/RANDOM/statistics syntax require the supplied Teradata preflight.');
 
 // Lifecycle/API structure: materialize once before internal statistics, use the
 // stage for subsequent reads, never overwrite another run's table, drop only

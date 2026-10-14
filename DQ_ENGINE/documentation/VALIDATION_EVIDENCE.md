@@ -88,3 +88,15 @@ reporting dates, specials, unchanged selected metrics and field availability.
 The starter workbook preserves all 589 mappings and adds Y/Y/N level defaults.
 Server tests for captured settings, all-N rejection and transactional application
 are supplied in tests/test_reporting_levels.sql; these are not claimed executed.
+
+The partitioned outlier-stage change is checked locally against generated SQL:
+source values and duplicate multiplicity are preserved, NULL reporting dates
+map to year key 0, internal names avoid source-field collisions, and all seven
+reporting scopes return the independently calculated outlier metrics. Multiple
+years and timestamp dates are covered. Disabled yearly comparisons and joins
+are absent from the generated count query. The server preflight is generated
+from the actual CTAS/statistics templates and includes year keys 0, 1 and 9999.
+SQLite cannot test Teradata RANGE_N, random-row distribution, partition
+elimination, COLLECT STATISTICS, SPL or grants. No server compilation, measured
+runtime gain or spool reduction is claimed; test_outlier_partition.sql and the
+same-population five-field benchmark remain required server checks.

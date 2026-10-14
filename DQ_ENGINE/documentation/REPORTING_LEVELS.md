@@ -32,8 +32,10 @@ new reporting-level mechanism. Rules for disabled levels are not generated.
 
 Basic aggregation includes only enabled grouping sets/period SELECTs. The
 standalone numeric statistics helper skips disabled passes. Outliers include
-only enabled rollup branches and use constant-disabled comparisons for the
-other bounds. They still process source years as internal scan chunks; this
+only enabled rollup branches; disabled yearly comparisons and the yearly bounds
+join are omitted. Other disabled bounds use constant-disabled comparisons.
+They still process source years as internal scan chunks, reading a partitioned
+working table by its stored year key; this
 is independent of whether YEARLY reporting is enabled. DQ_OUTLIER_CHUNK_YEAR
 holds only that run's year names (including UNKNOWN or empty ALL) and is cleaned
 on success/handled failure. It contains no yearly profile results. An external

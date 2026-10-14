@@ -110,12 +110,18 @@ SQLite data with narrow dialect adaptations. They are not Teradata SPL or SAS
 execution. Actual procedure compilation, privileges, cleanup/transaction behaviour,
 numerical behaviour and workload must be verified on the installed release.
 
-Outliers create a narrow MULTISET table in the engine schema containing only the
-reporting-date column and all selected numeric columns. The original final view
-is referenced once for this materialization, without extra row filters, DISTINCT,
-numeric casts or special removal. Native source types, NULLs and duplicate rows
-are retained. NO PRIMARY INDEX avoids choosing a skewed date/value primary index.
-The table uses permanent space, not a volatile raw-row spool.
+Outliers create a narrow MULTISET table in the engine schema containing the
+reporting-date column, selected numeric columns and two internal physical keys.
+The original final view is referenced once for materialization, without extra
+row filters, DISTINCT, source-column casts or special removal. Native source
+types, NULLs and duplicate rows are retained. A stored year key partitions rows
+by year; 0 holds NULL dates. A random integer bucket is the nonunique primary
+index, distributing rows independently of repeated dates, values or duplicates.
+Internal names are chosen outside the selected source-column namespace. Neither
+key changes profiling values or participates in outlier bounds/counts.
+The table uses permanent space, not a volatile raw-row spool. Partition and year
+statistics are collected once after loading. Each chunk filters its stored year
+key directly, allowing static partition elimination; confirm it with EXPLAIN.
 
 Standalone statistics and period counting read that table thereafter. The
 outlier procedure aggregates one calendar year per statement, grouping that
@@ -141,8 +147,10 @@ read by SAS or copied into repository files.
 
 This trades permanent-space allocation and one materialization for avoiding
 repeated expensive view work. The CTAS can still need substantial source-view
-spool. Actual runtime, AMP distribution, permanent-space requirements, NO PRIMARY
-INDEX support, DDL/grant permissions and cleanup need server testing. No measured
+spool. Partitioning adds row storage, redistribution and statistics-collection
+cost at creation. Actual runtime, AMP distribution, permanent-space requirements,
+partitioned CTAS/RANDOM support, DDL/statistics/grant permissions and cleanup need
+server testing. No measured
 performance improvement is claimed. FLOAT calculations, DECIMAL storage,
 population standard deviation and the five outlier metrics are unchanged. PSI and Excel
 report generation remain deferred.
@@ -154,25 +162,45 @@ No grants have been executed from this workspace.
 
 ## Upgrade an existing outlier deployment after error 2646
 
-Wait until the old request has ended. This update changes only the outlier
-procedure. It assumes the current narrow work-table and statistics helper/wrapper
-version is already deployed. No configuration table, result view, Excel column,
-SAS file or runner wrapper change is required. Runtime needs free permanent space
-and approved CREATE TABLE, DROP TABLE and grantable SELECT access in the engine
-schema. The dynamic work-table SELECT grant is included in the procedure. A
-procedure grant alone does not grant table-creation privileges.
+This update assumes the reporting-level upgrade is installed. It changes only
+modules/12_numeric_outliers.sql; no Excel, SAS, configuration/result schema,
+statistics-helper or runner recompilation is required. Keep the five-field cap.
+Runtime needs CREATE/DROP TABLE, grantable SELECT and permission to collect
+statistics on the work table it creates. The dynamic SELECT grant and the
+procedure EXECUTE grant are included. No database deployment is performed here.
 
-1. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of the updated
-   modules/12_numeric_outliers.sql. Compile the complete procedure, then execute
-   its included GRANT EXECUTE PROCEDURE statement. This version processes one
-   reporting year per chunk and rolls up the compact chunk table.
-2. Keep the already-applied field configuration and test with a fresh run
-   (retry_run_id blank), numeric_basic=N, numeric_outliers=Y and other tests=N.
-   Use the same small numeric selection for a comparable run.
-3. Require SUCCEEDED and review the outlier measurements/denominator. Confirm
-   work-table removal and record elapsed time. If it is still too slow or fails
-   2646, keep the SQL_TEXT and ask the Teradata DBA to review EXPLAIN, spool and
-   AMP skew before increasing the field selection.
+1. Confirm the previous database request/session has ended. An interrupted
+   client's RUNNING log is not proof of a live query. Resolve its stale status
+   and exact orphan table using the recovery guidance below; do not drop tables
+   belonging to active requests or change other runs.
+2. Run [test_outlier_partition.sql](../tests/test_outlier_partition.sql) in an
+   approved test schema, replacing DQ_DB globally. It creates two tiny permanent
+   tables with eight synthetic rows and no RDS access. Verify their names are
+   unused first; submit statements separately and stop on any error. Expected:
+   TOTAL_ROWS=8, YEAR_KEYS=6, BAD_KEYS=0, DUPLICATE_ROWS=2. Save EXPLAIN output;
+   confirm partition elimination for year 2005 and key 0 (NULL dates). Drop only
+   these successfully created test tables using the final statements.
+3. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of
+   modules/12_numeric_outliers.sql. Compile the whole procedure, then execute
+   its included GRANT separately. Do not change the SQL_BATCH_SIZE or field
+   selection for the comparison.
+4. Run the same five fields and source population with the same module switches
+   and Y/Y/N overall/monthly/yearly settings, using a fresh run ID. The update
+   omits the disabled yearly bounds join/comparisons. Numeric Basic reuse and
+   standalone outliers remain supported. Compare identical module selections;
+   a Basic+Outlier run is not a timing baseline for Outliers-only.
+5. Require SUCCEEDED, unchanged metrics and normal working-table cleanup. Record
+   materialization/statistics overhead and full module/batch elapsed minutes.
+   Review the actual counting query's plan and approved DBQL I/O, peak spool and
+   AMP skew. The synthetic preflight does not establish RDS performance. Expand
+   the field selection only after this comparison passes.
+
+The table range covers year keys 0 through 9999. Normal chunks address one year
+partition; NULL-date chunks address key 0, and the empty-source chunk reads no
+rows. It is still a sequential year loop, with global bounds applied to every
+chunk for OVERALL counts and separate monthly bounds for MONTHLY counts. Overall
+counts are not the sum of monthly outlier counts. Explicit period widths,
+duplicate-key/population guards, special exclusions and publication are unchanged.
 
 Batch-0 SQL_TEXT identifies the work-table CTAS. Later SQL_TEXT records the
 current batch aggregate or metric insert. A failed aggregate can cover all
@@ -205,17 +233,12 @@ the error/output; disconnect that test session to discard its volatile tables.
 After this passes, recompile the complete updated `12_numeric_outliers.sql`
 and its included grant, replacing DQ_DB with the approved schema. No configuration
 reload, permanent schema migration or other procedure recompile is needed.
-Before another full RDS run, review the year-counting execution plan and runtime:
-the reported five-field run spent about 29.5 minutes in batch 1. The unpartitioned
-work table is read for each year/batch; a year filter does not establish partition
-elimination or bounded spool. Inspect scan volume, redistribution and AMP skew
-before choosing a physical-layout or join change. Volatile bounds/chunks and
-the permanent work table are normally removed by failure cleanup, so a logged
-query may require a controlled reconstruction of those objects before EXPLAIN.
-After addressing that performance review, use a fresh run with the same five
-active fields and only Outliers enabled.
-This targeted change does not alter the source reads, statistical calculations,
-chunk size or publication rules. It does not establish a spool or runtime guarantee.
+The old unpartitioned work table could be scanned for every year/batch; a year
+filter alone did not establish partition elimination. The current partitioned
+layout and server preflight are described in the upgrade steps above. Volatile
+bounds/chunks are session-local and removed after completion, so explaining a
+logged full counting query can require an isolated reconstruction of its objects.
+Do not rerun a logged INSERT against live work tables merely to get its plan.
 
 ## Recover working data after an external abort
 
