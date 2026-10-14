@@ -131,15 +131,16 @@ are retained. NO PRIMARY INDEX avoids choosing a skewed date/value primary index
 The table uses permanent space, not a volatile raw-row spool.
 
 Standalone statistics and period counting read that table thereafter. Counting
-filters the work table to one reporting month (or NULL-date rows) per statement,
-then rolls up those month counts using the target OVERALL, YEARLY or MONTHLY
-bounds. This avoids the prior full-population OVERALL aggregate and the detail-row
-period join. Each month is scanned again for applicable target periods, so a
-large date range can still take a long time. SQL_BATCH_SIZE=1 remains supported
-and reduces fields per batch, but does not reduce the number of reporting months.
-Basic statistics are still reused when available; keep the source stable during a
-combined Basic+Outlier run. Existing count checks detect population changes, not
-all value changes.
+filters the work table to one reporting month (or NULL-date rows) per statement
+and calculates outliers against that month's OVERALL, YEARLY and MONTHLY bounds
+in the same scan. It then rolls each set of counts up to its own period. This
+avoids both the prior full-population OVERALL aggregate and rescanning every month
+separately for each period level. A 255-month history needs 255 count statements
+per five-field batch, or about 2,550 for 50 numeric fields at the five-field cap.
+SQL_BATCH_SIZE=1 reduces fields per batch, but not the number of months. Runtime
+and spool still require Teradata testing. Basic statistics are reused when
+available; keep the source stable during a combined Basic+Outlier run. Existing
+count checks detect population changes, not all value changes.
 
 Work tables are named DQ_OS_<UUID without hyphens>_A<attempt>, so concurrent runs
 and retries use distinct names. The outlier batch-0 SQL_TEXT retains the exact

@@ -25,15 +25,18 @@ SAS switch, review columns and test cases were removed. No stored database histo
 or running job was modified. Earlier evidence is retained in Git history and the history/ directory
 for audit context; its instructions are not current deployment steps.
 
-The 2026-10-14 spool optimisation was checked locally against synthetic data:
+The 2026-10-14 outlier count changes were checked locally against synthetic data:
 180 field/period/metric results match independent +/-3 sample-deviation reference
 calculations; batching one versus five fields produces identical results; empty
 populations, UNKNOWN dates and valid rate denominators remain correct. All 36
 standalone period statistics agree with independent calculations. Generated SQL
-uses sequential period queries for counting and three separate statistics passes;
-the largest checked five-field counting query with 128-character field names and
-the complete configured special list is below 32,000 characters. These are
-SQLite/static checks, not Teradata optimizer, compiler or workload evidence.
+scans each reporting month once and compares its rows with overall, yearly and
+monthly bounds; it does not add monthly outlier counts to derive longer-period
+results. The largest checked five-field count query with 128-character field
+names and the complete configured special list is below 32,000 characters. The
+255-month RDS range will produce about 255 count statements per five-field batch
+(about 2,550 for 50 fields). These are SQLite/static checks, not Teradata
+optimizer, compiler or workload evidence.
 
 The focused rule-storage change reuses SP_DQ_CLASSIFY/DQ_COLOUR_RULE and leaves
 profiling calculations untouched. Synthetic SQLite checks execute the evaluator,

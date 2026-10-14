@@ -64,14 +64,14 @@ without casts, filters or deduplication. It uses permanent space and NO PRIMARY
 INDEX. Standalone statistics and all subsequent counting queries read that table;
 Basic statistics remain reusable as before.
 
-Counting filters to one reporting month (or NULL-date rows) per statement,
-calculates counts against every applicable OVERALL, YEARLY or MONTHLY target
-bound, and rolls those month counts up. Batches are capped at five fields.
-Standalone statistics use three sequential aggregates capped at ten fields.
-The work table is scanned once for each month in each applicable target period,
-so the smaller statements can increase total elapsed time across long histories.
-Materialization itself may exhaust view spool; measured runtime, permanent space,
-I/O and AMP distribution require EXPLAIN/DBQL on the installed release.
+Counting filters to one reporting month (or NULL-date rows) per statement and
+calculates counts against that month's OVERALL, YEARLY and MONTHLY bounds in the
+same scan, then rolls each set up to its own period. Batches are capped at five
+fields. A 255-month history therefore needs 255 count statements per five-field
+batch (about 2,550 for 50 numeric fields). Standalone statistics use three
+sequential aggregates capped at ten fields. Materialization itself may exhaust
+view spool; measured runtime, permanent space, I/O and AMP distribution require
+EXPLAIN/DBQL on the installed release.
 
 Names include run UUID and attempt. The work table is dropped on success/handled
 failure. External abort/session loss can leave an orphan; batch-0 SQL_TEXT retains
