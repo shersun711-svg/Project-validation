@@ -19,7 +19,8 @@ remain separate. The view reads aggregates, not the source dataset.
 New Numeric Basic runs store `STDDEV_POP` only. The selected one-time
 setup/19 reset removes all profiling, rule, run and module history, including
 old `STDDEV_SAMP` results; `DQ_BASIC_REVIEW` reads only `STDDEV_POP`. Current
-project/workbook configuration and the monotonic run-number counter remain.
+project/workbook configuration remains, and the counter resets so the next run
+number is 1.
 
 `DATE_METRIC_VALUE` remains reserved and unused. Date Basic emits its four count/missing metrics into DQ_METRIC_RESULT; no date-value extrema are calculated. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
 

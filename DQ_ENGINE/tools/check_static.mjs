@@ -270,8 +270,10 @@ assert.ok(/SELECT COUNT\(\*\) AS ACTIVE_RUNS[\s\S]*?WHERE STATUS='RUNNING'/i.tes
     'History reset includes a separate active-run preflight');
 assert.ok(/SELECT COUNT\(\*\) AS ACTIVE_CONFIG_LOADS[\s\S]*?WHERE STATUS='LOADING'/i.test(historyReset),
     'History reset includes an active configuration-load preflight');
-assert.ok(historyReset.includes('SELECT LAST_NUMBER AS RETAINED_RUN_NUMBER_COUNTER'),
-    'History reset reports the preserved next-run counter');
+assert.ok(/UPDATE DQ_DB\.DQ_RUN_COUNTER\s+SET LAST_NUMBER=0/i.test(historyReset),
+    'History reset restarts numbering after deleting run history');
+assert.ok(historyReset.includes('SELECT LAST_NUMBER AS RESET_RUN_NUMBER_COUNTER'),
+    'History reset reports the reset run-number counter');
 
 /* Optional authoritative input reconciliation; no Excel package dependency. */
 if(process.argv.length>2){

@@ -144,10 +144,10 @@ definition for new runs. `DQ_BASIC_REVIEW` uses only `STDDEV_POP`.
 For this rollout, `teradata/setup/19_clear_run_history.sql` performs the
 requested destructive reset of profiling results, rule results, run/module
 logs, run-number mappings and per-run snapshots. It retains project/workbook
-configuration, configuration-load logs and the run-number counter. Stop all
+configuration and configuration-load logs. Stop all
 jobs and run its two preflight queries separately; continue only when
 ACTIVE_RUNS and ACTIVE_CONFIG_LOADS are both zero. New run numbers continue
-upward and are not reused.
+from 1 because all run history and mappings are deleted and the counter resets.
 
 Submit each REPLACE PROCEDURE as a complete SPL statement in a supported
 client; ordinary semicolon splitting breaks procedure bodies. With BTEQ use

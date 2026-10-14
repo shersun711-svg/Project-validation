@@ -74,8 +74,9 @@ No database deployment is performed by repository tools.
    loads, verify there are no RUNNING rows, then run
    setup/19_clear_run_history.sql once. It removes profiling/rule results,
    run/module logs and run snapshots/mappings; it retains current configuration,
-   configuration-load logs and the run-number counter. New run numbers continue
-   upward. Then run setup/18_population_standard_deviation.sql once to update
+   and configuration-load logs. Since all run history/mappings are removed, the
+   counter resets and the next run number is 1. Then run
+   setup/18_population_standard_deviation.sql once to update
    Basic metric metadata to STDDEV_POP. The history reset removes old
    STDDEV_SAMP results along with all other run history.
 3. In modules/03_numeric_statistics.sql, compile SP_DQ_NUMERIC_STATS_SOURCE and

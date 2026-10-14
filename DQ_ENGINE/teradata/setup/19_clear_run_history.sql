@@ -2,9 +2,10 @@
    Run both preflight SELECTs by themselves first. Continue only when both
    counts are zero and all profiling/configuration-load jobs have stopped.
    Removes profiling/rule results and run/module history, plus per-run captured
-   configuration and statistics. Keeps project/workbook configuration, config
-   load logs and DQ_RUN_COUNTER. Run numbers therefore continue upward and are
-   never reused. This script does not clear orphaned DQ_OS_* work tables. */
+   configuration and statistics. Keeps project/workbook configuration and
+   config-load logs. Since all run mappings/history are deleted, resets the
+   counter so the next run number is 1. This script does not clear orphaned
+   DQ_OS_* work tables. */
 
 SELECT COUNT(*) AS ACTIVE_RUNS
 FROM DQ_DB.DQ_RUN_LOG
@@ -24,8 +25,11 @@ DELETE FROM DQ_DB.DQ_RUN_FIELD_CONFIG;
 DELETE FROM DQ_DB.DQ_MODULE_LOG;
 DELETE FROM DQ_DB.DQ_RUN_LOG;
 DELETE FROM DQ_DB.DQ_RUN_NUMBER;
+UPDATE DQ_DB.DQ_RUN_COUNTER
+SET LAST_NUMBER=0
+WHERE COUNTER_KEY=1;
 
-/* Verify all run-owned data is empty. The run counter intentionally remains. */
+/* Verify all run-owned data is empty and the next run number will be 1. */
 SELECT 'DQ_RULE_RESULT' AS TABLE_NAME,COUNT(*) AS ROW_COUNT FROM DQ_DB.DQ_RULE_RESULT
 UNION ALL SELECT 'DQ_METRIC_RESULT',COUNT(*) FROM DQ_DB.DQ_METRIC_RESULT
 UNION ALL SELECT 'DQ_NUMERIC_STATISTICS',COUNT(*) FROM DQ_DB.DQ_NUMERIC_STATISTICS
@@ -36,5 +40,5 @@ UNION ALL SELECT 'DQ_MODULE_LOG',COUNT(*) FROM DQ_DB.DQ_MODULE_LOG
 UNION ALL SELECT 'DQ_RUN_LOG',COUNT(*) FROM DQ_DB.DQ_RUN_LOG
 UNION ALL SELECT 'DQ_RUN_NUMBER',COUNT(*) FROM DQ_DB.DQ_RUN_NUMBER;
 
-SELECT LAST_NUMBER AS RETAINED_RUN_NUMBER_COUNTER
+SELECT LAST_NUMBER AS RESET_RUN_NUMBER_COUNTER
 FROM DQ_DB.DQ_RUN_COUNTER WHERE COUNTER_KEY=1;

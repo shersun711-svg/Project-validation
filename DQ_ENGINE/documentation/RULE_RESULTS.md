@@ -103,7 +103,9 @@ No database deployment is performed from this repository workspace.
    there are no RUNNING rows in DQ_RUN_LOG, then run setup/19_clear_run_history.sql.
    It deletes run results, rules, run/module logs, run-number mappings, and other
    per-run snapshots. Project/workbook configuration, configuration-load logs,
-   and the run-number counter remain; future numbers continue upward.
+   while project/workbook configuration and configuration-load logs remain.
+   The counter resets because all run history/mappings are removed, so the next
+   run number is 1.
 3. Replace DQ_COLOUR_RULE and compile the complete SP_DQ_CLASSIFY in
    results/90_colour_classification.sql. Execute its included procedure grant.
 4. Replace both existing views in results/91_dq_summary_views.sql and recompile
