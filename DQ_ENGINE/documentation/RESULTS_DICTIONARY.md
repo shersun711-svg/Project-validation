@@ -14,7 +14,12 @@ Rule outcomes are not recalculated from displayed rates or current configuration
 RUN_ID and optionally PERIOD_LEVEL; historical runs and different periods
 remain separate. The view reads aggregates, not the source dataset.
 
-`DQ_METRIC_RESULT` stores numeric metrics as DECIMAL(38,10): 28 integral digits, 10 fractional digits. Exact supported source min/max and counts are cast independently before CASE evaluation, avoiding implicit FLOAT promotion. Counts/rate denominators are also preserved as BIGINT where applicable. Mean, sample standard deviation and reported rates use FLOAT arithmetic before storage, consistent with SAS floating-point statistical calculations; they require numeric tolerances in reconciliation. Tiny differences and rates below storage scale can round. Colours use exact count comparisons, not the stored rounded rate. FLOAT source min/max already have source floating-point precision.
+`DQ_METRIC_RESULT` stores numeric metrics as DECIMAL(38,10): 28 integral digits, 10 fractional digits. Exact supported source min/max and counts are cast independently before CASE evaluation, avoiding implicit FLOAT promotion. Counts/rate denominators are also preserved as BIGINT where applicable. Mean, population standard deviation and reported rates use FLOAT arithmetic before storage, consistent with SAS floating-point calculations; they require numeric tolerances in reconciliation. Tiny differences and rates below storage scale can round. Colours use exact count comparisons, not the stored rounded rate. FLOAT source min/max already have source floating-point precision.
+
+New Numeric Basic runs store `STDDEV_POP` only. The selected one-time
+setup/19 reset removes all profiling, rule, run and module history, including
+old `STDDEV_SAMP` results; `DQ_BASIC_REVIEW` reads only `STDDEV_POP`. Current
+project/workbook configuration and the monotonic run-number counter remain.
 
 `DATE_METRIC_VALUE` remains reserved and unused. Date Basic emits its four count/missing metrics into DQ_METRIC_RESULT; no date-value extrema are calculated. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
 
@@ -30,7 +35,7 @@ remain separate. The view reads aggregates, not the source dataset.
 | SPECIAL_RATE_PCT | 100 × special count / total |
 | MINIMUM / MAXIMUM | Source extrema excluding NULL and configured specials |
 | MEAN | Arithmetic mean of non-NULL, non-special values, calculated in FLOAT |
-| STDDEV_SAMP | Sample standard deviation of non-NULL, non-special values, denominator n−1 |
+| STDDEV_POP | Population standard deviation of non-NULL, non-special values, denominator n |
 
 Only SQL NULL is missing. Teradata cannot recover SAS special missing codes lost during source ingestion. Negative values, sentinel values and zero are not treated as missing.
 
@@ -41,13 +46,13 @@ Only SQL NULL is missing. Teradata cannot recover SAS special missing codes lost
 | MONTHLY | `YYYY-MM`, derived from the same date |
 | YEARLY / MONTHLY null date | `UNKNOWN`, distinct from rollup NULLs via GROUPING |
 
-A source with no rows produces twelve OVERALL results per eligible field: counts are zero, rates/statistics are NULL, and percentage rules are NOT_EVALUATED in DQ_RULE_RESULT. No yearly/monthly rows are invented. All-NULL fields have 100% missing when population >0 and NULL extrema/mean/deviation. A singleton valid statistics population has NULL sample deviation; a constant field with at least two non-missing values has zero sample deviation.
+A source with no rows produces twelve OVERALL results per eligible field: counts are zero, rates/statistics are NULL, and percentage rules are NOT_EVALUATED in DQ_RULE_RESULT. No yearly/monthly rows are invented. All-NULL fields have 100% missing when population >0 and NULL extrema/mean/deviation. A singleton valid population has zero population deviation; a constant field also has zero deviation.
 
 Green is strictly below 1%, amber is at least 1% but below 5%, and red is at least 5%, unless an approved project settings override applies. Exact thresholds are compared using numerator × 100 against denominator × threshold in DECIMAL arithmetic. A display that rounds up to 1% can therefore remain GREEN. Non-percentage metrics have no rule result.
 For new runs DQ_METRIC_RESULT.DQ_COLOUR remains NULL even for percentages;
 DQ_COMPLETED_RESULT supplies it from DQ_RULE_RESULT for compatibility. Colours are screening classifications, not proof of invalid data.
 
-`DQ_RUN_LOG` records first start, latest end, status, source/date, thresholds, batch size and attempt number. Its elapsed time can include time between failed attempts. `DQ_MODULE_LOG` preserves attempt/batch timings, field count, errors and aggregate SQL; batch 0 is the module summary. Successful earlier batches in an ultimately failed attempt remain marked successful in history, but their partial metric rows are removed. Actual run/module failure messages are retained; SAS status variables alone are not the audit store. `DQ_RUN_FIELD_CONFIG` holds the latest attempt's captured field selection; historical SQL_TEXT records retain prior batch expressions.
+`DQ_RUN_LOG` records first start, latest end, status, source/date, thresholds, batch size and attempt number. Its elapsed time can include time between failed attempts. `DQ_MODULE_LOG` preserves attempt/batch timings, field count, errors and the latest generated SQL for a batch; batch 0 is the module summary. For Outliers, SQL_TEXT is updated to the field-specific metric INSERT immediately before execution. Successful earlier batches in an ultimately failed attempt remain marked successful in history, but their partial metric rows are removed. Actual run/module failure messages are retained; SAS status variables alone are not the audit store. `DQ_RUN_FIELD_CONFIG` holds the latest attempt's captured field selection; historical SQL_TEXT records retain prior expressions.
 
 `WORK.DQ_MODULE_STATUS` contains run/module identifiers, attempt/batch numbers,
 timings, status, error code/information and field count. SQL_TEXT stays in
@@ -105,7 +110,7 @@ and unrelated special/numeric/outlier columns remain NULL for date fields.
 
 ## Numeric outliers
 
-Five metrics store lower/upper mean +/-3 sample-deviation bounds, outlier count,
+Five metrics store lower/upper mean +/-3 population-standard-deviation bounds, outlier count,
 valid count and outlier percentage. The denominator excludes NULL and configured
 specials. Insufficient populations are NOT_EVALUATED; constants with n>=2 have
 zero outliers. Unrounded Basic/prerequisite statistics are retained in

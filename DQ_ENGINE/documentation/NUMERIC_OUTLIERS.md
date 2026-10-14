@@ -5,8 +5,8 @@ NUMERIC field. No new workbook columns or per-field switches are needed.
 
 ## Rule and populations
 
-    Lower bound = mean - 3 * sample standard deviation
-    Upper bound = mean + 3 * sample standard deviation
+    Lower bound = mean - 3 * population standard deviation
+    Upper bound = mean + 3 * population standard deviation
 
 Only values strictly below/above these bounds are outliers. Equality is allowed.
 Calculate separate statistics/bounds for OVERALL, YEARLY and MONTHLY; NULL
@@ -20,26 +20,26 @@ Settings; the engine rejects a different value when outliers are selected.
 | Review column | Meaning |
 |---|---|
 | OUTLIER_VALID_COUNT | Non-NULL, non-special population used for statistics/testing |
-| OUTLIER_LOWER_BOUND / OUTLIER_UPPER_BOUND | Period-specific mean minus/plus 3 times sample deviation |
+| OUTLIER_LOWER_BOUND / OUTLIER_UPPER_BOUND | Period-specific mean minus/plus 3 times population deviation |
 | OUTLIER_COUNT | Number of valid values strictly outside bounds |
 | OUTLIER_RATE_PCT | 100 * OUTLIER_COUNT / OUTLIER_VALID_COUNT |
 
-Fewer than two valid observations cannot define a sample deviation: bounds,
-outlier count and rate are NULL; the matching rule status is NOT_EVALUATED. VALID_COUNT still
-shows 0 or 1. Empty sources produce only OVERALL with these same undefined
-results. A constant population with at least two valid observations has zero
-deviation, equal bounds and zero outliers; the rule status is GREEN. All-special fields
+No valid observations cannot define a deviation: bounds, outlier count and rate
+are NULL; the matching rule status is NOT_EVALUATED. With one valid observation,
+population deviation is zero, both bounds equal that value, and its rate is zero.
+Empty sources produce only OVERALL with undefined results. A constant population
+has zero deviation, equal bounds and zero outliers; the rule status is GREEN. All-special fields
 remain non-missing in Basic but have zero valid outlier observations.
 
 This valid-population denominator implements the user's special-value exclusion;
 it differs from the original unfiltered non-missing count when specials exist.
 For an unevaluated rate, RATE_NUMERATOR and RATE_DENOMINATOR are NULL, even if
-OUTLIER_VALID_COUNT=1. Bounds/count/valid-count are not percentage metrics.
+OUTLIER_VALID_COUNT=0. Bounds/count/valid-count are not percentage metrics.
 Colours are screening classifications, not proof that flagged values are invalid.
 
 ## Statistics reuse and results
 
-Updated Numeric Basic saves its unrounded FLOAT mean/sample deviation and valid
+Updated Numeric Basic saves its unrounded FLOAT mean/population deviation and valid
 count in DQ_NUMERIC_STATISTICS while processing its existing aggregate. Outliers
 reuse those values, rather than rounded DECIMAL results. If Basic=N, the internal
 SP_DQ_NUMERIC_STATISTICS prerequisite calculates the same aggregates; it emits
@@ -68,27 +68,35 @@ are already deployed. Wait for profiling/configuration loads to finish. Replace
 DQ_DB with the approved schema, currently LAB_T_ORION_MVT, in deployment copies.
 No database deployment is performed by repository tools.
 
-1. Run setup/16_create_outlier_support.sql ONCE. It adds the shared aggregate
-   table and five fixed metric definitions. Existing tables/results are preserved.
-2. In modules/03_numeric_statistics.sql, compile SP_DQ_NUMERIC_STATS_SOURCE and
+1. Run setup/16_create_outlier_support.sql ONCE if it has not already been deployed.
+   It adds the shared aggregate table and five fixed metric definitions.
+2. The current rollout clears all run history: stop profiling and configuration
+   loads, verify there are no RUNNING rows, then run
+   setup/19_clear_run_history.sql once. It removes profiling/rule results,
+   run/module logs and run snapshots/mappings; it retains current configuration,
+   configuration-load logs and the run-number counter. New run numbers continue
+   upward. Then run setup/18_population_standard_deviation.sql once to update
+   Basic metric metadata to STDDEV_POP. The history reset removes old
+   STDDEV_SAMP results along with all other run history.
+3. In modules/03_numeric_statistics.sql, compile SP_DQ_NUMERIC_STATS_SOURCE and
    execute its following GRANT, then compile the SP_DQ_NUMERIC_STATISTICS wrapper
    and execute its grant. Submit the two complete procedures separately.
-3. Recompile modules/10_numeric_basic.sql to capture unrounded statistics.
-4. Compile modules/12_numeric_outliers.sql as a complete procedure, then
+4. Recompile modules/10_numeric_basic.sql to capture population statistics.
+5. Compile modules/12_numeric_outliers.sql as a complete procedure, then
    execute its following GRANT statement.
-5. Recompile all four procedures in modules/00_run_engine.sql separately:
+6. Recompile all four procedures in modules/00_run_engine.sql separately:
    SP_DQ_RUN_EXTENDED, SP_DQ_RUN_PROFILE, SP_DQ_RUN_BASIC, SP_DQ_RUN_ENGINE.
    Execute the GRANT following each before compiling the next wrapper.
-6. Replace results/93_dq_basic_review.sql. Classification/summary procedures do not need recompilation for this change.
-7. The deployment files include EXECUTE PROCEDURE grants to DQ_DB and the
+7. Replace results/93_dq_basic_review.sql. Classification/summary procedures do not need recompilation for this change.
+8. The deployment files include EXECUTE PROCEDURE grants to DQ_DB and the
    statistics table SELECT/INSERT/DELETE grant. Replace DQ_DB in both ON and TO.
    Verify runtime-user permissions and view-owner access separately. If setup 16
    already ran, execute only its grant; do not rerun CREATE or metadata inserts.
-8. Run updated SAS 01 in your session; require controller version
+9. Run updated SAS 01 in your session; require controller version
    20261013_BASIC_SPECIAL_OUTLIERS. File 05/configuration loader is unchanged.
-9. If Settings already has multiplier 3 and the intended field selection, no
+10. If Settings already has multiplier 3 and the intended field selection, no
    Excel reload is needed. Otherwise edit/reload with 04 and require APPLIED.
-10. Test a small numeric selection with file 00 and numeric_outliers=Y.
+11. Test a small numeric selection with file 00 and numeric_outliers=Y.
 
 ```sas
 %let numeric_basic = Y;
@@ -115,7 +123,7 @@ Basic+Outliers produces 612 metrics/36 review rows; Outliers-only produces
 Tests cover strict boundary equality, two tails, special exclusions, unchanged
 missing counts, valid denominators, zero deviation, singleton/all-NULL/all-special
 fields, UNKNOWN dates, Basic reuse, standalone dependency, failure cleanup/retry
-and SAS sample-standard-deviation reconciliation. Supplied server tests have not
+and SAS population-standard-deviation reconciliation. Supplied server tests have not
 been executed here. Substitute fresh consistent UUIDs when repeating tests.
 
 Local checks execute generated aggregate/statistics/insert queries on synthetic
@@ -154,8 +162,8 @@ This trades permanent-space allocation and one materialization for avoiding
 repeated expensive view work. The CTAS can still need substantial source-view
 spool. Actual runtime, AMP distribution, permanent-space requirements, NO PRIMARY
 INDEX support, DDL/grant permissions and cleanup need server testing. No measured
-performance improvement is claimed. FLOAT calculations, DECIMAL storage, sample
-standard deviation and the five outlier metrics are unchanged. PSI and Excel
+performance improvement is claimed. FLOAT calculations, DECIMAL storage,
+population standard deviation and the five outlier metrics are unchanged. PSI and Excel
 report generation remain deferred.
 
 Grant statements are separate from SPL procedure definitions. A client that
@@ -212,7 +220,8 @@ verify/drop a leftover object. Working input has no historical retention purpose
 
 The supplied development-team numeric profile procedure was reviewed only as
 reference material. Its two-pass statistics/counting structure is relevant, but
-its STDDEV_POP choice, DBC.ColumnsV lookup and other result semantics were not
-adopted. This engine retains STDDEV_SAMP, trusted Excel field types, captured
-special lists and its existing five outlier metrics. No development-team code or
+its STDDEV_POP choice informed this engine's standard-deviation change; its
+DBC.ColumnsV lookup and other result semantics were not adopted. This engine
+uses trusted Excel field types, captured special lists and its existing five
+outlier metrics. No development-team code or
 uploaded source file was copied into the repository.

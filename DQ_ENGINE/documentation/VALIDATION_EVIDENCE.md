@@ -26,7 +26,7 @@ or running job was modified. Earlier evidence is retained in Git history and the
 for audit context; its instructions are not current deployment steps.
 
 The 2026-10-14 outlier count changes were checked locally against synthetic data:
-180 field/period/metric results match independent +/-3 sample-deviation reference
+180 field/period/metric results match independent +/-3 population-deviation reference
 calculations; batching one versus five fields produces identical results; empty
 populations, UNKNOWN dates and valid rate denominators remain correct. All 36
 standalone period statistics agree with independent calculations. Generated SQL
@@ -57,4 +57,10 @@ Run/attempt naming, creation-before-statistics, owner-reference grant and target
 cleanup paths were checked in the source. These do not test Teradata NOPI/DDL,
 physical storage, privileges, hard-abort cleanup or performance. The uploaded
 development-team procedure was reviewed as a reference only; no code was copied,
-and its population-deviation formula was not substituted for sample deviation.
+and its population-deviation formula has now been adopted for Numeric Basic and
+Outlier calculations. The local outlier check enforces DQ_METRIC_RESULT's unique
+field/module/period/metric key and confirms one rollup row per period key. The
+procedure reports duplicate rollup keys or pre-existing field results before
+insertion and saves the generated metric INSERT in batch SQL_TEXT. These local
+checks do not identify the cause of the user's reported Teradata error without
+that run's module log. Its code was not copied.

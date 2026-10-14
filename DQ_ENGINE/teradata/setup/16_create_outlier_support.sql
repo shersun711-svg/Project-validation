@@ -1,6 +1,6 @@
 /* Deploy ONCE after the current engine schema. No raw source rows are stored.
    Shared unrounded FLOAT statistics prevent rounded Basic result values from
-   changing strict outlier decisions. Fixed rule: mean +/- 3*sample deviation. */
+   changing strict outlier decisions. Fixed rule: mean +/- 3*population deviation. */
 CREATE MULTISET TABLE DQ_DB.DQ_NUMERIC_STATISTICS
 (
     RUN_ID CHAR(36) CHARACTER SET LATIN NOT NULL,

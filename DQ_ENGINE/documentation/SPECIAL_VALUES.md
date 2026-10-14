@@ -36,12 +36,12 @@ numeric text fail application. SAS loads directly without a validation-preview s
 | NON_MISSING_COUNT | Non-NULL values, including specials |
 | MISSING_COUNT / MISSING_RATE_PCT | SQL NULL count and 100 * missing / total |
 | SPECIAL_COUNT / SPECIAL_RATE_PCT | Matching non-NULL count and 100 * specials / total |
-| Numeric MINIMUM, MAXIMUM, MEAN, STDDEV_SAMP | Exclude NULL and numeric specials |
+| Numeric MINIMUM, MAXIMUM, MEAN, STDDEV_POP | Exclude NULL and numeric specials |
 | Categorical DISTINCT_COUNT | Exclude NULL and categorical specials |
 
 Statistics use NON_MISSING_COUNT - SPECIAL_COUNT observations. All-special fields
 can have zero missing count and NULL statistics. A singleton valid population has
-NULL sample deviation; constants with at least two valid values have zero deviation.
+zero population deviation; constants also have zero deviation.
 Empty sources have zero counts and NULL rates; their classifications are
 NOT_EVALUATED in DQ_RULE_RESULT. Missing and special percentages use the same
 exact-count green/amber/red rules, stored separately from profiling values.
@@ -50,9 +50,11 @@ Zero count/rate retain their original definition, even if zero is added to the
 special list. Availability dates still use non-NULL values, including specials.
 Basic Numeric stores 12 metrics per field/period; Categorical stores 5, Date 4
 and Identifier 3. DQ_BASIC_REVIEW presents the values in one field/period row;
-matching statuses are available in DQ_RULE_RESULT. Old runs
-without special calculations have NULL special columns. Historical statistics
-retain their original definitions; no completed results are rewritten.
+matching statuses are available in DQ_RULE_RESULT. Old runs without special
+calculations have NULL special columns. For this upgrade, setup/19 removes all
+prior profiling, rule, run and module history, including historical
+`STDDEV_SAMP` values; current project/workbook configuration and the run-number
+counter remain.
 
 ## Test special values first
 

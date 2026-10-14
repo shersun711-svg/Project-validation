@@ -21,7 +21,7 @@ assert.ok(!fs.existsSync(path.join(root,'teradata/setup/03_seed_rds_config.sql')
 const schema=read('teradata/setup/00_create_config_tables.sql');
 const catalog=[...schema.matchAll(/INSERT INTO DQ_DB\.DQ_METRIC_DEFINITION VALUES \('NUMERIC_BASIC',(\d+),'([^']+)','([YN])'\);/g)]
     .map(([,ordinal,name,percentage])=>({ordinal:+ordinal,name,percentage}));
-const metricNames=['TOTAL_COUNT','NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE_PCT','ZERO_COUNT','ZERO_RATE_PCT','MINIMUM','MAXIMUM','MEAN','STDDEV_SAMP','SPECIAL_COUNT','SPECIAL_RATE_PCT'];
+const metricNames=['TOTAL_COUNT','NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE_PCT','ZERO_COUNT','ZERO_RATE_PCT','MINIMUM','MAXIMUM','MEAN','STDDEV_POP','SPECIAL_COUNT','SPECIAL_RATE_PCT'];
 assert.deepEqual(catalog,metricNames.map((name,i)=>({ordinal:i+1,name,percentage:[4,6,12].includes(i+1)?'Y':'N'})));
 assert.ok(!/INSERT INTO DQ_DB\.DQ_(PROJECT_CONFIG|FIELD_CONFIG|ENGINE_SETTINGS)\b/.test(schema));
 const audit=read('config/rds_ddl_validation.csv').trim().split('\n').slice(1);
@@ -255,6 +255,23 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
 assert.ok(read('teradata/modules/10_numeric_basic.sql').includes("WHERE RUN_ID = P_RUN_ID AND FIELD_TYPE = 'NUMERIC'"),'Numeric module isolates its own snapshots');
 assert.ok(read('teradata/results/93_dq_basic_review.sql').includes('FROM DQ_DB.DQ_COMPLETED_RESULT'),'Date review excludes unfinished runs');
 assert.ok(read('teradata/modules/00_run_engine.sql').includes('DELETE FROM DQ_DB.DQ_METRIC_RESULT'),'All partial date output is cleaned up');
+
+/* The one-time history reset clears run-owned rows but keeps live project
+   configuration and the monotonic run-number counter. */
+const historyReset=read('teradata/setup/19_clear_run_history.sql');
+for(const table of ['DQ_RULE_RESULT','DQ_METRIC_RESULT','DQ_NUMERIC_STATISTICS',
+    'DQ_FIELD_AVAILABILITY','DQ_RUN_SPECIAL_VALUE','DQ_RUN_FIELD_CONFIG',
+    'DQ_MODULE_LOG','DQ_RUN_LOG','DQ_RUN_NUMBER']){
+    assert.ok(historyReset.includes(`DELETE FROM DQ_DB.${table};`),`History reset clears ${table}`);
+}
+assert.ok(!/DELETE FROM DQ_DB\.(DQ_RUN_COUNTER|DQ_PROJECT_CONFIG|DQ_FIELD_CONFIG|DQ_ENGINE_SETTINGS|DQ_CONFIG_LOAD_LOG)\b/i.test(historyReset),
+    'History reset retains counter and current configuration');
+assert.ok(/SELECT COUNT\(\*\) AS ACTIVE_RUNS[\s\S]*?WHERE STATUS='RUNNING'/i.test(historyReset),
+    'History reset includes a separate active-run preflight');
+assert.ok(/SELECT COUNT\(\*\) AS ACTIVE_CONFIG_LOADS[\s\S]*?WHERE STATUS='LOADING'/i.test(historyReset),
+    'History reset includes an active configuration-load preflight');
+assert.ok(historyReset.includes('SELECT LAST_NUMBER AS RETAINED_RUN_NUMBER_COUNTER'),
+    'History reset reports the preserved next-run counter');
 
 /* Optional authoritative input reconciliation; no Excel package dependency. */
 if(process.argv.length>2){

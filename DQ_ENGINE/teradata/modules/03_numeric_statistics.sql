@@ -102,7 +102,7 @@ main: BEGIN
             SET V_PROJECTION=V_PROJECTION
               || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
               || ',AVG(CAST(' || V_FIELD || ' AS FLOAT)) AS AV' || V_SUFFIX
-              || ',STDDEV_SAMP(CAST(' || V_FIELD || ' AS FLOAT)) AS SD' || V_SUFFIX;
+              || ',STDDEV_POP(CAST(' || V_FIELD || ' AS FLOAT)) AS SD' || V_SUFFIX;
         END FOR;
         SET V_PASS=1;
         WHILE V_PASS<=3 DO

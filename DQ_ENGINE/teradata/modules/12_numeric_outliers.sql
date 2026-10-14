@@ -1,4 +1,4 @@
-/* Fixed rule: mean +/- 3*STDDEV_SAMP for each field/period; strict outside.
+/* Fixed rule: mean +/- 3*STDDEV_POP for each field/period; strict outside.
    Exclude NULL and configured numeric specials from statistics, testing and
    rate denominator. Reuse unrounded Basic statistics when present; otherwise
    calculate the prerequisite internally without producing Basic results.
@@ -20,6 +20,7 @@ main: BEGIN
     DECLARE V_SIZE INTEGER;
     DECLARE V_ATTEMPT INTEGER;
     DECLARE V_COUNT INTEGER;
+    DECLARE V_METRIC_NAMES INTEGER;
     DECLARE V_FIELDS INTEGER;
     DECLARE V_FIRST INTEGER DEFAULT 1;
     DECLARE V_LAST INTEGER;
@@ -84,8 +85,12 @@ main: BEGIN
      WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC'
        AND REGEXP_SIMILAR(FIELD_NAME,'^[A-Za-z_][A-Za-z0-9_]*$','c')<>1;
     IF V_COUNT>0 THEN SIGNAL SQLSTATE 'U0011' SET MESSAGE_TEXT='Unsafe captured numeric identifier'; END IF;
-    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_DEFINITION WHERE MODULE_NAME='NUMERIC_OUTLIERS';
-    IF V_COUNT<>5 THEN SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT='Outlier metric definitions incomplete'; END IF;
+    SELECT COUNT(*),COUNT(DISTINCT METRIC_NAME) INTO V_COUNT,V_METRIC_NAMES
+      FROM DQ_DB.DQ_METRIC_DEFINITION
+     WHERE MODULE_NAME='NUMERIC_OUTLIERS' AND METRIC_ORDINAL BETWEEN 1 AND 5;
+    IF V_COUNT<>5 OR V_METRIC_NAMES<>5 THEN
+        SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT='Outlier metric definitions must contain five unique names';
+    END IF;
     /* Materialize the final configured view once. No DISTINCT, extra row
        filters, numeric casts or special removal: preserve the view population.
        NO PRIMARY INDEX avoids concentrating rows with common date/value keys.
@@ -202,8 +207,8 @@ main: BEGIN
            in SQL; no rounded DECIMAL mean/deviation is read from metric results. */
         SET V_SQL='CREATE VOLATILE TABLE DQ_NO_BOUNDS AS (SELECT PERIOD_LEVEL,PERIOD_VALUE,MAX(TOTAL_COUNT) AS TOTAL_N'
           || V_BOUND_PROJECTION || ' FROM (SELECT S.*,'
-          || 'CASE WHEN VALID_COUNT>=2 AND STDDEV_VALUE IS NOT NULL THEN MEAN_VALUE-3.0*STDDEV_VALUE END AS LB,'
-          || 'CASE WHEN VALID_COUNT>=2 AND STDDEV_VALUE IS NOT NULL THEN MEAN_VALUE+3.0*STDDEV_VALUE END AS UB '
+          || 'CASE WHEN VALID_COUNT>=1 AND STDDEV_VALUE IS NOT NULL THEN MEAN_VALUE-3.0*STDDEV_VALUE END AS LB,'
+          || 'CASE WHEN VALID_COUNT>=1 AND STDDEV_VALUE IS NOT NULL THEN MEAN_VALUE+3.0*STDDEV_VALUE END AS UB '
           || 'FROM DQ_DB.DQ_NUMERIC_STATISTICS S WHERE RUN_ID=''' || P_RUN_ID || ''' AND FIELD_NAME IN ('
           || 'SELECT FIELD_NAME FROM DQ_DB.DQ_RUN_FIELD_CONFIG WHERE RUN_ID=''' || P_RUN_ID
           || ''' AND FIELD_TYPE=''NUMERIC'' AND FIELD_ORDINAL BETWEEN ' || TRIM(CAST(V_FIRST AS VARCHAR(12)))
@@ -290,6 +295,14 @@ main: BEGIN
                AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
             CALL DBC.SysExecSQL(V_SQL);
             SET V_AGG_EXISTS=1;
+            /* The result table's unique secondary index requires one aggregate
+               row per period key. Catch malformed rollups before metric inserts. */
+            SELECT COUNT(*) INTO V_COUNT
+              FROM (SELECT PERIOD_LEVEL,PERIOD_VALUE FROM DQ_NO_AGG
+                    GROUP BY PERIOD_LEVEL,PERIOD_VALUE HAVING COUNT(*)>1) D;
+            IF V_COUNT>0 THEN
+                SIGNAL SQLSTATE 'U0044' SET MESSAGE_TEXT='Outlier rollup contains duplicate period keys';
+            END IF;
             CALL DBC.SysExecSQL('DROP TABLE DQ_NO_CHUNKS');
             SET V_CHUNK_EXISTS=0;
         /* Record the generated population check on the batch log, then read
@@ -309,6 +322,11 @@ main: BEGIN
              WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC' AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST ORDER BY FIELD_ORDINAL
         DO
             SET V_SUFFIX=TRIM(CAST(R.FIELD_ORDINAL AS VARCHAR(12)));
+            SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_RESULT
+             WHERE RUN_ID=P_RUN_ID AND FIELD_NAME=R.FIELD_NAME AND MODULE_NAME='NUMERIC_OUTLIERS';
+            IF V_COUNT>0 THEN
+                SIGNAL SQLSTATE 'U0045' SET MESSAGE_TEXT='Outlier metrics already exist for this run and field';
+            END IF;
             SET V_SQL='INSERT INTO DQ_DB.DQ_METRIC_RESULT '
               || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,METRIC_NAME,'
               || 'METRIC_VALUE,IS_PERCENTAGE,RATE_NUMERATOR,RATE_DENOMINATOR,EXECUTION_TIMESTAMP) '
@@ -324,6 +342,9 @@ main: BEGIN
               || 'CASE WHEN M.METRIC_ORDINAL=4 AND A.L' || V_SUFFIX || ' IS NOT NULL THEN A.N' || V_SUFFIX || ' END,'
               || 'CURRENT_TIMESTAMP(6) FROM DQ_NO_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
               || 'WHERE M.MODULE_NAME=''NUMERIC_OUTLIERS'' AND M.METRIC_ORDINAL BETWEEN 1 AND 5';
+            UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
+               AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
             CALL DBC.SysExecSQL(V_SQL);
         END FOR;
         CALL DBC.SysExecSQL('DROP TABLE DQ_NO_AGG');

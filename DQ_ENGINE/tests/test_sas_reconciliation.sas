@@ -1,4 +1,4 @@
-/* SAS sample statistics use VARDEF=DF, matching STDDEV_SAMP (n-1).
+/* SAS population statistics use VARDEF=N, matching STDDEV_POP.
    Construct a SMALL synthetic fixture locally; NEVER retrieve RDS rows.
    Run after test_full_execution.sas in the same session, or set
    fixture_run_id to a completed DQ_TEST run UUID. */
@@ -13,10 +13,10 @@ data work.sas_fixture;
         output;
     end;
 run;
-proc means data=work.sas_fixture noprint vardef=df;
+proc means data=work.sas_fixture noprint vardef=n;
     var x;
     output out=work.sas_expected n=non_missing_count nmiss=missing_count
-        min=minimum max=maximum mean=mean std=stddev_samp;
+        min=minimum max=maximum mean=mean std=stddev_pop;
 run;
 proc sql noprint;
     select count(*),sum(x=0) into :sas_total trimmed,:sas_zero trimmed
@@ -37,7 +37,7 @@ data work.sas_expected_long;
     set work.sas_expected;
     length metric_name $32;
     array v[12] total_count non_missing_count missing_count missing_rate_pct
-        zero_count zero_rate_pct minimum maximum mean stddev_samp special_count special_rate_pct;
+        zero_count zero_rate_pct minimum maximum mean stddev_pop special_count special_rate_pct;
     total_count=&sas_total; zero_count=&sas_zero;
     special_count=0; special_rate_pct=0; /* DQ_TEST has no configured special list. */
     missing_rate_pct=100*missing_count/total_count;

@@ -9,7 +9,7 @@ const raw=dates.map((d,i)=>[d,amounts[i]]);
 /* Execute actual Basic source projections/aggregates, including cleaned
    distribution values, without adapting those SQL expressions. */
 const basics=new DatabaseSync(':memory:');basics.exec("ATTACH DATABASE ':memory:' AS SOURCE");
-basics.aggregate('STDDEV_SAMP',{start:()=>({n:0,mean:0,m2:0}),step:(s,x)=>{if(x!==null){s.n++;const d=x-s.mean;s.mean+=d/s.n;s.m2+=d*(x-s.mean);}return s;},result:s=>s.n<2?null:Math.sqrt(s.m2/(s.n-1))});
+basics.aggregate('STDDEV_POP',{start:()=>({n:0,mean:0,m2:0}),step:(s,x)=>{if(x!==null){s.n++;const d=x-s.mean;s.mean+=d/s.n;s.m2+=d*(x-s.mean);}return s;},result:s=>s.n===0?null:Math.sqrt(s.m2/s.n)});
 basics.exec('CREATE TABLE SOURCE.FIXTURE (FACT_DT TEXT,AMOUNT NUMERIC,CATEGORY TEXT)');
 const categories=['unknown','A','B','NA','? ',null,'MISSING',null];raw.forEach((r,i)=>basics.prepare('INSERT INTO SOURCE.FIXTURE VALUES (?,?,?)').run(r[0],r[1],categories[i]));
 const basic=fs.readFileSync(new URL('../teradata/modules/10_numeric_basic.sql',import.meta.url),'utf8').replace(/SET (\w+)=/g,'SET $1 =');
@@ -20,7 +20,7 @@ bv.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',basic.indexOf('
 bv.V_PROJECTION=evaluate(assignment('V_PROJECTION',bc,basic),bv);
 const num=basics.prepare('SELECT COUNT(*) AS TOTAL_N'+bv.V_PROJECTION.replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)')+' FROM (SELECT '+bv.V_SOURCE_PROJECTION+' FROM SOURCE.FIXTURE) S').get();
 assert.equal(num.TOTAL_N,8);assert.equal(num.N1,6);assert.equal(num.V1,4);assert.equal(num.N1-num.V1,2);assert.equal(num.Z1,1);
-assert.equal(num.LO1,0);assert.equal(num.HI1,20);assert.equal(num.AV1,10);assert.ok(Math.abs(num.SD1-Math.sqrt(200/3))<1e-12);
+assert.equal(num.LO1,0);assert.equal(num.HI1,20);assert.equal(num.AV1,10);assert.ok(Math.abs(num.SD1-Math.sqrt(50))<1e-12);
 const other=fs.readFileSync(new URL('../teradata/modules/15_other_basic.sql',import.meta.url),'utf8').replace(/SET (\w+)=/g,'SET $1 =');
 const oc=other.indexOf('FOR F AS');bv={V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_PROJECTION:'',V_FIELD:'S.DQ_F1',V_DISTINCT:'S.DQ_C1',V_SUFFIX:'1',
  V_SPECIAL_LIST:"('UNKNOWN','N/A','NA','NULL','NONE','-','?','#N/A','.','MISSING','NOT APPLICABLE')",'F.FIELD_NAME':'CATEGORY'};

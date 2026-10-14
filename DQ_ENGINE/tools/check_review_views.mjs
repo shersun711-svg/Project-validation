@@ -8,6 +8,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const db=new DatabaseSync(':memory:');
+db.function('NULLIFZERO',value=>value===0?null:value);
 db.exec(`CREATE TABLE DQ_FIELD_AVAILABILITY (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,EARLIEST_DATE TEXT,LATEST_DATE TEXT);
 CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,STATUS TEXT,PROJECT_ID TEXT DEFAULT 'TEST');
 CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT PRIMARY KEY,RUN_NUMBER INTEGER UNIQUE);
@@ -29,7 +30,7 @@ const periods=[['OVERALL','ALL'],['YEARLY','2000'],['YEARLY','2001'],['YEARLY','
  ['MONTHLY','2000-01'],['MONTHLY','2000-02'],['MONTHLY','2001-01'],['MONTHLY','UNKNOWN']];
 for(const period of periods){
  for(const [name,value] of Object.entries({TOTAL_COUNT:4,NON_MISSING_COUNT:3,MISSING_COUNT:1,
-  MISSING_RATE_PCT:25,ZERO_COUNT:1,ZERO_RATE_PCT:25,MINIMUM:0,MAXIMUM:2,MEAN:1,STDDEV_SAMP:1})){
+  MISSING_RATE_PCT:25,ZERO_COUNT:1,ZERO_RATE_PCT:25,MINIMUM:0,MAXIMUM:2,MEAN:1,STDDEV_POP:1})){
   const rate=name.endsWith('_PCT');metric('mixed','AMOUNT','NUMERIC',period,name,value,rate?'RED':null,rate?1:null,rate?4:null);
  }
  for(const [field,type] of [['CATEGORY','CATEGORICAL'],['NULL_CATEGORY','CATEGORICAL'],['CUSTOMER_ID','IDENTIFIER']]){
@@ -75,6 +76,10 @@ db.prepare('INSERT INTO DQ_RUN_NUMBER VALUES (?,?)').run('outlier-only',5);
 for(const [name,value]of Object.entries({OUTLIER_VALID_COUNT:33,OUTLIER_LOWER_BOUND:-3,OUTLIER_UPPER_BOUND:3,OUTLIER_COUNT:2,OUTLIER_RATE_PCT:200/33})){
  const rate=name==='OUTLIER_RATE_PCT';insert.run('outlier-only','TEST','AMOUNT','NUMERIC','NUMERIC_OUTLIERS','OVERALL','ALL',name,value,rate?'RED':null,rate?2:null,rate?33:null);
 }
+db.prepare('INSERT INTO DQ_RUN_LOG (RUN_ID,STATUS) VALUES (?,?)').run('legacy','SUCCEEDED');
+db.prepare('INSERT INTO DQ_RUN_NUMBER VALUES (?,?)').run('legacy',6);
+metric('legacy','OLD_NUM','NUMERIC',['OVERALL','ALL'],'NON_MISSING_COUNT',2);
+metric('legacy','OLD_NUM','NUMERIC',['OVERALL','ALL'],'STDDEV_SAMP',2);
 // New-run colours come from the rule table; legacy rows retain fallback.
 db.exec(`INSERT INTO DQ_RULE_RESULT
  SELECT RUN_ID,PROJECT_ID,FIELD_NAME,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,METRIC_NAME,
@@ -86,11 +91,15 @@ for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
   /* SQLite CAST AS DATE differs from Teradata; adapt date extraction only. */
   .replace(/CAST\(CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE FORMAT 'YYYY-MM-DD'\) AS VARCHAR\(64\)\)/g,'date($1)');
+ if(file==='93_dq_basic_review.sql')assert.ok(!sql.includes('STDDEV_SAMP'),'review view must not reference legacy sample deviation');
  db.exec(sql);
 }
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,317);
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_COMPLETED_RESULT').get().n,319);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='NUMERIC'").get().n,8);
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW').get().n,51);
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW').get().n,52);
+const legacy=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=6 AND FIELD_NAME='OLD_NUM'").get();
+assert.equal(legacy.STDDEV_POP,null,'legacy sample deviation is not converted or shown as population deviation');
+assert.equal(Object.hasOwn(legacy,'STDDEV_SAMP'),false);
 const category=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='CATEGORY' AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(category.MISSING_COUNT,1);assert.equal(category.MISSING_RATE_PCT,25);
 assert.equal(category.DISTINCT_COUNT,2);assert.equal(category.TOTAL_COUNT,4);
@@ -113,7 +122,7 @@ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUM
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND PERIOD_LEVEL<>'OVERALL' AND (FIRST_AVAILABLE_FACT_DT IS NOT NULL OR LAST_AVAILABLE_FACT_DT IS NOT NULL)").get().n,0);
 assert.equal(db.prepare("SELECT MINIMUM FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get().MINIMUM,0);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='DATE'").get().n,16);
-assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_TYPE='DATE' AND (MINIMUM IS NOT NULL OR MAXIMUM IS NOT NULL OR DISTINCT_COUNT IS NOT NULL OR ZERO_COUNT IS NOT NULL OR ZERO_RATE_PCT IS NOT NULL OR MEAN IS NOT NULL OR STDDEV_SAMP IS NOT NULL)").get().n,0);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_TYPE='DATE' AND (MINIMUM IS NOT NULL OR MAXIMUM IS NOT NULL OR DISTINCT_COUNT IS NOT NULL OR ZERO_COUNT IS NOT NULL OR ZERO_RATE_PCT IS NOT NULL OR MEAN IS NOT NULL OR STDDEV_POP IS NOT NULL)").get().n,0);
 const combined=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(combined.MINIMUM,0);assert.equal(combined.SPECIAL_COUNT,0);
 assert.equal(combined.MODULE_NAME,'NUMERIC_BASIC+OUTLIERS');

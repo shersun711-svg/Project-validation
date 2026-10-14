@@ -25,7 +25,7 @@ SAS tests require the current controller loaded in the same server session.
 | `test_extended_config.sql` | Checks special-list replacement, escaped labels and rollback |
 | `03_create_outlier_fixture.sql` | Creates isolated strict-boundary and tail test populations |
 | `test_outliers.sql` | Checks outlier bounds/rates, Basic reuse, dependency and retry |
-| `test_outliers.sas` | Checks switches and reconciles sample deviation/bounds to SAS |
+| `test_outliers.sas` | Checks switches and reconciles population deviation/bounds to SAS |
 
 Run fixture creation, numeric, colour and failure/restart SQL in that order,
 then the full SAS execution and SAS reconciliation checks. Use an isolated

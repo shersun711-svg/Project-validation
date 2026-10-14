@@ -1,4 +1,4 @@
-/* Generated Outlier SQL on synthetic SQLite data. Independent sample statistics
+/* Generated Outlier SQL on synthetic SQLite data. Independent population statistics
    supply the reference; this is not Teradata SPL or SAS execution. */
 import fs from 'node:fs';import assert from 'node:assert/strict';import {DatabaseSync}from'node:sqlite';
 import {assignment,evaluate,lex}from'./check_static.mjs';
@@ -7,7 +7,7 @@ const sql=read('teradata/modules/12_numeric_outliers.sql').replace(/SET (\w+)=/g
 const fields=['AMOUNT','BOUNDARY','CONSTANT_VALUE','SINGLE_VALUE','ALL_NULL','ALL_SPECIAL'];
 const raw=Array.from({length:40},(_,i)=>[i<33?'2000-01-31':i<37?'2000-02-29':null,
  i===0?-4:i===1?4:i<33?0:i<37?-9999:null,
- i===0?-3:i===1?3:i<19?0:null,7,i===0?5:null,null,-9999]);
+ i===0?-3:i===1?3:i<18?0:null,7,i===0?5:null,null,-9999]);
 const db=new DatabaseSync(':memory:');db.exec("ATTACH DATABASE ':memory:' AS SOURCE");
 db.function('CHARACTER_LENGTH',x=>x?.length??null);
 db.exec('CREATE TABLE SOURCE.FIXTURE (FACT_DT TEXT,'+fields.map(f=>'"'+f+'" NUMERIC').join(',')+')');
@@ -17,11 +17,15 @@ db.exec(`CREATE TABLE DQ_RUN_FIELD_CONFIG (RUN_ID TEXT,FIELD_NAME TEXT,FIELD_TYP
  CREATE TABLE DQ_METRIC_DEFINITION (MODULE_NAME TEXT,METRIC_ORDINAL INTEGER,METRIC_NAME TEXT,IS_PERCENTAGE TEXT);
  CREATE TABLE DQ_METRIC_RESULT (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT,MODULE_NAME TEXT,
  PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,METRIC_NAME TEXT,METRIC_VALUE NUMERIC,IS_PERCENTAGE TEXT,
- RATE_NUMERATOR INTEGER,RATE_DENOMINATOR INTEGER,EXECUTION_TIMESTAMP TEXT);`);
+ RATE_NUMERATOR INTEGER,RATE_DENOMINATOR INTEGER,EXECUTION_TIMESTAMP TEXT,
+ UNIQUE(RUN_ID,FIELD_NAME,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,METRIC_NAME));`);
 const id='40000000-0000-4000-8000-000000000001';fields.forEach((name,i)=>db.prepare('INSERT INTO DQ_RUN_FIELD_CONFIG VALUES (?,?,?,?)').run(id,name,'NUMERIC',i+1));
 for(const [,ordinal,name,pct]of read('teradata/setup/16_create_outlier_support.sql').matchAll(/VALUES \('NUMERIC_OUTLIERS',(\d+),'([^']+)','([YN])'\)/g))db.prepare('INSERT INTO DQ_METRIC_DEFINITION VALUES (?,?,?,?)').run('NUMERIC_OUTLIERS',+ordinal,name,pct);
+const outlierDefinitions=db.prepare("SELECT METRIC_NAME FROM DQ_METRIC_DEFINITION WHERE MODULE_NAME='NUMERIC_OUTLIERS' AND METRIC_ORDINAL BETWEEN 1 AND 5").all();
+assert.equal(outlierDefinitions.length,5);
+assert.equal(new Set(outlierDefinitions.map(row=>row.METRIC_NAME)).size,5,'outlier metric names must be unique');
 const groups=new Map([['OVERALL/ALL',raw]]);for(const r of raw){for(const [level,value]of [['YEARLY',r[0]?.slice(0,4)??'UNKNOWN'],['MONTHLY',r[0]?.slice(0,7)??'UNKNOWN']]){const key=level+'/'+value;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(r);}}
-const stats=values=>{const n=values.length;const mean=n?values.reduce((a,b)=>a+b,0)/n:null;const sd=n>1?Math.sqrt(values.reduce((a,b)=>a+(b-mean)**2,0)/(n-1)):null;return {n,mean,sd};};
+const stats=values=>{const n=values.length;const mean=n?values.reduce((a,b)=>a+b,0)/n:null;const sd=n?Math.sqrt(values.reduce((a,b)=>a+(b-mean)**2,0)/n):null;return {n,mean,sd};};
 const reference=new Map();
 function snapshot(population){db.exec('DELETE FROM DQ_NUMERIC_STATISTICS');reference.clear();for(const [key,rows]of population){const [level,value]=key.split('/');for(const [i,name]of fields.entries()){
  const values=rows.map(r=>r[i+1]).filter(v=>v!==null&&v!==-9999),s=stats(values);
@@ -84,6 +88,9 @@ function batch(first,last){const v={P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:
  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_NO_CHUNKS').get().n,chunks.length);
  v.V_ROLLUP_QUERY=evaluate(assignment('V_ROLLUP_QUERY',sql.indexOf("SET V_ROLLUP_QUERY ="),sql),v);
  ctas(evaluate(assignment('V_SQL',sql.indexOf("SET V_SQL ='CREATE VOLATILE TABLE DQ_NO_AGG"),sql),v),'DQ_NO_AGG');
+ assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM
+  (SELECT PERIOD_LEVEL,PERIOD_VALUE FROM DQ_NO_AGG
+   GROUP BY PERIOD_LEVEL,PERIOD_VALUE HAVING COUNT(*)>1)`).get().n,0,'rollup period keys must be unique');
  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM DQ_NO_AGG A WHERE '+v.V_CHECK).get().n,0);
  for(let i=first;i<=last;i++){v['R.FIELD_NAME']=fields[i-1];v.V_SUFFIX=String(i);db.exec(adapt(evaluate(assignment('V_SQL',resultCursor,sql),v)));}
  db.exec('DROP TABLE DQ_NO_AGG; DROP TABLE DQ_NO_CHUNKS; DROP TABLE DQ_NO_BOUNDS;');return v;
@@ -128,7 +135,7 @@ db.close();console.log('Generated Outlier queries passed: 180 field/period/metri
 const ns=read('teradata/modules/03_numeric_statistics.sql').replace(/SET (\w+)=/g,'SET $1 =');
 const check=new DatabaseSync(':memory:');check.exec("ATTACH DATABASE ':memory:' AS SOURCE");
 check.function('CHARACTER_LENGTH',x=>x?.length??null);
-check.aggregate('STDDEV_SAMP',{start:()=>({n:0,mean:0,m2:0}),step:(s,x)=>{if(x!==null){s.n++;const d=x-s.mean;s.mean+=d/s.n;s.m2+=d*(x-s.mean);}return s;},result:s=>s.n<2?null:Math.sqrt(s.m2/(s.n-1))});
+check.aggregate('STDDEV_POP',{start:()=>({n:0,mean:0,m2:0}),step:(s,x)=>{if(x!==null){s.n++;const d=x-s.mean;s.mean+=d/s.n;s.m2+=d*(x-s.mean);}return s;},result:s=>s.n===0?null:Math.sqrt(s.m2/s.n)});
 check.exec('CREATE TABLE SOURCE.FIXTURE (FACT_DT TEXT,'+fields.map(f=>'"'+f+'" NUMERIC').join(',')+')');
 const put=check.prepare('INSERT INTO SOURCE.FIXTURE VALUES (?,?,?,?,?,?,?)');raw.forEach(r=>put.run(...r));
 check.exec('CREATE TABLE '+stageName+' AS '+stageSelect);check.exec('DELETE FROM SOURCE.FIXTURE');

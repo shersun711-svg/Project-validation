@@ -179,7 +179,7 @@ main: BEGIN
              || ',MIN(' || V_CLEAN || ') AS LO' || V_SUFFIX
              || ',MAX(' || V_CLEAN || ') AS HI' || V_SUFFIX
              || ',AVG(CAST(' || V_CLEAN || ' AS FLOAT)) AS AV' || V_SUFFIX
-             || ',STDDEV_SAMP(CAST(' || V_CLEAN || ' AS FLOAT)) AS SD' || V_SUFFIX
+             || ',STDDEV_POP(CAST(' || V_CLEAN || ' AS FLOAT)) AS SD' || V_SUFFIX
              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_CLEAN || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS V' || V_SUFFIX
              || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
              || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;

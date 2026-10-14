@@ -33,7 +33,7 @@ all active fields of its matching type. For numeric and categorical testing:
 ```
 
 Basic numeric/categorical profiling includes special counts and rates.
-Enable numeric_outliers=Y for mean +/- 3*sample-deviation checks. PSI and Excel
+Enable numeric_outliers=Y for mean +/- 3*population-standard-deviation checks. PSI and Excel
 report export remain unavailable and must stay N. A selected module with no eligible
 fields fails explicitly; enabling no modules is also rejected.
 

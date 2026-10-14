@@ -5,7 +5,7 @@ Basic metrics and stores configuration, results and logs. The engine supports
 Numeric Basic counts and distribution metrics, categorical/identifier missing and distinct
 metrics, and date counts/missing percentage, across overall/yearly/monthly periods.
 Numeric/categorical special-value checks are implemented.
-Numeric Outliers is implemented with the agreed +/-3 sample-deviation rule.
+Numeric Outliers is implemented with the agreed +/-3 population-standard-deviation rule.
 PSI and Excel report generation remain deferred.
 See [outlier deployment for an existing engine](NUMERIC_OUTLIERS.md).
 For separate rule-decision storage, see [shared rule evaluation](RULE_RESULTS.md).
@@ -89,7 +89,7 @@ values only. No DQ_RULE_REVIEW view is created. See [rule storage and review SQL
 
 Prerequisites: SAS 9.4 with XLSX support and SAS/ACCESS to Teradata; an approved
 AUTHDOMAIN; and Teradata 16.20/Vantage with SPL, dynamic SQL, GROUPING SETS,
-STDDEV_SAMP, REGEXP_SIMILAR, diagnostics and volatile CTAS support. Verify the
+STDDEV_POP, REGEXP_SIMILAR, diagnostics and volatile CTAS support. Verify the
 installed release and compiler behaviour. No SAS/Teradata executable or live
 connection is available in this workspace.
 
@@ -104,7 +104,7 @@ Replace every DQ_DB token in deployment copies with the approved engine schema,
 including tokens within dynamic SQL. Do not execute or change the supplied
 RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 
-1. `teradata/setup/00_create_config_tables.sql`
+1. `teradata/setup/00_create_config_tables.sql` (seeds `STDDEV_POP` for new installations)
 2. `teradata/setup/01_create_result_tables.sql`
 3. `teradata/setup/02_create_log_tables.sql`
 4. `teradata/setup/06_create_excel_config_tables.sql`
@@ -135,6 +135,19 @@ Table CREATE files are one-time operations. Do not rerun them on an existing
 installation. File 00 installs fixed metric definitions; project configuration
 comes from Excel. Numbering is retained for compatibility with existing
 installations; missing numbers are not deployment steps.
+
+For an existing Numeric Basic installation, run
+`teradata/setup/18_population_standard_deviation.sql` once before compiling
+the updated Numeric Basic procedure and review view. It renames the metric
+definition for new runs. `DQ_BASIC_REVIEW` uses only `STDDEV_POP`.
+
+For this rollout, `teradata/setup/19_clear_run_history.sql` performs the
+requested destructive reset of profiling results, rule results, run/module
+logs, run-number mappings and per-run snapshots. It retains project/workbook
+configuration, configuration-load logs and the run-number counter. Stop all
+jobs and run its two preflight queries separately; continue only when
+ACTIVE_RUNS and ACTIVE_CONFIG_LOADS are both zero. New run numbers continue
+upward and are not reused.
 
 Submit each REPLACE PROCEDURE as a complete SPL statement in a supported
 client; ordinary semicolon splitting breaks procedure bodies. With BTEQ use

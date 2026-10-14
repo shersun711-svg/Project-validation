@@ -11,7 +11,7 @@
 
 /* SpecialValues in Excel: Basic counts specials; statistics exclude them. */
 %let numeric_basic = Y;
-%let numeric_outliers = N; /* Y applies mean +/- 3*sample standard deviation. */
+%let numeric_outliers = N; /* Y applies mean +/- 3*population standard deviation. */
 %let categorical_basic = N;
 %let categorical_psi = N;
 %let date_basic = N;

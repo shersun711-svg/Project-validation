@@ -1,5 +1,5 @@
 /* Isolated SQL fixture 03 and current controller must exist. Never retrieve RDS
-   rows. PROC MEANS VARDEF=DF reconciles synthetic mean/sample SD and bounds. */
+   rows. PROC MEANS VARDEF=N reconciles population standard deviation and bounds. */
 %macro test_outliers;
     %local _basic_run _basic_sql _count _rc _failures;
     %run_dq_engine(project=DQ_OUT_TEST,numeric_basic=Y,numeric_outliers=Y);
@@ -18,7 +18,7 @@
             output;
         end;
     run;
-    proc means data=work.outlier_fixture noprint vardef=df;
+    proc means data=work.outlier_fixture noprint vardef=n;
         var x;
         output out=work.outlier_stats n=valid_count mean=mean_value std=stddev_value;
     run;
