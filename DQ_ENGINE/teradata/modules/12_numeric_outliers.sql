@@ -295,12 +295,18 @@ main: BEGIN
                AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
             CALL DBC.SysExecSQL(V_SQL);
             SET V_AGG_EXISTS=1;
-            /* The result table's unique secondary index requires one aggregate
-               row per period key. Catch malformed rollups before metric inserts. */
-            SELECT COUNT(*) INTO V_COUNT
-              FROM (SELECT PERIOD_LEVEL,PERIOD_VALUE FROM DQ_NO_AGG
-                    GROUP BY PERIOD_LEVEL,PERIOD_VALUE HAVING COUNT(*)>1) D;
-            IF V_COUNT>0 THEN
+            /* DQ_NO_AGG is created dynamically, so keep its duplicate-key
+               check dynamic too; a static reference fails procedure compile. */
+            SET V_SQL='UPDATE DQ_DB.DQ_MODULE_LOG SET ERROR_CODE=50042 WHERE RUN_ID=''' || P_RUN_ID
+              || ''' AND MODULE_NAME=''NUMERIC_OUTLIERS'' AND ATTEMPT_NO=' || TRIM(CAST(V_ATTEMPT AS VARCHAR(12)))
+              || ' AND BATCH_ID=' || TRIM(CAST(V_BATCH AS VARCHAR(12)))
+              || ' AND EXISTS (SELECT 1 FROM (SELECT PERIOD_LEVEL,PERIOD_VALUE FROM DQ_NO_AGG'
+              || ' GROUP BY PERIOD_LEVEL,PERIOD_VALUE HAVING COUNT(*)>1) D)';
+            CALL DBC.SysExecSQL(V_SQL);
+            SELECT COALESCE(ERROR_CODE,0) INTO V_COUNT FROM DQ_DB.DQ_MODULE_LOG
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
+               AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+            IF V_COUNT=50042 THEN
                 SIGNAL SQLSTATE 'U0044' SET MESSAGE_TEXT='Outlier rollup contains duplicate period keys';
             END IF;
             CALL DBC.SysExecSQL('DROP TABLE DQ_NO_CHUNKS');

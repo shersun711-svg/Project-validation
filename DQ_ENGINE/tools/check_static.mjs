@@ -255,6 +255,10 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
 assert.ok(read('teradata/modules/10_numeric_basic.sql').includes("WHERE RUN_ID = P_RUN_ID AND FIELD_TYPE = 'NUMERIC'"),'Numeric module isolates its own snapshots');
 assert.ok(read('teradata/results/93_dq_basic_review.sql').includes('FROM DQ_DB.DQ_COMPLETED_RESULT'),'Date review excludes unfinished runs');
 assert.ok(read('teradata/modules/00_run_engine.sql').includes('DELETE FROM DQ_DB.DQ_METRIC_RESULT'),'All partial date output is cleaned up');
+const outlierProcedure=read('teradata/modules/12_numeric_outliers.sql');
+const outlierExecutable=lex(outlierProcedure,'12_numeric_outliers.sql');
+assert.ok(!/\bDQ_NO_AGG\b/i.test(outlierExecutable),
+    'Dynamically created outlier aggregate must not have static table references');
 
 /* The one-time history reset clears run-owned rows but keeps live project
    configuration and the monotonic run-number counter. */
