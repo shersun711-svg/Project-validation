@@ -141,8 +141,10 @@ updated complete SPL procedure and full-run runtime remain unverified on Teradat
 
 Review rates now display as fractions and decimal statistics use six places.
 POU_DT captures the latest actual source reporting date from existing Basic or
-standalone statistics aggregates; overall/unknown dates remain NULL. Portable
-checks execute the generated date INSERTs for every type and reporting-level
-combination, test non-month-end dates, project isolation, legacy NULL dates and
-rate units. SQLite does not verify Teradata DECIMAL rounding, SPL, DDL or grants.
+outlier counting aggregates; overall/unknown dates remain NULL. Following the
+user's preference to limit tables, it is now stored in DQ_METRIC_RESULT and
+copied to DQ_RULE_RESULT. DQ_RUN_PERIOD is no longer created or used. Portable
+checks execute generated Basic date INSERTs for every type and period shape,
+outlier date persistence and reporting-level combinations, non-month-end dates,
+legacy NULL dates and rate units. SQLite does not verify Teradata DECIMAL rounding, SPL, DDL or grants.
 Server fixture expectations and SAS reconciliation were updated but not run here.

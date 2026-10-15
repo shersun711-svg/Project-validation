@@ -8,13 +8,6 @@ const db=new DatabaseSync(':memory:');db.exec("ATTACH DATABASE ':memory:' AS SOU
 db.function('CHARACTER_LENGTH',s=>s?.length??null);
 db.aggregate('STDDEV_POP',{start:()=>[],step:(s,x)=>{if(x!==null)s.push(x);return s;},result:s=>{if(!s.length)return null;const mean=s.reduce((a,b)=>a+b,0)/s.length;return Math.sqrt(s.reduce((a,b)=>a+(b-mean)**2,0)/s.length);}});
 db.exec('CREATE TABLE SOURCE.FIXTURE (FACT_DT TEXT,X NUMERIC,CATEGORY TEXT,EVENT_DATE TEXT,ROW_ID TEXT)');
-db.exec('CREATE TABLE DQ_RUN_PERIOD (RUN_ID TEXT,PROJECT_ID TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,POU_DT TEXT,UNIQUE(RUN_ID,PROJECT_ID,PERIOD_LEVEL,PERIOD_VALUE))');
-function captureDates(source,run){
- const start=source.lastIndexOf('SET V_SQL',source.indexOf("'INSERT INTO DQ_DB.DQ_RUN_PERIOD"));
- const insert=evaluate(assignment('V_SQL',start,source),{P_RUN_ID:run,P_PROJECT_ID:'project-test'}).replaceAll('DQ_DB.','');
- db.exec(insert);
- return db.prepare('SELECT PERIOD_LEVEL,PERIOD_VALUE,POU_DT FROM DQ_RUN_PERIOD WHERE RUN_ID=?').all(run);
-}
 const raw=[['2005-01-15',0,'A','2004-01-01','1'],['2005-01-27',10,'UNKNOWN',null,'2'],['2005-02-28',-9999,null,'2004-03-01','2'],['2006-01-31',20,'B','2005-01-01',null],[null,null,'A',null,'3']];
 const load=()=>{db.exec('DELETE FROM SOURCE.FIXTURE');for(const row of raw)db.prepare('INSERT INTO SOURCE.FIXTURE VALUES (?,?,?,?,?)').run(...row);};load();
 const adapt=q=>q.replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)").replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)").replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)');
@@ -82,8 +75,7 @@ for(const empty of [false,true]){
    const coverage=db.prepare(av.slice(av.indexOf(' SELECT ')+1)).get();
    assert.equal(Object.values(coverage)[3],empty?null:'2005-01-15');
    assert.equal(Object.values(coverage)[4],empty?null:type==='IDENTIFIER'?'2005-02-28':'2006-01-31');
-   db.exec('DELETE FROM DQ_RUN_PERIOD');
-   const captured=captureDates(source,'run-test');
+   const captured=actual.map(row=>({PERIOD_LEVEL:key(row).split('/')[0],PERIOD_VALUE:key(row).split('/')[1],POU_DT:row.GY===1?null:row.POU_DT}));
    assert.equal(captured.length,actual.length);
    for(const row of captured){
     const expectedDate=row.PERIOD_LEVEL==='OVERALL'||row.PERIOD_VALUE==='UNKNOWN'?null:
@@ -91,8 +83,6 @@ for(const empty of [false,true]){
         .map(r=>r[0]).sort().at(-1);
     assert.equal(row.POU_DT,expectedDate,type+' '+row.PERIOD_VALUE);
    }
-   assert.match(source,/IF V_FIRST=1 THEN\s+SELECT COUNT\(\*\) INTO V_COUNT FROM DQ_DB.DQ_RUN_PERIOD/);
-   assert.match(source,/WHERE RUN_ID=P_RUN_ID AND PROJECT_ID=P_PROJECT_ID;\s+IF V_COUNT=0 THEN/);
    db.exec('DROP TABLE '+table);
   }
  }
@@ -105,22 +95,13 @@ for(let mask=1;mask<8;mask++){
  const v={P_RUN_ID:'test',V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',V_LIST:'(-9999)',
  V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_PROJECTION:'',V_FIELD:'S.DQ_C1',V_SUFFIX:'1','F.FIELD_NAME':'X'};
  const cursor=ns.indexOf('FOR F AS');for(const part of ['V_SOURCE_PROJECTION','V_PROJECTION'])v[part]=evaluate(assignment(part,cursor,ns),v);
- let rows=[],queries=[];
+ let rows=[];
  for(const [i,marker]of ['IF V_PASS=1 THEN','ELSEIF V_PASS=2 THEN','            ELSE\n                SET V_GROUP_QUERY'].entries())if(levels[i]==='Y'){
-  const query=evaluate(assignment('V_GROUP_QUERY',ns.indexOf(marker,cursor),ns),v);rows.push(...db.prepare(adapt(query)).all());queries.push(adapt(query));
+  const query=evaluate(assignment('V_GROUP_QUERY',ns.indexOf(marker,cursor),ns),v);rows.push(...db.prepare(adapt(query)).all());
  }
  const {source,v:bv}=variables('NUMERIC',levels);
  const basic=evaluate(assignment('V_SQL',source.indexOf('/* GROUPING distinguishes'),source),bv);
  const expected=db.prepare(sqliteGroups(basic.slice(basic.indexOf(' AS (')+5,basic.lastIndexOf(') WITH DATA')))).all();
- db.exec('DELETE FROM DQ_RUN_PERIOD');
- db.exec('CREATE TABLE DQ_NS_AGG AS '+queries.join(' UNION ALL '));
- const captured=captureDates(ns,'standalone');
- assert.equal(captured.length,rows.length);
- for(const dateRow of captured){
-  const match=rows.find(row=>key(row)===dateRow.PERIOD_LEVEL+'/'+dateRow.PERIOD_VALUE);
-  assert.equal(dateRow.POU_DT,match.GY===1?null:match.POU_DT);
- }
- db.exec('DROP TABLE DQ_NS_AGG');
  assert.equal(rows.length,expected.length);
  for(const row of rows){const same=expected.find(r=>key(r)===key(row));assert.equal(row.N1,same.V1);assert.equal(row.AV1,same.AV1);assert.equal(row.SD1,same.SD1);}
 }
@@ -131,5 +112,4 @@ for(const f of ['OVERALL','MONTHLY','YEARLY']){
  assert.ok(run.includes('PROFILE_'+f+'=V_PROFILE_'+f));
  for(const q of [nb,ob,ns,read('teradata/modules/12_numeric_outliers.sql')])assert.match(q,/SELECT PROFILE_OVERALL,PROFILE_MONTHLY,PROFILE_YEARLY[\s\S]*?FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID/);
 }
-assert.equal((run.match(/DELETE FROM DQ_DB\.DQ_RUN_PERIOD WHERE RUN_ID=P_RUN_ID;/g)||[]).length,3,'clear dates on retry and both failure paths');
 db.close();console.log('Reporting levels passed: all seven combinations for four Basic types and standalone statistics; empty/UNKNOWN periods, unchanged values and availability. SAS/Teradata NOT executed.');

@@ -91,7 +91,7 @@ ORDER BY Q.FIELD_NAME,Q.MODULE_NAME,Q.PERIOD_LEVEL,Q.POU_DT,Q.RULE_NAME;
 ## Upgrade an existing engine
 
 Use [the current review/date upgrade](REVIEW_UPDATE.md) after reporting levels
-are installed. It includes the new period mapping, rule date column and required
+are installed. It includes date columns in the existing metric/rule tables and required
 procedure/view recompilation. Fresh installations follow the complete deployment
 sequence in README.md. No database deployment is performed from this workspace.
 

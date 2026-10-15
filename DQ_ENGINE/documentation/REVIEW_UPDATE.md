@@ -5,9 +5,9 @@ every DQ_DB with LAB_T_ORION_MVT (or the approved engine schema). Use SQL Assist
 in Teradata mode; submit complete procedures, with each GRANT separately.
 These instructions assume the reporting-level upgrade is already installed.
 
-1. Run `teradata/setup/21_capture_period_dates.sql` once, including grants and
-   the separate ALTER statement. It creates DQ_RUN_PERIOD and adds POU_DT to
-   DQ_RULE_RESULT. If a statement already succeeded, do not repeat it.
+1. Run `teradata/setup/21_capture_period_dates.sql` once. It adds POU_DT DATE to
+   the existing DQ_METRIC_RESULT and DQ_RULE_RESULT tables. Submit the two ALTERs
+   separately; skip a column that already exists. No new table is created.
 2. Recompile both procedures and grants in `modules/03_numeric_statistics.sql`,
    source helper first and wrapper second.
 3. Recompile `modules/10_numeric_basic.sql`, `modules/12_numeric_outliers.sql`
@@ -30,7 +30,12 @@ The final review has MISSING_RATE, ZERO_RATE, SPECIAL_RATE and OUTLIER_RATE:
 Stored percentage metrics and rule thresholds retain their units and precision.
 Update direct consumers of the review's former *_RATE_PCT/PERIOD_VALUE columns.
 DQ_COMPLETED_RESULT and DQ_RULE_RESULT include POU_DT and retain internal period
-keys. No extra review view is introduced.
+keys. No new table or extra review view is introduced.
+
+If you already deployed the earlier version that created DQ_RUN_PERIOD, the
+updated procedures/views no longer use it. Once the complete upgrade succeeds,
+you can drop that unused table. Do not drop it while older procedures/views
+still depend on it.
 
 POU_DT is the latest actual configured reporting date within each month/year,
 cast to DATE without time. It is not necessarily month end. Metrics still cover

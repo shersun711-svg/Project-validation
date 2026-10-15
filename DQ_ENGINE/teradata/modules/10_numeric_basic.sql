@@ -230,24 +230,6 @@ main: BEGIN
         CALL DBC.SysExecSQL(V_SQL);
         SET V_VT_EXISTS = 1;
 
-        /* Capture actual source dates from an existing aggregate, once per run.
-           No extra source scan. Keep source/configuration stable during a run. */
-        IF V_FIRST=1 THEN
-            SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_PERIOD
-             WHERE RUN_ID=P_RUN_ID AND PROJECT_ID=P_PROJECT_ID;
-            IF V_COUNT=0 THEN
-                SET V_SQL='INSERT INTO DQ_DB.DQ_RUN_PERIOD '
-                  || '(RUN_ID,PROJECT_ID,PERIOD_LEVEL,PERIOD_VALUE,POU_DT) SELECT '''
-                  || P_RUN_ID || ''',''' || P_PROJECT_ID || ''','
-                  || 'CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END,'
-                  || 'CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
-                  || 'WHEN A.GM=1 THEN TRIM(CAST(A.DQ_YEAR AS CHAR(4))) ELSE '
-                  || 'TRIM(CAST(A.DQ_YEAR AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))),'
-                  || 'CHARACTER_LENGTH(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))))-1,2) END,'
-                  || 'CASE WHEN A.GY=1 THEN CAST(NULL AS DATE) ELSE A.POU_DT END FROM DQ_NB_AGG A';
-                CALL DBC.SysExecSQL(V_SQL);
-            END IF;
-        END IF;
         FOR R AS RESULTS_CURSOR CURSOR FOR
             SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
              WHERE RUN_ID = P_RUN_ID AND FIELD_TYPE = 'NUMERIC'
@@ -258,7 +240,7 @@ main: BEGIN
             SET V_SQL = 'INSERT INTO DQ_DB.DQ_METRIC_RESULT '
               || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,'
               || 'PERIOD_VALUE,METRIC_NAME,METRIC_VALUE,IS_PERCENTAGE,RATE_NUMERATOR,'
-              || 'RATE_DENOMINATOR,EXECUTION_TIMESTAMP) SELECT ''' || P_RUN_ID || ''','''
+              || 'RATE_DENOMINATOR,POU_DT,EXECUTION_TIMESTAMP) SELECT ''' || P_RUN_ID || ''','''
               || P_PROJECT_ID || ''',''' || TRIM(R.FIELD_NAME) || ''',''NUMERIC'',''NUMERIC_BASIC'','
               || 'CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END,'
               || 'CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
@@ -279,7 +261,7 @@ main: BEGIN
               || 'CASE M.METRIC_ORDINAL WHEN 4 THEN A.TOTAL_N-A.N' || V_SUFFIX
               || ' WHEN 6 THEN A.Z' || V_SUFFIX || ' WHEN 12 THEN A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' ELSE NULL END,'
               || 'CASE WHEN M.IS_PERCENTAGE=''Y'' THEN A.TOTAL_N ELSE NULL END,'
-              || 'CURRENT_TIMESTAMP(6) FROM DQ_NB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
+              || 'CASE WHEN A.GY=1 THEN CAST(NULL AS DATE) ELSE A.POU_DT END,CURRENT_TIMESTAMP(6) FROM DQ_NB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
               || 'WHERE M.MODULE_NAME=''NUMERIC_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 12';
             CALL DBC.SysExecSQL(V_SQL);
             /* Keep unrounded FLOAT mean/deviation for strict Outlier bounds.

@@ -18,7 +18,7 @@ let bv={V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_PROJECTION:'',V_FIELD:'S.DQ_F
 const bc=basic.indexOf('FOR F AS');bv.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',bc,basic),bv);
 bv.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',basic.indexOf('IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)'),basic),bv);
 bv.V_PROJECTION=evaluate(assignment('V_PROJECTION',bc,basic),bv);
-const num=basics.prepare('SELECT COUNT(*) AS TOTAL_N'+bv.V_PROJECTION.replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)')+' FROM (SELECT '+bv.V_SOURCE_PROJECTION+' FROM SOURCE.FIXTURE) S').get();
+const num=basics.prepare('SELECT NULL AS POU_DT,COUNT(*) AS TOTAL_N'+bv.V_PROJECTION.replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)')+' FROM (SELECT '+bv.V_SOURCE_PROJECTION+' FROM SOURCE.FIXTURE) S').get();
 assert.equal(num.TOTAL_N,8);assert.equal(num.N1,6);assert.equal(num.V1,4);assert.equal(num.N1-num.V1,2);assert.equal(num.Z1,1);
 assert.equal(num.LO1,0);assert.equal(num.HI1,20);assert.equal(num.AV1,10);assert.ok(Math.abs(num.SD1-Math.sqrt(50))<1e-12);
 const other=fs.readFileSync(new URL('../teradata/modules/15_other_basic.sql',import.meta.url),'utf8').replace(/SET (\w+)=/g,'SET $1 =');
@@ -28,7 +28,7 @@ bv.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',oc,other),bv);
 const sc=other.indexOf("IF P_TYPE='CATEGORICAL' THEN",oc);
 bv.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',sc,other),bv);bv.V_PROJECTION=evaluate(assignment('V_PROJECTION',sc,other),bv);
 bv.V_PROJECTION=evaluate(assignment('V_PROJECTION',other.indexOf('            ELSE\n',oc),other),bv);
-const cat=basics.prepare('SELECT COUNT(*) AS TOTAL_N'+bv.V_PROJECTION.replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)')+' FROM (SELECT '+bv.V_SOURCE_PROJECTION+' FROM SOURCE.FIXTURE) S').get();
+const cat=basics.prepare('SELECT NULL AS POU_DT,COUNT(*) AS TOTAL_N'+bv.V_PROJECTION.replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)')+' FROM (SELECT '+bv.V_SOURCE_PROJECTION+' FROM SOURCE.FIXTURE) S').get();
 assert.equal(cat.TOTAL_N,8);assert.equal(cat.N1,6);assert.equal(cat.V1,2);assert.equal(cat.N1-cat.V1,4);assert.equal(cat.D1,2);
 basics.close();console.log('Generated Basic aggregates passed: special counts, unchanged NULL counts, numeric statistics and categorical distinct exclusions.');
 
@@ -38,15 +38,16 @@ const persist=new DatabaseSync(':memory:');
 persist.exec(`CREATE TABLE DQ_METRIC_DEFINITION (MODULE_NAME TEXT,METRIC_ORDINAL INTEGER,METRIC_NAME TEXT,IS_PERCENTAGE TEXT);
  CREATE TABLE DQ_METRIC_RESULT (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT,MODULE_NAME TEXT,
  PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,METRIC_NAME TEXT,METRIC_VALUE NUMERIC,IS_PERCENTAGE TEXT,
- RATE_NUMERATOR INTEGER,RATE_DENOMINATOR INTEGER,EXECUTION_TIMESTAMP TEXT);
+ RATE_NUMERATOR INTEGER,RATE_DENOMINATOR INTEGER,POU_DT TEXT,EXECUTION_TIMESTAMP TEXT);
  CREATE TABLE DQ_NB_AGG (DQ_YEAR INTEGER,DQ_MONTH INTEGER,GY INTEGER,GM INTEGER,TOTAL_N INTEGER,
- N1 INTEGER,Z1 INTEGER,LO1 NUMERIC,HI1 NUMERIC,AV1 NUMERIC,SD1 NUMERIC,V1 INTEGER);
- CREATE TABLE DQ_OB_AGG (DQ_YEAR INTEGER,DQ_MONTH INTEGER,GY INTEGER,GM INTEGER,TOTAL_N INTEGER,N1 INTEGER,D1 INTEGER,V1 INTEGER);`);
+ N1 INTEGER,Z1 INTEGER,LO1 NUMERIC,HI1 NUMERIC,AV1 NUMERIC,SD1 NUMERIC,V1 INTEGER,POU_DT TEXT);
+ CREATE TABLE DQ_OB_AGG (DQ_YEAR INTEGER,DQ_MONTH INTEGER,GY INTEGER,GM INTEGER,TOTAL_N INTEGER,N1 INTEGER,D1 INTEGER,V1 INTEGER,POU_DT TEXT);`);
 const metadata=fs.readFileSync(new URL('../teradata/setup/00_create_config_tables.sql',import.meta.url),'utf8')
- +fs.readFileSync(new URL('../teradata/setup/09_add_basic_metrics.sql',import.meta.url),'utf8');
-for(const [,module,ordinal,name,pct]of metadata.matchAll(/VALUES \('(NUMERIC_BASIC|CATEGORICAL_BASIC)',(\d+),'([^']+)','([YN])'\)/g))persist.prepare('INSERT INTO DQ_METRIC_DEFINITION VALUES (?,?,?,?)').run(module,+ordinal,name,pct);
-persist.prepare('INSERT INTO DQ_NB_AGG VALUES (NULL,NULL,1,1,?,?,?,?,?,?,?,?)').run(num.TOTAL_N,num.N1,num.Z1,num.LO1,num.HI1,num.AV1,num.SD1,num.V1);
-persist.prepare('INSERT INTO DQ_OB_AGG VALUES (NULL,NULL,1,1,?,?,?,?)').run(cat.TOTAL_N,cat.N1,cat.D1,cat.V1);
+ +fs.readFileSync(new URL('../teradata/setup/09_add_basic_metrics.sql',import.meta.url),'utf8')
+ +fs.readFileSync(new URL('../teradata/setup/12_add_date_basic_metrics.sql',import.meta.url),'utf8');
+for(const [,module,ordinal,name,pct]of metadata.matchAll(/VALUES \('(NUMERIC_BASIC|CATEGORICAL_BASIC|DATE_BASIC|IDENTIFIER_BASIC)',(\d+),'([^']+)','([YN])'\)/g))persist.prepare('INSERT INTO DQ_METRIC_DEFINITION VALUES (?,?,?,?)').run(module,+ordinal,name,pct);
+persist.prepare('INSERT INTO DQ_NB_AGG VALUES (NULL,NULL,1,1,?,?,?,?,?,?,?,?,NULL)').run(num.TOTAL_N,num.N1,num.Z1,num.LO1,num.HI1,num.AV1,num.SD1,num.V1);
+persist.prepare('INSERT INTO DQ_OB_AGG VALUES (NULL,NULL,1,1,?,?,?,?,NULL)').run(cat.TOTAL_N,cat.N1,cat.D1,cat.V1);
 persist.function('CHARACTER_LENGTH',x=>x?.length??null);
 const pv={P_RUN_ID:'30000000-0000-4000-8000-000000000001',P_PROJECT_ID:'DQ_EXT_TEST',V_SUFFIX:'1','R.FIELD_NAME':'AMOUNT'};
 persist.exec(adapt(evaluate(assignment('V_SQL',basic.indexOf('FOR R AS'),basic),pv)));
@@ -63,5 +64,20 @@ for(const [field,expectedCount,specialN,distinct]of [['AMOUNT',12,2,null],['CATE
  assert.equal(get('SPECIAL_RATE_PCT').RATE_NUMERATOR,specialN);assert.equal(get('SPECIAL_RATE_PCT').RATE_DENOMINATOR,8);
  assert.equal(get('MISSING_RATE_PCT').METRIC_VALUE,25);assert.equal(get('MISSING_COUNT').METRIC_VALUE,2);
  if(distinct!==null)assert.equal(get('DISTINCT_COUNT').METRIC_VALUE,distinct);
+}
+// Execute actual date persistence for every Basic type and period shape.
+for(const [year,month,gy,gm,date,expected]of [[2000,1,0,0,'2000-01-27','2000-01-27'],[2000,null,0,1,'2000-12-21','2000-12-21'],[null,null,0,0,null,null],[null,null,1,1,'2000-12-21',null]]){
+ persist.exec('DELETE FROM DQ_METRIC_RESULT');
+ for(const table of ['DQ_NB_AGG','DQ_OB_AGG'])persist.prepare('UPDATE '+table+' SET DQ_YEAR=?,DQ_MONTH=?,GY=?,GM=?,POU_DT=?').run(year,month,gy,gm,date);
+ pv['R.FIELD_NAME']='AMOUNT';persist.exec(adapt(evaluate(assignment('V_SQL',basic.indexOf('FOR R AS'),basic),pv)));
+ for(const type of ['CATEGORICAL','DATE','IDENTIFIER']){
+  Object.assign(pv,{P_TYPE:type,V_MODULE:type+'_BASIC',V_METRICS:type==='CATEGORICAL'?5:type==='DATE'?4:3,'R.FIELD_NAME':type});
+  if(type==='CATEGORICAL')for(const part of ['V_EXTRA_CASE','V_NUMERATOR','V_DENOMINATOR'])pv[part]=evaluate(assignment(part,special,other),pv);
+  else Object.assign(pv,{V_EXTRA_CASE:'',V_NUMERATOR:'CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N-A.N1 ELSE NULL END,',V_DENOMINATOR:'CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N ELSE NULL END,'});
+  const start=type==='DATE'?other.indexOf("IF P_TYPE='DATE' THEN",rc):other.indexOf('            ELSE\n',rc);
+  persist.exec(adapt(evaluate(assignment('V_SQL',start,other),pv)));
+ }
+ const dates=persist.prepare('SELECT POU_DT FROM DQ_METRIC_RESULT').all();
+ assert.equal(dates.length,24);for(const row of dates)assert.equal(row.POU_DT,expected);
 }
 persist.close();console.log('Generated Basic persistence passed: all 12 numeric and 5 categorical metric branches and exact special-rate numerator/denominator.');

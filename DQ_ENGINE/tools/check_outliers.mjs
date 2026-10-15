@@ -26,7 +26,7 @@ db.exec(`CREATE TABLE DQ_RUN_FIELD_CONFIG (RUN_ID TEXT,FIELD_NAME TEXT,FIELD_TYP
  CREATE TABLE DQ_METRIC_DEFINITION (MODULE_NAME TEXT,METRIC_ORDINAL INTEGER,METRIC_NAME TEXT,IS_PERCENTAGE TEXT);
  CREATE TABLE DQ_METRIC_RESULT (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT,MODULE_NAME TEXT,
  PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,METRIC_NAME TEXT,METRIC_VALUE NUMERIC,IS_PERCENTAGE TEXT,
- RATE_NUMERATOR INTEGER,RATE_DENOMINATOR INTEGER,EXECUTION_TIMESTAMP TEXT,
+ RATE_NUMERATOR INTEGER,RATE_DENOMINATOR INTEGER,POU_DT TEXT,EXECUTION_TIMESTAMP TEXT,
  UNIQUE(RUN_ID,FIELD_NAME,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,METRIC_NAME));`);
 const id='40000000-0000-4000-8000-000000000001';fields.forEach((name,i)=>db.prepare('INSERT INTO DQ_RUN_FIELD_CONFIG VALUES (?,?,?,?)').run(id,name,'NUMERIC',i+1));
 for(const [,ordinal,name,pct]of read('teradata/setup/16_create_outlier_support.sql').matchAll(/VALUES \('NUMERIC_OUTLIERS',(\d+),'([^']+)','([YN])'\)/g))db.prepare('INSERT INTO DQ_METRIC_DEFINITION VALUES (?,?,?,?)').run('NUMERIC_OUTLIERS',+ordinal,name,pct);
@@ -44,7 +44,7 @@ function snapshot(population){db.exec('DELETE FROM DQ_NUMERIC_STATISTICS');refer
 }}}
 snapshot(groups);
 db.exec('CREATE TABLE DQ_OUTLIER_CHUNK_YEAR (RUN_ID TEXT,CHUNK_YEAR TEXT); CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT)');db.prepare('INSERT INTO DQ_RUN_LOG VALUES (?)').run(id);
-const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURRENT_TIMESTAMP')
+const adapt=q=>q.replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)').replaceAll('CAST(NULL AS DATE)','CAST(NULL AS TEXT)').replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURRENT_TIMESTAMP')
  .replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)")
  .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)")
  .replaceAll('EXTRACT(YEAR FROM "FACT_DT")',"CAST(strftime('%Y',FACT_DT) AS INTEGER)")
@@ -171,7 +171,11 @@ function batch(first,last,levels=['Y','Y','Y']){const [o,y,m]=levels;const v={V_
 batch(1,5);batch(6,6);
 const rows=db.prepare('SELECT * FROM DQ_METRIC_RESULT').all();assert.equal(rows.length,180);
 const keys={OUTLIER_VALID_COUNT:'valid',OUTLIER_LOWER_BOUND:'low',OUTLIER_UPPER_BOUND:'high',OUTLIER_COUNT:'count',OUTLIER_RATE_PCT:'rate'};
-for(const row of rows){const expected=reference.get(row.FIELD_NAME+'/'+row.PERIOD_LEVEL+'/'+row.PERIOD_VALUE)[keys[row.METRIC_NAME]];
+for(const row of rows){
+ const pop=groups.get(row.PERIOD_LEVEL+'/'+row.PERIOD_VALUE);
+ const expectedDate=row.PERIOD_LEVEL==='OVERALL'?null:pop.map(r=>r[0]).filter(Boolean).sort().at(-1)??null;
+ assert.equal(row.POU_DT,expectedDate,'saved outlier reporting date');
+ const expected=reference.get(row.FIELD_NAME+'/'+row.PERIOD_LEVEL+'/'+row.PERIOD_VALUE)[keys[row.METRIC_NAME]];
  if(expected===null)assert.equal(row.METRIC_VALUE,null);else assert.ok(Math.abs(row.METRIC_VALUE-expected)<1e-9,JSON.stringify(row));
  if(row.METRIC_NAME==='OUTLIER_RATE_PCT'){
   const r=reference.get(row.FIELD_NAME+'/'+row.PERIOD_LEVEL+'/'+row.PERIOD_VALUE);
@@ -324,13 +328,13 @@ for(const part of Object.keys(smokeVars).filter(k=>k.startsWith('V_ROLLUP_')))
  smokeVars[part]=evaluate(assignment(part,cursor,sql),smokeVars);
 const smokeQuery=rollup(smokeVars)
  .replaceAll('DQ_NO_CHUNKS','DQ_TEST_OUT_CHUNKS').replaceAll(' UNION ALL ','\nUNION ALL ');
-const smokeColumns=['CHUNK_VALUE VARCHAR(10)','CHUNK_YEAR VARCHAR(10)',
+const smokeColumns=['POU_DT DATE','CHUNK_VALUE VARCHAR(10)','CHUNK_YEAR VARCHAR(10)',
  'OVERALL_TOTAL_N BIGINT','YEARLY_TOTAL_N BIGINT','MONTHLY_TOTAL_N BIGINT','ACTUAL_TOTAL BIGINT',
  'ON1 BIGINT','OL1 FLOAT','OU1 FLOAT','YN1 BIGINT','YL1 FLOAT','YU1 FLOAT',
  'MN1 BIGINT','ML1 FLOAT','MU1 FLOAT','ACTUAL1 BIGINT','OO1 BIGINT','YO1 BIGINT','MO1 BIGINT'];
 const smokeInsert=['2005-01','2005-02','2006-01','2026-03','UNKNOWN'].map(month=>{
  const year=month==='UNKNOWN'?'UNKNOWN':month.slice(0,4),yearN=year==='2005'?20:10;
- return `INSERT INTO DQ_TEST_OUT_CHUNKS VALUES ('${month}','${year}',50,${yearN},10,10,50,-3,3,${yearN},-2,2,10,-1,1,10,2,1,1);`;
+ return `INSERT INTO DQ_TEST_OUT_CHUNKS VALUES (NULL,'${month}','${year}',50,${yearN},10,10,50,-3,3,${yearN},-2,2,10,-1,1,10,2,1,1);`;
 }).join('\n');
 const smokeSummary=`SELECT COUNT(*) AS PERIOD_ROWS,
        COUNT(DISTINCT PERIOD_LEVEL || ':' || PERIOD_VALUE) AS UNIQUE_PERIOD_KEYS,

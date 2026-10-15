@@ -95,16 +95,16 @@ Use the current deployment sequence in [setup and operation](README.md).
 POU_DT is a DATE: the latest actual configured reporting date in each monthly or
 yearly group, even when that date is not the calendar month/year end. It does not
 change the population grouped for those metrics. OVERALL and NULL-date groups
-have NULL POU_DT. DQ_RUN_PERIOD captures this small mapping from the first
-profiling aggregate of the run, including standalone outlier statistics, without
-another source scan. Keep source/configuration stable throughout the run.
+have NULL POU_DT. DQ_METRIC_RESULT stores the date alongside each metric,
+captured in existing Basic or outlier counting aggregates without another
+source scan. Keep source/configuration stable throughout the run.
 
 DQ_BASIC_REVIEW exposes POU_DT instead of PERIOD_VALUE. DQ_COMPLETED_RESULT and
 DQ_RULE_RESULT also expose POU_DT; they retain their internal PERIOD_VALUE keys
 for compatibility, uniqueness and joins. Use POU_DT for date display. Historical
-runs without a captured mapping remain NULL; dates are never inferred from
-month labels or backfilled from today's source. Failure/retry removes owned
-DQ_RUN_PERIOD rows alongside the other results.
+runs without a captured date remain NULL; dates are never inferred from
+month labels or backfilled from today's source. Failure/retry removes dates
+with their metric/rule rows; there is no additional table to maintain.
 
 ## Field availability
 

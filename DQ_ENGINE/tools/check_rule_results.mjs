@@ -15,9 +15,8 @@ function table(file,name){
 }
 table('teradata/setup/01_create_result_tables.sql','DQ_METRIC_RESULT');
 table('teradata/setup/17_create_rule_results.sql','DQ_RULE_RESULT');
-db.exec(`ALTER TABLE DQ_RULE_RESULT ADD POU_DT DATE;
- CREATE TABLE DQ_RUN_PERIOD (RUN_ID TEXT,PROJECT_ID TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,POU_DT TEXT,UNIQUE(RUN_ID,PROJECT_ID,PERIOD_LEVEL,PERIOD_VALUE));
- CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,PROJECT_ID TEXT,STATUS TEXT,GREEN_THRESHOLD NUMERIC,RED_THRESHOLD NUMERIC);
+db.exec(adapt(read('teradata/setup/21_capture_period_dates.sql')));
+db.exec(` CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,PROJECT_ID TEXT,STATUS TEXT,GREEN_THRESHOLD NUMERIC,RED_THRESHOLD NUMERIC);
  CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT PRIMARY KEY,RUN_NUMBER INTEGER);
  CREATE TABLE DQ_ENGINE_SETTINGS (PROJECT_ID TEXT,GREEN_THRESHOLD NUMERIC,RED_THRESHOLD NUMERIC);`);
 for(const [id,project,status,green,red]of [['a','P1','RUNNING',1,5],['b','P2','RUNNING',2,7],['bad_threshold','P1','RUNNING',5,1],['missing_threshold','P1','RUNNING',null,5],['failed','P1','FAILED',1,5],['legacy','P1','SUCCEEDED',1,5]]){
@@ -50,7 +49,7 @@ metric('bad_threshold','P1','X',1,1,100);
 metric('missing_threshold','P1','X',1,1,100);
 metric('legacy','P1','X',25,25,100,{colour:'RED'});
 metric('failed','P1','X',1,1,100);
-db.exec("INSERT INTO DQ_RUN_PERIOD VALUES ('a','P1','MONTHLY','2000-01','2000-01-27'),('a','P2','MONTHLY','2000-01','2099-01-01')");
+db.exec("UPDATE DQ_METRIC_RESULT SET POU_DT='2000-01-27' WHERE RUN_ID='a' AND PROJECT_ID='P1' AND PERIOD_LEVEL='MONTHLY'");
 const source=read('teradata/results/90_colour_classification.sql');
 db.exec(adapt(source.slice(0,source.indexOf('REPLACE PROCEDURE'))));
 const insert=source.match(/INSERT INTO DQ_DB\.DQ_RULE_RESULT[\s\S]*?WHERE RUN_ID=P_RUN_ID;/)[0];
