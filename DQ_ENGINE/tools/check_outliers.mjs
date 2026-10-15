@@ -446,6 +446,17 @@ const diagnosticStage=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),{
 const diagnosticStats=evaluate(assignment('V_SQL',sql.indexOf('/* One statistics request'),sql),dv);
 const diagnosticBounds=evaluate(assignment('V_SQL',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
 const diagnosticCount=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+// The supplied plan redistributes the preserved-side outer join's detail rows
+// by constant overall bounds. Test an ordinary product join for a populated
+// chunk. This is an EXPLAIN candidate only; the empty-source path still needs
+// the original outer join to preserve its synthetic zero-population row.
+function populatedChunkCandidate(q){
+ assert.equal(q.split(' B0 LEFT JOIN (SELECT ').length,2);
+ assert.equal(q.split(') S ON 1=1 LEFT JOIN ').length,2);
+ return q.replace(' B0 LEFT JOIN (SELECT ',' B0 CROSS JOIN (SELECT ')
+  .replace(') S ON 1=1 LEFT JOIN ',') S LEFT JOIN ');
+}
+const diagnosticCandidate=populatedChunkCandidate(diagnosticCount);
 const diagnosticPreflight=`SELECT 'Run 7 source, status or reporting scope differs' AS ISSUE
 FROM DQ_DB.DQ_RUN_LOG L JOIN DQ_DB.DQ_RUN_NUMBER N ON L.RUN_ID=N.RUN_ID
 WHERE L.RUN_ID='${diagnosticRun}' AND N.RUN_NUMBER=7 AND L.PROJECT_ID='RDS'
@@ -503,6 +514,16 @@ ${diagnosticBounds};
 EXPLAIN
 ${diagnosticCount};
 
+/* D2: NONEMPTY 2018 chunk only. Run ONLY this EXPLAIN if A-D already succeeded
+   in this session. Reuses the same stage and bounds: no table recreation and
+   no engine changes. Compare with D: does the detail redistribution on constant
+   overall bounds and its restoration merge join disappear? The one-row bounds
+   product join itself is expected. This is not a replacement for the empty-
+   source path, which must still emit its zero-population summary.
+   Keep EXPLAIN; save the complete output before any timed counting test. */
+EXPLAIN
+${diagnosticCandidate};
+
 /* E: Run separately AFTER saving EXPLAIN, and only for tables this diagnostic
    created successfully. No broad cleanup and no changes to run 7. */
 DROP TABLE DQ_DIAG_OUT_BOUNDS;
@@ -537,10 +558,42 @@ for(const mutation of ["UPDATE DQ_RUN_LOG SET PROJECT_ID='OTHER'","UPDATE DQ_RUN
  assert.ok(getIssues().length>0,mutation);diagnosticDb.exec('ROLLBACK TO bad_metadata; RELEASE bad_metadata');
 }
 diagnosticDb.close();
+// Confirm that the join-only candidate preserves measurements for populated
+// chunks, including NULL reporting dates, duplicates and special exclusions.
+const joinDb=new DatabaseSync(':memory:');
+joinDb.function('CHARACTER_LENGTH',x=>x?.length??null);
+joinDb.exec('CREATE TABLE DQ_DIAG_OUT_R7 (FACT_DT TEXT,'+diagnosticFields.map(f=>'"'+f+'" NUMERIC').join(',')+',DQ_OS_YEAR_0 INTEGER)');
+joinDb.exec('CREATE TABLE DQ_DIAG_OUT_BOUNDS (PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,TOTAL_N INTEGER,'+
+ diagnosticFields.flatMap((_,i)=>['N'+(i+1)+' INTEGER','L'+(i+1)+' NUMERIC','U'+(i+1)+' NUMERIC']).join(',')+')');
+const joinPopulation=raw.map(r=>[r[0]===null?null:'2018'+r[0].slice(4).replace('-02-29','-02-28'),...r.slice(1,6)]);
+const joinPut=joinDb.prepare('INSERT INTO DQ_DIAG_OUT_R7 VALUES (?,?,?,?,?,?,?)');
+joinPopulation.forEach(r=>joinPut.run(...r,r[0]===null?0:2018));
+const joinGroups=new Map([['OVERALL/ALL',joinPopulation]]);
+for(const row of joinPopulation){const key='MONTHLY/'+(row[0]?.slice(0,7)??'UNKNOWN');if(!joinGroups.has(key))joinGroups.set(key,[]);joinGroups.get(key).push(row);}
+for(const [key,pop]of joinGroups){
+ const [level,value]=key.split('/');
+ const bounds=diagnosticFields.flatMap((_,i)=>{const s=stats(pop.map(r=>r[i+1]).filter(x=>x!==null&&x!==-9999));
+  return [s.n,s.sd===null?null:s.mean-3*s.sd,s.sd===null?null:s.mean+3*s.sd];});
+ joinDb.prepare('INSERT INTO DQ_DIAG_OUT_BOUNDS VALUES ('+Array(18).fill('?').join(',')+')').run(level,value,pop.length,...bounds);
+}
+const joinAdapt=q=>adapt(q).replaceAll('"DQ_DB".','');
+for(const chunk of ['2018','UNKNOWN']){
+ const jv={...dv,'C.CHUNK_VALUE':chunk,V_CHUNK_YEAR:chunk,V_SOURCE_FILTER:'"DQ_OS_YEAR_0"='+(chunk==='UNKNOWN'?0:2018)};
+ const baseline=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),jv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+ const expected=joinDb.prepare(joinAdapt(baseline)).all();
+ const actual=joinDb.prepare(joinAdapt(populatedChunkCandidate(baseline))).all();
+ const sort=rs=>rs.sort((a,b)=>String(a.CHUNK_VALUE).localeCompare(String(b.CHUNK_VALUE)));
+ assert.ok(expected.length>0);assert.deepEqual(sort(actual),sort(expected));
+}
+joinDb.exec('DELETE FROM DQ_DIAG_OUT_R7');
+assert.equal(joinDb.prepare(joinAdapt(diagnosticCandidate)).all().length,0,'candidate intentionally not used for empty-source chunks');
+assert.equal(joinDb.prepare(joinAdapt(diagnosticCount)).all().length,1,'original outer join retains empty-source summary');
+joinDb.close();
 const diagnosticPath=new URL('../tests/diagnose_outlier_rds_run7.sql',import.meta.url);
 if(process.env.DQ_WRITE_RDS_DIAGNOSTIC==='1')fs.writeFileSync(diagnosticPath,diagnostic);
 else assert.equal(fs.readFileSync(diagnosticPath,'utf8'),diagnostic,'Regenerate the RDS plan diagnostic after template changes');
 console.log('RDS plan diagnostic checked: actual stage/bounds/count templates, metadata mismatch checks and EXPLAIN-only counting. No RDS data or Teradata plan accessed locally.');
+console.log('Nonempty chunk join candidate passed: identical measurements for populated and NULL-date chunks; empty-source distinction retained. Production procedure unchanged.');
 
 // Lifecycle/API structure: materialize once before internal statistics, use the
 // stage for subsequent reads, never overwrite another run's table, drop only

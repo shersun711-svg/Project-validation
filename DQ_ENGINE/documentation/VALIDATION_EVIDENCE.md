@@ -111,3 +111,14 @@ acceptance for 589 fields. The run-7 no-DBQL diagnostic uses the current generat
 stage/bounds/count SQL, with local checks that mismatched saved metadata is
 reported before materialization. It does not execute RDS counting; the actual
 Teradata EXPLAIN and physical bottleneck remain to be reviewed.
+
+The user subsequently supplied the full 2018 counting EXPLAIN. It confirms a
+single-partition stage read and shows detail redistribution by constant overall
+bounds, followed by an outer-preservation merge join. The plan estimates about
+1.565 million rows at that redistribution and a later detail spool near 539 MB;
+these are estimates, not measured peak spool or proof of elapsed-time cause.
+Diagnostic section D2 now tests a CROSS JOIN for the nonempty source chunk.
+Local query comparisons preserve measurements for ordinary and NULL-date chunks
+and explicitly demonstrate why the empty-source path cannot be changed the
+same way. Production SQL remains unchanged pending the comparison plan and a
+controlled timing/result check on Teradata.

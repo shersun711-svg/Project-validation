@@ -69,6 +69,12 @@ Use one fresh SQL Assistant session and submit sections separately:
 4. Save the entire plan for review of partition access, estimated intermediate
    rows, redistribution, joins and aggregation. Estimates cannot diagnose
    historical workload queuing or establish actual CPU/I/O/spool measurements.
+   Section D2 is a comparison EXPLAIN for the populated 2018 chunk. If A-D
+   already succeeded, run D2 only in the same session. It reuses the stage and
+   bounds and changes only the join of the single overall-bounds row to the
+   source from LEFT JOIN to CROSS JOIN. Do not remove EXPLAIN or apply this
+   unconditionally to the procedure: an empty source still needs its zero-row
+   population summary. No production procedure change is included at this step.
 5. E drops only the two diagnostic tables created successfully. Configuration,
    source tables, run logs and published results are untouched. Disconnecting
    removes volatile bounds but can leave the permanent diagnostic stage.
@@ -79,6 +85,19 @@ run 7's exact execution. No full profiling run or procedure recompile is needed.
 This diagnostic has been checked locally, but its Teradata plan has not been
 obtained from this workspace. It is a focused investigation artifact rather
 than a new profiling module or general-purpose benchmark API.
+
+The supplied 2018 plan confirms partition elimination but exposes a potential
+skew bottleneck. Step 7.1 redistributes approximately 1.565 million detail rows
+by the overall bounds/counts tuple, which is constant across those rows. A
+constant hash key concentrates rows at one hash destination. Step 8 restores
+the preserved side of the outer join by a merge join; later detail spools are
+estimated at approximately 332 MB and 539 MB before reduction to 12 months.
+These are individual optimizer estimates, not measured or additive peak spool.
+Broadcasting the one-row bounds table/product join is not itself evidence of
+an error. D2 tests whether removing the outer-preservation requirement for a
+known populated chunk removes constant-key redistribution and its restoration
+join. Compare the actual plan and then a controlled one-year timing before
+changing the production procedure. No runtime improvement is established yet.
 
 ## Controlled source staging
 
