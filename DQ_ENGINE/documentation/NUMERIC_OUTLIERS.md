@@ -44,7 +44,9 @@ Colours are screening classifications, not proof that flagged values are invalid
 ## Statistics reuse and results
 
 Updated Numeric Basic saves its unrounded FLOAT mean/population deviation and valid
-count in DQ_NUMERIC_STATISTICS while processing its existing aggregate. Outliers
+count in DQ_NUMERIC_STATISTICS while processing its existing aggregate. Combined
+Basic + Outliers now use the same bounded copy via SP_DQ_NUMERIC_PIPELINE;
+Basic-only still reads the captured source directly. Outliers
 reuse those values, rather than rounded DECIMAL results. If Basic=N, the internal
 SP_DQ_NUMERIC_STATISTICS prerequisite calculates the same aggregates; it emits
 no Basic metric rows or availability dates. Outliers now use the internal
@@ -124,6 +126,9 @@ unchanged. Reuse unrounded Basic statistics when present; otherwise the bounded
 shared helper computes this counting batch's statistics from the same copy.
 Only the current group's source columns are loaded. Keep source/configuration
 stable while processing groups; count checks cannot detect every value change.
+The combined path calls the same Basic batch helper against the copy before
+counting, rather than completing Basic on the original source first. See
+[shared-copy deployment and timings](SHARED_NUMERIC_COPY.md).
 
 Names include run UUID, attempt and first counting batch. Batch 1 is logged
 before loading. Batch 0 is the overall summary and retains copy identity for

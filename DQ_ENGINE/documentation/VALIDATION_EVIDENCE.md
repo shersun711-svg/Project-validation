@@ -195,3 +195,15 @@ after the largest existing statistics batch, avoiding collisions across wider
 counting calls. The 415-field storage simulation exercises these actual
 allocation expressions with a uniqueness constraint. This is not Teradata SPL,
 quota/transaction testing or evidence of faster RDS runtime.
+
+### Shared numeric copy
+
+Generated Basic metric, unrounded statistics, availability and POU_DT SELECTs
+match direct-source results on 41 fields across three bounded groups, all seven
+scopes and empty/nonempty data with NULLs and special values. Changing the
+original source after staging does not change these stage-based results.
+Existing outlier checks independently verify counting against those statistics.
+Routing checks cover combined, Basic-only and Outliers-only paths, captured
+configuration reuse, helper grants, range limits and cleanup propagation.
+These local checks do not execute SPL control flow, validate transaction
+rollback or measure live performance. No two-hour completion claim is made.

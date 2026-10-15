@@ -1,5 +1,9 @@
 # Bounded outlier working storage
 
+For the latest combined-run flow, helper compile order and timing interpretation,
+see [shared numeric copy](SHARED_NUMERIC_COPY.md). Earlier benchmarks below
+refer to the pre-sharing flow.
+
 The user's full RDS run 9 failed with error 2644, "No more room in database
 Lab_T_Orion_MVT", during preparation from 17:25:30 to 17:32:10 on 15 October
 2026. The previous code copied all 415 numeric fields before counting. This is

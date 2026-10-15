@@ -1,5 +1,9 @@
 # Outliers: up to 20 fields per calculation
 
+For the latest combined-run flow, helper compile order and timing interpretation,
+see [shared numeric copy](SHARED_NUMERIC_COPY.md). Earlier benchmarks below
+refer to the pre-sharing flow.
+
 The previous release loaded a 20-field working copy but calculated five fields
 at a time. This update keeps the copy cap at 20 and also accepts up to 20 fields
 per calculation. Excel SQL_BATCH_SIZE controls both caps; 25 or 30 means at

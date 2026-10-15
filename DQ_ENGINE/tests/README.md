@@ -131,3 +131,9 @@ The main outlier checker also compares saved metrics at 5/10/20-field widths;
 the storage checker exercises <=10-field prerequisite batches with independent,
 unique statistics log IDs. Live SPL compilation and spool measurements remain
 required before expanding beyond the controlled 20-field population.
+
+Shared-copy regression: `node DQ_ENGINE/tools/check_shared_numeric.mjs`. It
+compares actual generated Basic metrics/statistics/availability from the
+original source and shared copies, tests changed-source isolation and bounds,
+and checks routing/failure-propagation structure. Teradata SPL control flow,
+grants, transaction cleanup and full-run runtime remain unverified locally.

@@ -140,8 +140,8 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 20. `teradata/modules/01_assign_run_number.sql`
 21. `teradata/modules/02_special_value_list.sql`
 22. `teradata/modules/03_numeric_statistics.sql` (BATCH helper/grant, SOURCE wrapper/grant, then STATISTICS wrapper/grant)
-23. `teradata/modules/10_numeric_basic.sql`
-24. `teradata/modules/12_numeric_outliers.sql`
+23. `teradata/modules/10_numeric_basic.sql` (BASIC_BATCH helper/grant, then BASIC wrapper/grant)
+24. `teradata/modules/12_numeric_outliers.sql` (PIPELINE helper/grant, then OUTLIERS wrapper/grant)
 25. `teradata/modules/15_other_basic.sql`
 26. `teradata/modules/20_categorical_basic.sql`
 27. `teradata/modules/30_date_basic.sql`
@@ -234,3 +234,5 @@ which fields and tests to run.
 For the Numeric Basic scan reduction, see [deployment and benchmark](NUMERIC_BASIC_UPDATE.md).
 
 For up-to-20-field outlier calculations, see [deployment and benchmark](OUTLIER_WIDTH_UPDATE.md).
+
+For combined numeric runs sharing one bounded copy, see [deployment](SHARED_NUMERIC_COPY.md).

@@ -7,7 +7,7 @@ are retained. Keep source and configuration stable during execution.
 
 | Module | Effective maximum fields per batch | Source access |
 |---|---:|---|
-| Numeric Basic | Up to 20, with SQL-length splitting | One aggregate statement using GROUPING SETS |
+| Numeric Basic | Up to 20, with SQL-length splitting | GROUPING SETS on source for Basic-only; shared copy when Outliers is also selected |
 | Categorical Basic | 8 | Three explicit overall/year/month queries using UNION ALL |
 | Identifier Basic | 20 | Three explicit period queries using UNION ALL |
 | Date Basic | 30 | One aggregate statement using GROUPING SETS |
@@ -201,7 +201,7 @@ I/O. Wider aggregation may need more spool. No permanent working table is added
 to Basic. Min/max, population deviation, counts, special exclusions, availability,
 POU_DT and result publication are unchanged.
 
-A combined Basic + Outliers run already reuses Basic's unrounded statistics;
+A combined Basic + Outliers run reuses the same bounded copy as well as Basic's unrounded statistics;
 standalone Outliers calculates them internally. Do not run a separate statistics
 module before Basic. Categorical/identifier DISTINCT aggregation remains bounded
 under the existing caps; its spool-heavy plans need measurement before widening.
@@ -223,3 +223,22 @@ splits larger SQL without skipping fields. Current RDS names/specials fit
 20-field calculations across all scopes in local generation checks. This reduces
 counting passes but can increase peak aggregation spool; no live speedup or
 spool-fit guarantee is claimed. See [deployment and benchmark](OUTLIER_WIDTH_UPDATE.md).
+
+## Shared numeric copy
+
+Combined Basic + Outliers runs now copy each <=20-field group once, execute
+the existing Basic calculations on that copy, and count outliers against the
+same rows and captured statistics before dropping it. This removes Basic's
+separate reference to the original view for each group. Basic-only retains
+direct source aggregation; Outliers-only retains its own statistics dependency.
+The native source values, duplicate population, special exclusions and period
+semantics are preserved. It does not materialize all 415 fields at once.
+
+NUMERIC_PREPARE log rows record copying/partition statistics/calendar preparation.
+Basic and outlier rows with BATCH_ID>0 record their own work; outlier start times
+are reset after prerequisites so they exclude Basic/statistics and preparation.
+Module-0 wall times overlap/interleave in combined runs. Do not add them; use
+DQ_RUN_LOG for total runtime or sum the individual successful batch rows by
+phase for diagnosis. Neither CTE syntax nor fewer logical source references
+establishes physical I/O or completion within two hours. See
+[shared-copy deployment](SHARED_NUMERIC_COPY.md).

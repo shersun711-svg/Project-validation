@@ -1,5 +1,9 @@
 # Numeric Basic: fewer source aggregations
 
+For the latest combined-run flow, helper compile order and timing interpretation,
+see [shared numeric copy](SHARED_NUMERIC_COPY.md). Earlier benchmarks below
+refer to the pre-sharing flow.
+
 Numeric Basic previously limited each batch to ten fields even when Excel
 SQL_BATCH_SIZE was 25. It now accepts up to 20, with automatic splitting to keep
 generated SQL within buffer limits. SQL_BATCH_SIZE continues to control width;

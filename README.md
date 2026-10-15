@@ -17,6 +17,8 @@ the shared green/amber/red rules. Configurable special-value checks are implemen
 Numeric Outliers uses mean +/- 3 times population standard deviation. Working
 copies and counting batches are capped at 20 fields, with SQL-length splitting; see the
 [permanent-space update](DQ_ENGINE/documentation/OUTLIER_STORAGE_UPDATE.md).
+Combined Numeric Basic + Outliers now share each bounded working copy; see
+[deployment and phase timings](DQ_ENGINE/documentation/SHARED_NUMERIC_COPY.md).
 Field-level MoM/YoY compares saved monthly results without another RDS scan.
 See [comparison deployment and operation](DQ_ENGINE/documentation/FIELD_CHANGES.md).
 PSI and Excel report export remain deferred.

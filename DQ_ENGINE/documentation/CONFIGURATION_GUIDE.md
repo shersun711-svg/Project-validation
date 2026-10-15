@@ -109,3 +109,7 @@ permanent storage, then benchmark 15/20. Numeric Basic now caps at 20 and automa
 generated SQL would exceed its safe length. Smaller settings remain supported
 if spool is limited. See
 [bounded outlier storage](OUTLIER_STORAGE_UPDATE.md).
+
+When Numeric Basic and Outliers are both Y in SAS 00, they share each bounded
+numeric working copy automatically. Basic-only and Outliers-only remain valid;
+no extra Excel selection is needed. See [shared-copy deployment](SHARED_NUMERIC_COPY.md).

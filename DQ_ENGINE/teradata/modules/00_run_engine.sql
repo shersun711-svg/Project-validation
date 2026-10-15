@@ -3,6 +3,7 @@
    Run each following GRANT before compiling the next wrapper.
    SP_DQ_RUN_ENGINE keeps the original two-argument Numeric Basic API.
    SAS uses SP_DQ_RUN_EXTENDED for independent module switches.
+   Numeric Basic + Outliers share one bounded copy through NUMERIC_PIPELINE.
    The seventh EXTENDED argument is reserved and must be N for API compatibility.
    Use Teradata mode without an enclosing transaction. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_RUN_EXTENDED
@@ -142,7 +143,9 @@ main: BEGIN
          OR (P_CATEGORICAL='Y' AND FIELD_TYPE='CATEGORICAL')
          OR (P_DATE='Y' AND FIELD_TYPE='DATE')
          OR (P_IDENTIFIER='Y' AND FIELD_TYPE='IDENTIFIER'));
-    IF P_NUMERIC='Y' THEN
+    IF P_NUMERIC='Y' AND P_OUTLIERS='Y' THEN
+        CALL DQ_DB.SP_DQ_NUMERIC_PIPELINE(P_RUN_ID,P_PROJECT_ID,'Y');
+    ELSEIF P_NUMERIC='Y' THEN
         CALL DQ_DB.SP_DQ_NUMERIC_BASIC(P_RUN_ID,P_PROJECT_ID);
         SELECT STATUS INTO V_STATUS FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID;
         IF V_STATUS <> 'RUNNING' THEN
@@ -154,7 +157,7 @@ main: BEGIN
             LEAVE main; /* Retain the numeric module's original failure detail. */
         END IF;
     END IF;
-    IF P_OUTLIERS='Y' THEN
+    IF P_OUTLIERS='Y' AND P_NUMERIC='N' THEN
         CALL DQ_DB.SP_DQ_NUMERIC_OUTLIERS(P_RUN_ID,P_PROJECT_ID);
     END IF;
     IF P_CATEGORICAL='Y' THEN
