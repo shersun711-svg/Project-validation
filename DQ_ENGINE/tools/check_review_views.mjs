@@ -89,6 +89,7 @@ db.exec(`INSERT INTO DQ_RULE_RESULT
 // Dates are saved with each metric; a different project must stay isolated.
 for(const [level,period,date]of [['MONTHLY','2000-01','2000-01-27'],['MONTHLY','2000-02','2000-02-29'],['YEARLY','2000','2000-02-29']])
  db.prepare('UPDATE DQ_METRIC_RESULT SET POU_DT=? WHERE RUN_ID=? AND PROJECT_ID=? AND PERIOD_LEVEL=? AND PERIOD_VALUE=?').run(date,'mixed','TEST',level,period);
+db.exec("UPDATE DQ_METRIC_RESULT SET EXECUTION_TIMESTAMP='2026-10-15 10:00:00.000000'; UPDATE DQ_METRIC_RESULT SET EXECUTION_TIMESTAMP='2026-10-15 10:02:00.123456' WHERE RUN_ID='mixed' AND MODULE_NAME='NUMERIC_OUTLIERS'");
 for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
@@ -129,6 +130,8 @@ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_T
 const combined=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(combined.MIN_VALUE,0);assert.equal(combined.SPECIAL_COUNT,0);
 assert.equal(combined.MODULE_NAME,'NUMERIC_BASIC+OUTLIERS');
+assert.equal(combined.CREATED_TIMESTAMP,'2026-10-15 10:02:00.123456');
+assert.equal(date.CREATED_TIMESTAMP,'2026-10-15 10:00:00.000000');
 assert.equal(date.SPECIAL_COUNT,null);
 assert.equal(combined.OUTLIER_VALID_COUNT,3);assert.equal(combined.OUTLIER_COUNT,0);
 assert.equal(db.prepare("SELECT STATUS FROM DQ_RULE_RESULT WHERE RUN_ID='mixed' AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL' AND RULE_NAME='OUTLIER_RATE_PCT'").get().STATUS,'GREEN');

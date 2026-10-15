@@ -15,6 +15,11 @@ Rule outcomes are not recalculated from displayed rates or current configuration
 RUN_ID and optionally PERIOD_LEVEL; historical runs and different periods
 remain separate. The view reads aggregates, not the source dataset.
 
+`CREATED_TIMESTAMP` is the latest stored metric `EXECUTION_TIMESTAMP` contributing
+to that review row. For combined Basic/Outlier rows it includes both modules.
+It records result insertion time on Teradata and remains fixed when queried;
+it is separate from the source snapshot date `POU_DT` and run completion time.
+
 `DQ_METRIC_RESULT` stores numeric metrics as DECIMAL(38,10): 28 integral digits, 10 fractional digits. Exact supported source min/max and counts are cast independently before CASE evaluation, avoiding implicit FLOAT promotion. Counts/rate denominators are also preserved as BIGINT where applicable. Mean, population standard deviation and reported rates use FLOAT arithmetic before storage, consistent with SAS floating-point calculations; they require numeric tolerances in reconciliation. Tiny differences and rates below storage scale can round. Colours use exact count comparisons, not the stored rounded rate. FLOAT source min/max already have source floating-point precision.
 
 Numeric Basic stores `STDDEV_POP`; `DQ_BASIC_REVIEW` exposes it as `STDDEV_VALUE`
