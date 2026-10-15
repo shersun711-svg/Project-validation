@@ -119,3 +119,9 @@ and simulates a rejected load followed by cleanup. Quota/SPL/transaction behavio
 is not executed. Follow [the server pilot](../documentation/OUTLIER_STORAGE_UPDATE.md)
 for compilation/grants, database-space recovery and controlled 10-field testing.
 The current file 03 contains BATCH, SOURCE and STATISTICS, each with its grant.
+
+Numeric Basic batch regression: `node DQ_ENGINE/tools/check_numeric_batching.mjs`
+compares generated aggregates at 1/10/15/20/25/30 settings for all 415 numeric
+fields, seven reporting scopes, NULL/special/empty populations, and long-SQL
+automatic splitting. SQLite dialect adaptation does not verify SPL compilation,
+Teradata GROUPING SETS plans, quota, spool or elapsed time.

@@ -7,7 +7,7 @@ are retained. Keep source and configuration stable during execution.
 
 | Module | Effective maximum fields per batch | Source access |
 |---|---:|---|
-| Numeric Basic | 10 | One aggregate statement using GROUPING SETS |
+| Numeric Basic | Up to 20, with SQL-length splitting | One aggregate statement using GROUPING SETS |
 | Categorical Basic | 8 | Three explicit overall/year/month queries using UNION ALL |
 | Identifier Basic | 20 | Three explicit period queries using UNION ALL |
 | Date Basic | 30 | One aggregate statement using GROUPING SETS |
@@ -15,10 +15,11 @@ are retained. Keep source and configuration stable during execution.
 
 SQL_BATCH_SIZE remains configurable from 1 to 30; effective size is the lower
 of the setting and module cap. Special lists increase generated query size;
-length guards reject oversized SQL rather than truncating it. Lower the setting
-or shorten lists if needed. Caps bound SQL text and are not measured optimal
-batch sizes. With 50 numeric fields and the default setting, Numeric Basic uses
-5 Basic batches.
+Numeric Basic automatically starts a smaller batch before its generated SQL
+exceeds the safe text limit; other modules retain their existing length guards.
+Lower the setting if a wider aggregate exceeds available spool. Caps bound
+query width and are not measured optimal batch sizes. With the current RDS
+special list and default setting, 50 numeric fields use three Basic batches.
 
 Basic modules aggregate compatible statistics together, then persist results
 from small volatile aggregates. Numeric Basic emits 12 metrics and categorical
@@ -36,7 +37,7 @@ Run numbering locks its small counter only before profiling.
 
 Use tests/benchmark_numeric.sql and saved DQ_MODULE_LOG.SQL_TEXT. Record module
 and batch elapsed minutes and approved DBQL CPU, I/O, spool and AMP skew metrics.
-Compare settings 1, 5, 8 and 10 using new run UUIDs, the same active fields,
+Compare settings 1, 5, 10, 15 and 20 using new run UUIDs, the same active fields,
 same stable population and same workload. Values above a module cap do not
 increase that module's batch size. Require result equivalence before comparing
 speed. Explain the logged aggregate queries on the installed release
@@ -182,3 +183,29 @@ while retaining five-field counting; start by benchmarking SQL_BATCH_SIZE=10.
 Completed groups are dropped before the next copy. This bounds working width
 but adds source reads, so full-run runtime is unverified. See
 [bounded storage and deployment](OUTLIER_STORAGE_UPDATE.md).
+
+## Numeric Basic scan reduction
+
+The previous Basic procedure capped aggregation at ten fields, irrespective of
+SQL_BATCH_SIZE=25. The updated procedure caps at 20 and builds field fragments
+before appending them. If an additional field would exceed either projection
+buffer or the combined 30,000-character projection budget, it leaves that field
+for the next batch. The remaining 2,000 characters cover the aggregate wrapper.
+No field is skipped and FIELD_COUNT records the accepted width.
+
+For the current 415 RDS numeric fields and configured special values, generated
+queries fit in 21 batches instead of 42. This halves the number of aggregate
+requests that reference the source, not necessarily elapsed time or physical
+I/O. Wider aggregation may need more spool. No permanent working table is added
+to Basic. Min/max, population deviation, counts, special exclusions, availability,
+POU_DT and result publication are unchanged.
+
+A combined Basic + Outliers run already reuses Basic's unrounded statistics;
+standalone Outliers calculates them internally. Do not run a separate statistics
+module before Basic. Categorical/identifier DISTINCT aggregation remains bounded
+under the existing caps; its spool-heavy plans need measurement before widening.
+
+User-supplied run 10 completed 20 outlier fields in 3m31.52s, including standalone
+statistics and a 20-field copy. This confirms one group fits that workload; it is
+not a full-RDS throughput guarantee or a benchmark of the new Basic procedure.
+See [Basic deployment and benchmark](NUMERIC_BASIC_UPDATE.md).

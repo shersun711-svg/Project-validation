@@ -1,7 +1,7 @@
 /* Developer-only generated Basic special-value aggregate and persistence checks.
    SQLite dialect adaptations do not compile Teradata SPL or execute SAS. */
 import fs from 'node:fs';import assert from 'node:assert/strict';import {DatabaseSync}from'node:sqlite';
-import {assignment,evaluate}from'./check_static.mjs';
+import {numericParts,assignment,evaluate}from'./check_static.mjs';
 const adapt=q=>q.replaceAll('DQ_DB.','').replaceAll('CURRENT_TIMESTAMP(6)','CURRENT_TIMESTAMP');
 const dates=['2000-01-31','2000-01-31','2000-01-31','2000-01-31','2000-02-29','2000-02-29',null,null];
 const amounts=[-999,0,10,20,999.99,null,10,null];
@@ -15,9 +15,7 @@ const categories=['unknown','A','B','NA','? ',null,'MISSING',null];raw.forEach((
 const basic=fs.readFileSync(new URL('../teradata/modules/10_numeric_basic.sql',import.meta.url),'utf8').replace(/SET (\w+)=/g,'SET $1 =');
 let bv={V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_PROJECTION:'',V_FIELD:'S.DQ_F1',V_CLEAN:'S.DQ_C1',V_SUFFIX:'1',
  V_SPECIAL_LIST:'(-999.0000000000,999.9900000000)','F.FIELD_NAME':'AMOUNT'};
-const bc=basic.indexOf('FOR F AS');bv.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',bc,basic),bv);
-bv.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',basic.indexOf('IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)'),basic),bv);
-bv.V_PROJECTION=evaluate(assignment('V_PROJECTION',bc,basic),bv);
+numericParts(bv,basic);bv.V_SOURCE_PROJECTION+=bv.V_SOURCE_PART;bv.V_PROJECTION+=bv.V_METRIC_PART;
 const num=basics.prepare('SELECT NULL AS POU_DT,COUNT(*) AS TOTAL_N'+bv.V_PROJECTION.replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)')+' FROM (SELECT '+bv.V_SOURCE_PROJECTION+' FROM SOURCE.FIXTURE) S').get();
 assert.equal(num.TOTAL_N,8);assert.equal(num.N1,6);assert.equal(num.V1,4);assert.equal(num.N1-num.V1,2);assert.equal(num.Z1,1);
 assert.equal(num.LO1,0);assert.equal(num.HI1,20);assert.equal(num.AV1,10);assert.ok(Math.abs(num.SD1-Math.sqrt(50))<1e-12);

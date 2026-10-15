@@ -150,20 +150,26 @@ export {groupingVariables,periodUnion};
 const specialXml=execFileSync('unzip',['-p',path.join(root,'config/DQ_RDS_config.xlsx'),'xl/worksheets/sheet4.xml'],{encoding:'utf8'});
 const specialRows=[...specialXml.matchAll(/<row[^>]*>(.*?)<\/row>/g)].map(m=>[...m[1].matchAll(/<t>(.*?)<\/t>/g)].map(t=>t[1]));
 const numericSpecialList='('+specialRows.filter(r=>r[0]==='NUMERIC').map(r=>Number(r[1]).toFixed(10)).join(',')+')';
-const projection=assignment('V_PROJECTION',module.indexOf('FOR F AS'));
-const sourceProjection=assignment('V_SOURCE_PROJECTION',module.indexOf('FOR F AS'));
+function numericParts(v,source=module){
+    const cursor=source.indexOf('FOR F AS');
+    v.V_SOURCE_PART=evaluate(assignment('V_SOURCE_PART',cursor,source),v);
+    v.V_SOURCE_PART=evaluate(assignment('V_SOURCE_PART',source.indexOf('SET V_SOURCE_PART = V_SOURCE_PART',cursor),source),v);
+    v.V_METRIC_PART=evaluate(assignment('V_METRIC_PART',cursor,source),v);
+    return v;
+}
+export {numericParts};
 const aggregate=assignment('V_SQL',module.indexOf('/* GROUPING distinguishes'));
 const insert=assignment('V_SQL',module.indexOf('FOR R AS'));
 for(const batch of [fields.filter(f=>f.type==='NUMERIC').slice(0,10),Array.from({length:10},(_,i)=>({name:'F'+String(i).padStart(127,'X')}))]){
     const v={...groupingVariables(module),V_DB:'LAB_T_ORION_MVT',V_SOURCE:'VW_RDS_PHASE2_FACT',V_DATE:'FACT_DT',V_PROJECTION:'',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_SPECIAL_LIST:numericSpecialList};
     for(const [i,f] of batch.entries()){
         v.V_SUFFIX=String(i+1);v.V_FIELD='S.DQ_F'+v.V_SUFFIX;v.V_CLEAN='S.DQ_C'+v.V_SUFFIX;v['F.FIELD_NAME']=f.name;
-        v.V_SOURCE_PROJECTION=evaluate(sourceProjection,v);
-        v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',module.indexOf('IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)'),module.replace(/SET (\w+)=/g,'SET $1 =')),v);
-        v.V_PROJECTION=evaluate(projection,v);
+        numericParts(v);
+        v.V_SOURCE_PROJECTION+=v.V_SOURCE_PART;
+        v.V_PROJECTION+=v.V_METRIC_PART;
     }
-    assert.ok(v.V_SOURCE_PROJECTION.length<=16000);
-    assert.ok(v.V_PROJECTION.length<=12000);
+    assert.ok(v.V_SOURCE_PROJECTION.length<=24000);
+    assert.ok(v.V_PROJECTION.length<=24000);
     const query=evaluate(aggregate,v);lex(query,'generated aggregate');assert.ok(query.length<32000);
     assert.equal((query.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,1);
     assert.ok(query.includes('GROUP BY GROUPING SETS ((),'));

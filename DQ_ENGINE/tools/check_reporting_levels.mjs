@@ -1,6 +1,6 @@
 /* Generated-query checks only; SQLite is not a Teradata/SAS runtime. */
 import fs from 'node:fs';import assert from 'node:assert/strict';import {DatabaseSync}from'node:sqlite';
-import {assignment,evaluate,groupingVariables,periodUnion}from'./check_static.mjs';
+import {numericParts,assignment,evaluate,groupingVariables,periodUnion}from'./check_static.mjs';
 const read=p=>fs.readFileSync(new URL('../'+p,import.meta.url),'utf8').replace(/SET (\w+)=/g,'SET $1 =');
 const nb=read('teradata/modules/10_numeric_basic.sql'),ob=read('teradata/modules/15_other_basic.sql');
 const ns=read('teradata/modules/03_numeric_statistics.sql');
@@ -34,11 +34,10 @@ function variables(type,levels){
  const v={...groupingVariables(source,...levels),V_DB:'SOURCE',V_SOURCE:'FIXTURE',V_DATE:'FACT_DT',V_SUFFIX:'1',
   'F.FIELD_NAME':name,V_FIELD:'S.DQ_F1',V_CLEAN:'S.DQ_C1',V_DISTINCT:'S.DQ_F1',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_PROJECTION:'',
   V_SPECIAL_LIST:type==='NUMERIC'?'(-9999)':"('UNKNOWN')"};
- v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cursor,source),v);
  if(type==='NUMERIC'){
-  v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',source.indexOf('IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)'),source),v);
-  v.V_PROJECTION=evaluate(assignment('V_PROJECTION',cursor,source),v);
+  numericParts(v,source);v.V_SOURCE_PROJECTION+=v.V_SOURCE_PART;v.V_PROJECTION+=v.V_METRIC_PART;
  }else{
+  v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cursor,source),v);
   const cat=source.indexOf("IF P_TYPE='CATEGORICAL' THEN",cursor);
   if(type==='CATEGORICAL'){
    v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cat,source),v);v.V_DISTINCT='S.DQ_C1';

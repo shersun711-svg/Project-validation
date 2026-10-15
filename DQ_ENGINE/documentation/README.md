@@ -230,3 +230,5 @@ and [original input review](INPUT_REVIEW.md).
 
 See [field selection and module switches](CONFIGURATION_GUIDE.md) to choose
 which fields and tests to run.
+
+For the Numeric Basic scan reduction, see [deployment and benchmark](NUMERIC_BASIC_UPDATE.md).

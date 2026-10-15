@@ -16,8 +16,10 @@ main: BEGIN
     DECLARE V_GROUP_CLAUSE VARCHAR(300);
     DECLARE V_TIME_SELECT VARCHAR(500);
     DECLARE V_SQL VARCHAR(32000);
-    DECLARE V_PROJECTION VARCHAR(12000);
-    DECLARE V_SOURCE_PROJECTION VARCHAR(16000);
+    DECLARE V_PROJECTION VARCHAR(24000);
+    DECLARE V_METRIC_PART VARCHAR(4000);
+    DECLARE V_SOURCE_PART VARCHAR(10000);
+    DECLARE V_SOURCE_PROJECTION VARCHAR(24000);
     DECLARE V_SPECIAL_LIST VARCHAR(8000);
     DECLARE V_CLEAN VARCHAR(260);
     DECLARE V_SUFFIX VARCHAR(12);
@@ -152,8 +154,9 @@ main: BEGIN
         SIGNAL SQLSTATE 'U0011' SET MESSAGE_TEXT = 'Captured numeric identifiers invalid or selection empty';
     END IF;
     CALL DQ_DB.SP_DQ_SPECIAL_LIST(P_RUN_ID,'NUMERIC',V_SPECIAL_LIST);
-    /* The list is repeated only in the source projection. Bound SQL size. */
-    SET V_SIZE=LEAST(V_SIZE,10);
+    /* Wider Basic batches reduce repeated view scans. Build each field first
+       and split automatically before exceeding SQL text/buffer limits. */
+    SET V_SIZE=LEAST(V_SIZE,20);
     /* Only selected grouping sets enter the source aggregation. */
     SET V_GROUPS='';
     IF V_PROFILE_OVERALL='Y' THEN SET V_GROUPS='()'; END IF;
@@ -193,29 +196,46 @@ main: BEGIN
                AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST
              ORDER BY FIELD_ORDINAL
         DO
-            SET V_SUFFIX = TRIM(CAST(F.FIELD_ORDINAL AS VARCHAR(12)));
-            SET V_SOURCE_PROJECTION = V_SOURCE_PROJECTION || ',"' || TRIM(F.FIELD_NAME)
-                || '" AS DQ_F' || V_SUFFIX;
-            SET V_FIELD = 'S.DQ_F' || V_SUFFIX;
-            SET V_CLEAN = 'S.DQ_C' || V_SUFFIX;
-            IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SPECIAL_LIST)
-               +2*CHARACTER_LENGTH(TRIM(F.FIELD_NAME))+100>16000 THEN
-                SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Numeric SQL too long; reduce SQL_BATCH_SIZE or special list';
+            IF F.FIELD_ORDINAL<=V_LAST THEN
+                SET V_SUFFIX = TRIM(CAST(F.FIELD_ORDINAL AS VARCHAR(12)));
+                SET V_SOURCE_PART = ',"' || TRIM(F.FIELD_NAME)
+                    || '" AS DQ_F' || V_SUFFIX;
+                SET V_FIELD = 'S.DQ_F' || V_SUFFIX;
+                SET V_CLEAN = 'S.DQ_C' || V_SUFFIX;
+                SET V_SOURCE_PART = V_SOURCE_PART
+                  || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_SPECIAL_LIST
+                  || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
+                SET V_METRIC_PART = ''
+                 || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
+                 || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' = 0 THEN 1 ELSE 0 END AS BIGINT)),0) AS Z' || V_SUFFIX
+                 || ',MIN(' || V_CLEAN || ') AS LO' || V_SUFFIX
+                 || ',MAX(' || V_CLEAN || ') AS HI' || V_SUFFIX
+                 || ',AVG(CAST(' || V_CLEAN || ' AS FLOAT)) AS AV' || V_SUFFIX
+                 || ',STDDEV_POP(CAST(' || V_CLEAN || ' AS FLOAT)) AS SD' || V_SUFFIX
+                 || ',COALESCE(SUM(CAST(CASE WHEN ' || V_CLEAN || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS V' || V_SUFFIX
+                 || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
+                 || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
+                /* Reserve 2,000 characters for SELECT/grouping/table names. The
+                   complete query is bounded before assignment to VARCHAR(32000).
+                   Shrinking V_LAST leaves rejected fields for the next batch. */
+                IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SOURCE_PART)>24000
+                   OR CHARACTER_LENGTH(V_PROJECTION)+CHARACTER_LENGTH(V_METRIC_PART)>24000
+                   OR CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SOURCE_PART)
+                     +CHARACTER_LENGTH(V_PROJECTION)+CHARACTER_LENGTH(V_METRIC_PART)>30000 THEN
+                    IF F.FIELD_ORDINAL=V_FIRST THEN
+                        SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Single numeric field SQL exceeds safe length';
+                    END IF;
+                    SET V_LAST=F.FIELD_ORDINAL-1;
+                ELSE
+                    SET V_SOURCE_PROJECTION = V_SOURCE_PROJECTION || V_SOURCE_PART;
+                    SET V_PROJECTION = V_PROJECTION || V_METRIC_PART;
+                END IF;
             END IF;
-            SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION
-              || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_SPECIAL_LIST
-              || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
-            SET V_PROJECTION = V_PROJECTION
-             || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
-             || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' = 0 THEN 1 ELSE 0 END AS BIGINT)),0) AS Z' || V_SUFFIX
-             || ',MIN(' || V_CLEAN || ') AS LO' || V_SUFFIX
-             || ',MAX(' || V_CLEAN || ') AS HI' || V_SUFFIX
-             || ',AVG(CAST(' || V_CLEAN || ' AS FLOAT)) AS AV' || V_SUFFIX
-             || ',STDDEV_POP(CAST(' || V_CLEAN || ' AS FLOAT)) AS SD' || V_SUFFIX
-             || ',COALESCE(SUM(CAST(CASE WHEN ' || V_CLEAN || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS V' || V_SUFFIX
-             || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
-             || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
         END FOR;
+        /* Record the accepted width after any automatic split. */
+        UPDATE DQ_DB.DQ_MODULE_LOG SET FIELD_COUNT=V_LAST-V_FIRST+1
+         WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_BASIC'
+           AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
         /* GROUPING distinguishes an actual NULL date bucket from rolled-up
            NULLs. An empty source still emits its OVERALL aggregate row. */
         SET V_SQL = 'CREATE VOLATILE TABLE DQ_NB_AGG AS ('

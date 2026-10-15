@@ -171,3 +171,14 @@ same copy and preserve the public statistics APIs. A new synthetic 415-field
 check exercises settings 1/5/10/15/20/25/30 and simulated load-failure cleanup.
 These are SQLite/generated-SQL checks, not real database quota, SPL or
 transaction tests. No full-run speed or capacity claim is established.
+
+### Numeric Basic batch width
+
+Local generated-query checks compare all 415 numeric fields at settings
+1/10/15/20/25/30 across all seven nonempty scope selections and empty/nonempty
+fixtures. Aggregates match the ten-field baseline. Long identifiers and a
+near-8,000-character special list trigger smaller batches without omissions.
+Current RDS names/specials generate 21 rather than 42 aggregate requests.
+Existing Basic persistence and reporting-scope checks cover metric formulas,
+rate denominators, unrounded prerequisite statistics and availability. These
+SQLite checks do not compile SPL or establish Teradata spool/runtime performance.

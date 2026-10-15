@@ -19,8 +19,8 @@ Use the existing Excel SQL_BATCH_SIZE setting; no new setting or table is added.
 
 Values below 5 use that smaller size for both. Other values up to 20 are accepted
 but can produce smaller counting batches at copy boundaries; multiples of 5
-are convenient. Numeric Basic retains its existing maximum of 10 fields per
-aggregate; increasing the setting does not widen Basic beyond that cap.
+are convenient. Numeric Basic now allows up to 20 fields per aggregate with automatic
+SQL-length splitting; see [Basic update](NUMERIC_BASIC_UPDATE.md).
 
 For size 10, copy ten numeric fields plus the reporting date, calculate fields
 1-5 and then 6-10, drop the copy, and load the next ten fields. Only one copy
