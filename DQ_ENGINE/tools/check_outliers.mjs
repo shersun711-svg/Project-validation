@@ -113,6 +113,11 @@ function yearJoin(v){
  const start=v.V_PROFILE_YEARLY==='Y'?sql.indexOf("IF V_PROFILE_YEARLY='Y' THEN",defaults):defaults;
  for(const part of ['V_YEAR_TOTAL','V_YEAR_JOIN'])v[part]=evaluate(assignment(part,start,sql),v);
 }
+function sourceJoin(v){
+ const defaults=sql.indexOf("SET V_SOURCE_JOIN =");
+ const start=v['C.CHUNK_VALUE']==='ALL'?sql.indexOf("IF C.CHUNK_VALUE='ALL' THEN",defaults):defaults;
+ for(const part of ['V_SOURCE_JOIN','V_SOURCE_JOIN_ON'])v[part]=evaluate(assignment(part,start,sql),v);
+}
 function batch(first,last,levels=['Y','Y','Y']){const [o,y,m]=levels;const v={V_PROFILE_OVERALL:o,V_PROFILE_YEARLY:y,V_PROFILE_MONTHLY:m,P_RUN_ID:id,P_PROJECT_ID:'DQ_OUT_TEST',V_DB:'main',V_SOURCE:stageName,V_DATE:'FACT_DT',
  V_FIRST:first,V_LAST:last,V_LIST:'(-9999.0000000000)',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',
  V_BOUND_PROJECTION:'',V_OVERALL_BOUND_PROJECTION:'',V_PROJECTION:'',V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N'};
@@ -135,8 +140,10 @@ function batch(first,last,levels=['Y','Y','Y']){const [o,y,m]=levels;const v={V_
   else v.V_SOURCE_FILTER=evaluate(assignment('V_SOURCE_FILTER',sql.indexOf("SET V_CHUNK_YEAR ='ALL'"),sql),{V_STAGE_YEAR:stageYear,'C.CHUNK_VALUE':c.CHUNK_VALUE});
   assert.ok(!v.V_SOURCE_FILTER.includes('EXTRACT('),'year filtering must directly constrain the stored partition key');
   assert.ok(c.CHUNK_VALUE==='ALL'||v.V_SOURCE_FILTER!=='1=1','nonempty populations must be year-filtered or NULL-date filtered');
-  yearJoin(v);
+  yearJoin(v);sourceJoin(v);
   v.V_PERIOD_QUERY=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),v);
+  assert.equal(v.V_PERIOD_QUERY.includes(' CROSS JOIN (SELECT '),c.CHUNK_VALUE!=='ALL');
+  assert.equal(v.V_PERIOD_QUERY.includes(') S ON 1=1'),c.CHUNK_VALUE==='ALL');
   assert.ok(v.V_PERIOD_QUERY.includes('END AS VARCHAR(10)) AS CHUNK_VALUE'));
   assert.ok(v.V_PERIOD_QUERY.includes("AS VARCHAR(10)) AS CHUNK_YEAR"));
   assert.ok(v.V_PERIOD_QUERY.includes('GROUP BY EXTRACT(MONTH FROM S.DQ_DT)'));
@@ -296,7 +303,7 @@ for(let i=1;i<=5;i++){maxv['F.FIELD_NAME']='F'+String(i).padStart(127,'X');maxv.
  for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])maxv[part]=evaluate(assignment(part,cursor,sql),maxv);
 }
 for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION','V_ROLLUP_OVERALL','V_ROLLUP_YEARLY','V_ROLLUP_MONTHLY','V_CHECK'])assert.ok(maxv[part].length<=widths[part]);
-yearJoin(maxv);
+yearJoin(maxv);sourceJoin(maxv);
 maxv.V_PERIOD_QUERY=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),maxv);
 assert.ok(maxv.V_PERIOD_QUERY.length<=widths.V_PERIOD_QUERY);
 maxv.V_ROLLUP_QUERY=rollup(maxv);
@@ -441,22 +448,20 @@ for(const [i,name]of diagnosticFields.entries()){
  for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION'])
   dv[part]=evaluate(assignment(part,cursor,sql),dv);
 }
-yearJoin(dv);
+yearJoin(dv);sourceJoin(dv);
 const diagnosticStage=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),{...dv,V_SOURCE:'VW_RDS_PHASE2_FACT'});
 const diagnosticStats=evaluate(assignment('V_SQL',sql.indexOf('/* One statistics request'),sql),dv);
 const diagnosticBounds=evaluate(assignment('V_SQL',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
-const diagnosticCount=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
-// The supplied plan redistributes the preserved-side outer join's detail rows
-// by constant overall bounds. Test an ordinary product join for a populated
-// chunk. This is an EXPLAIN candidate only; the empty-source path still needs
-// the original outer join to preserve its synthetic zero-population row.
-function populatedChunkCandidate(q){
- assert.equal(q.split(' B0 LEFT JOIN (SELECT ').length,2);
- assert.equal(q.split(') S ON 1=1 LEFT JOIN ').length,2);
- return q.replace(' B0 LEFT JOIN (SELECT ',' B0 CROSS JOIN (SELECT ')
-  .replace(') S ON 1=1 LEFT JOIN ',') S LEFT JOIN ');
+const diagnosticCandidate=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+// Preserve the historical outer-join query for a reproducible comparison with
+// the current populated-chunk query. Production retains LEFT JOIN for ALL only.
+function legacyPopulatedChunkQuery(q){
+ assert.equal(q.split(' B0 CROSS JOIN (SELECT ').length,2);
+ assert.equal(q.split(') S LEFT JOIN ').length,2);
+ return q.replace(' B0 CROSS JOIN (SELECT ',' B0 LEFT JOIN (SELECT ')
+  .replace(') S LEFT JOIN ',') S ON 1=1 LEFT JOIN ');
 }
-const diagnosticCandidate=populatedChunkCandidate(diagnosticCount);
+const diagnosticCount=legacyPopulatedChunkQuery(diagnosticCandidate);
 // Compare every projected column, including NULLs and copied FLOAT bounds.
 // MINUS is distinct, so also check row counts and duplicate period keys.
 const diagnosticDifferences=`SELECT 'OLD_ONLY' AS DIFFERENCE_SIDE,D.* FROM
@@ -629,9 +634,11 @@ for(const [key,pop]of joinGroups){
 const joinAdapt=q=>adapt(q).replaceAll('"DQ_DB".','');
 for(const chunk of ['2018','UNKNOWN']){
  const jv={...dv,'C.CHUNK_VALUE':chunk,V_CHUNK_YEAR:chunk,V_SOURCE_FILTER:'"DQ_OS_YEAR_0"='+(chunk==='UNKNOWN'?0:2018)};
- const baseline=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),jv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+ sourceJoin(jv);
+ const optimized=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),jv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+ const baseline=legacyPopulatedChunkQuery(optimized);
  const expected=joinDb.prepare(joinAdapt(baseline)).all();
- const actual=joinDb.prepare(joinAdapt(populatedChunkCandidate(baseline))).all();
+ const actual=joinDb.prepare(joinAdapt(optimized)).all();
  const sort=rs=>rs.sort((a,b)=>String(a.CHUNK_VALUE).localeCompare(String(b.CHUNK_VALUE)));
  assert.ok(expected.length>0);assert.deepEqual(sort(actual),sort(expected));
 }
@@ -660,7 +667,7 @@ const diagnosticPath=new URL('../tests/diagnose_outlier_rds_run7.sql',import.met
 if(process.env.DQ_WRITE_RDS_DIAGNOSTIC==='1')fs.writeFileSync(diagnosticPath,diagnostic);
 else assert.equal(fs.readFileSync(diagnosticPath,'utf8'),diagnostic,'Regenerate the RDS plan diagnostic after template changes');
 console.log('RDS plan diagnostic checked: actual stage/bounds/count templates, metadata mismatch checks, EXPLAIN and optional result comparison. No RDS data or Teradata plan accessed locally.');
-console.log('Nonempty chunk join candidate passed: identical measurements for populated and NULL-date chunks; empty-source distinction retained. Production procedure unchanged.');
+console.log('Nonempty chunk join candidate passed: identical measurements for populated and NULL-date chunks; empty-source distinction retained. Production uses the tested conditional join.');
 console.log('Automatic diagnostic comparison passed: all-column equality, NULL changes, missing rows, duplicate keys and both-empty rejection. Teradata execution pending.');
 
 // Lifecycle/API structure: materialize once before internal statistics, use the

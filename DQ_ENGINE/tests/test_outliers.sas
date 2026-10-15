@@ -24,9 +24,9 @@
     run;
     data work.outlier_expected;
         set work.outlier_stats;
-        lower_bound=mean_value-3*stddev_value;
-        upper_bound=mean_value+3*stddev_value;
-        outlier_count=2; outlier_rate_pct=100*outlier_count/valid_count;
+        lower_bound=round(mean_value-3*stddev_value,1e-6);
+        upper_bound=round(mean_value+3*stddev_value,1e-6);
+        outlier_count=2; outlier_rate=round(outlier_count/valid_count,1e-6);
     run;
     proc sql;
         %dq_connect;
@@ -37,7 +37,7 @@
                     CAST(OUTLIER_LOWER_BOUND AS FLOAT) AS LOWER_BOUND,
                     CAST(OUTLIER_UPPER_BOUND AS FLOAT) AS UPPER_BOUND,
                     CAST(OUTLIER_COUNT AS FLOAT) AS OUTLIER_COUNT,
-                    CAST(OUTLIER_RATE_PCT AS FLOAT) AS OUTLIER_RATE_PCT
+                    CAST(OUTLIER_RATE AS FLOAT) AS OUTLIER_RATE
              from &dq_database..DQ_BASIC_REVIEW where RUN_ID=&_basic_sql
              and FIELD_NAME='AMOUNT' and PERIOD_LEVEL='OVERALL');
         %dq_check_sql;
@@ -50,10 +50,10 @@
         select count(*) into :_failures trimmed
         from work.outlier_expected E cross join work.outlier_actual A
         where missing(A.valid_count) or missing(A.lower_bound) or missing(A.upper_bound)
-           or missing(A.outlier_count) or missing(A.outlier_rate_pct)
+           or missing(A.outlier_count) or missing(A.outlier_rate)
            or E.valid_count ne A.valid_count or E.outlier_count ne A.outlier_count
            or abs(E.lower_bound-A.lower_bound)>1e-8 or abs(E.upper_bound-A.upper_bound)>1e-8
-           or abs(E.outlier_rate_pct-A.outlier_rate_pct)>1e-8;
+           or abs(E.outlier_rate-A.outlier_rate)>1e-8;
     quit;
     %if &_count ne 1 or &_failures ne 0 %then %abort cancel;
     %run_dq_engine(project=DQ_OUT_TEST,numeric_basic=N,numeric_outliers=Y);

@@ -18,7 +18,8 @@ lower-is-better percentage rule; this change adds no other rule family.
 |---|---|
 | RUN_ID, PROJECT_ID | Run and project identity |
 | FIELD_NAME, MODULE_NAME | Field and profiling module |
-| PERIOD_LEVEL, PERIOD_VALUE | Overall/yearly/monthly observation |
+| PERIOD_LEVEL, POU_DT | Reporting level and latest actual source date in the group; overall/unknown dates are NULL |
+| PERIOD_VALUE | Internal period key, retained for unique keys and compatibility |
 | RULE_NAME | Existing percentage metric name, e.g. MISSING_RATE_PCT or OUTLIER_RATE_PCT |
 | OBSERVED_VALUE | Calculated percentage copied unchanged from the profiling result |
 | GREEN_THRESHOLD, RED_THRESHOLD | Threshold snapshots used for this run |
@@ -61,7 +62,8 @@ DQ_COMPLETED_RESULT retains its existing column order/names, reading new statuse
 from the rule table and falling back to the saved metric colour for older runs.
 DQ_RUN_SUMMARY retains its existing interface. DQ_BASIC_REVIEW is the final
 profiling view: it omits colour columns and formats counts as integers,
-percentages to two decimals and descriptive values to four decimals. The casts
+fractional rates to six decimals (without the _PCT suffix) and descriptive values
+to six decimals. Rule OBSERVED_VALUE and thresholds retain percentage units. The casts
 affect display only; stored metric precision and rule evaluation are unchanged.
 SAS status/summary imports, Excel configuration and procedure arguments require
 no change. Direct consumers of DQ_METRIC_RESULT.DQ_COLOUR must use the completed
@@ -75,7 +77,7 @@ For direct rule-table review, join the run log and require SUCCEEDED. This is a
 read-only query, not an additional reporting object:
 
 ```sql
-SELECT N.RUN_NUMBER,Q.FIELD_NAME,Q.MODULE_NAME,Q.PERIOD_LEVEL,Q.PERIOD_VALUE,
+SELECT N.RUN_NUMBER,Q.FIELD_NAME,Q.MODULE_NAME,Q.PERIOD_LEVEL,Q.POU_DT,
        Q.RULE_NAME,Q.OBSERVED_VALUE,Q.GREEN_THRESHOLD,Q.RED_THRESHOLD,
        Q.STATUS,Q.REASON
 FROM LAB_T_ORION_MVT.DQ_RULE_RESULT Q
@@ -83,34 +85,15 @@ JOIN LAB_T_ORION_MVT.DQ_RUN_LOG L
   ON Q.RUN_ID=L.RUN_ID AND Q.PROJECT_ID=L.PROJECT_ID
 LEFT JOIN LAB_T_ORION_MVT.DQ_RUN_NUMBER N ON Q.RUN_ID=N.RUN_ID
 WHERE L.STATUS='SUCCEEDED' AND Q.PROJECT_ID='RDS' AND N.RUN_NUMBER=27
-ORDER BY Q.FIELD_NAME,Q.MODULE_NAME,Q.PERIOD_LEVEL,Q.PERIOD_VALUE,Q.RULE_NAME;
+ORDER BY Q.FIELD_NAME,Q.MODULE_NAME,Q.PERIOD_LEVEL,Q.POU_DT,Q.RULE_NAME;
 ```
 
 ## Upgrade an existing engine
 
-Wait for the current outlier run and all configuration/profiling jobs to finish.
-Replace DQ_DB with the
-approved schema (currently LAB_T_ORION_MVT) in deployment copies, including grants.
-No database deployment is performed from this repository workspace.
-
-1. Run setup/17_create_rule_results.sql once, including its SELECT WITH GRANT
-   OPTION and INSERT/DELETE grants. Do not rerun table CREATE if it already exists;
-   compare its SHOW TABLE output with the current definition first.
-2. Replace DQ_COLOUR_RULE and compile the complete SP_DQ_CLASSIFY in
-   results/90_colour_classification.sql. Execute its included procedure grant.
-3. Replace both existing views in results/91_dq_summary_views.sql and recompile
-   results/93_dq_basic_review.sql so the final review layout and display scales
-   match this release.
-4. Recompile the four procedures in modules/00_run_engine.sql separately:
-   EXTENDED, PROFILE, BASIC, ENGINE, running each included grant before the next.
-   The added cleanup is limited to DQ_RULE_RESULT for the owned run ID.
-5. Use the existing Excel and SAS files to run a small selection with a fresh
-   UUID. Require SUCCEEDED and check the rule table and existing summary/review.
-   No Excel reload is needed solely for this change.
-
-No profiling-module recompilation, column migration, table drop, new SAS session
-or configuration reload is required. View-owner/invoker permissions and installed
-Teradata SPL behaviour still require server verification.
+Use [the current review/date upgrade](REVIEW_UPDATE.md) after reporting levels
+are installed. It includes the new period mapping, rule date column and required
+procedure/view recompilation. Fresh installations follow the complete deployment
+sequence in README.md. No database deployment is performed from this workspace.
 
 ## Focused checks
 

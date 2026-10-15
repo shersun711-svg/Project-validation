@@ -62,6 +62,8 @@ approved schema, currently LAB_T_ORION_MVT. Use a Teradata-mode session.
    outlier scan-calendar table. Existing projects and historical runs retain
    the previous Y/Y/Y scope until an explicit workbook reload; new settings
    rows default to Y/Y/N.
+   With current repository procedures, also run
+   `teradata/setup/21_capture_period_dates.sql` once before recompilation.
 2. Recompile the complete procedure in `teradata/setup/07_apply_excel_config.sql`
    and execute its included grant.
 3. Recompile `teradata/modules/03_numeric_statistics.sql`: source helper/grant
@@ -72,6 +74,8 @@ approved schema, currently LAB_T_ORION_MVT. Use a Teradata-mode session.
    retain their signatures and need no change.
 5. Recompile the procedures in `teradata/modules/00_run_engine.sql` separately:
    EXTENDED/grant, PROFILE/grant, BASIC/grant, ENGINE/grant.
+   Then deploy results/90, 91 and 93 in that order, following the
+   [review/date update](REVIEW_UPDATE.md) for the classifier and views.
 6. Add the three headers and values to YOUR edited workbook's Settings sheet.
    For RDS use Y/Y/N in overall/monthly/yearly order. Preserve your ACTIVE_IND
    selections and special-value lists; do not replace your workbook with the

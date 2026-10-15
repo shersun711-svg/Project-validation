@@ -7,8 +7,9 @@ One logical result is `(RUN_ID, FIELD_NAME, MODULE_NAME, PERIOD_LEVEL, PERIOD_VA
 share the same numeric row when both modules are selected.
 Applicable metric names become columns. The view contains profiling values only;
 rule statuses are read separately from DQ_RULE_RESULT. Counts display with zero
-fractional digits, percentages with two, and descriptive numeric statistics and
-bounds with four. These are presentation casts only: stored values in
+fractional digits, fractional rates with six, and descriptive numeric statistics and
+bounds with six. Review rate columns omit the _PCT suffix and divide the stored
+percentage by 100. These are presentation casts only: stored values in
 DQ_METRIC_RESULT remain DECIMAL(38,10), including the original NULL statistics.
 Rule outcomes are not recalculated from displayed rates or current configuration. Filter by
 RUN_ID and optionally PERIOD_LEVEL; historical runs and different periods
@@ -88,6 +89,22 @@ Retries retain it. RUN_ID remains the original internal UUID; mapping numbers
 are never reset/reused. DQ_RUN_FIELD_CONFIG now captures selected fields for
 all basic types, with FIELD_ORDINAL numbered separately within FIELD_TYPE.
 Use the current deployment sequence in [setup and operation](README.md).
+
+## Review period date
+
+POU_DT is a DATE: the latest actual configured reporting date in each monthly or
+yearly group, even when that date is not the calendar month/year end. It does not
+change the population grouped for those metrics. OVERALL and NULL-date groups
+have NULL POU_DT. DQ_RUN_PERIOD captures this small mapping from the first
+profiling aggregate of the run, including standalone outlier statistics, without
+another source scan. Keep source/configuration stable throughout the run.
+
+DQ_BASIC_REVIEW exposes POU_DT instead of PERIOD_VALUE. DQ_COMPLETED_RESULT and
+DQ_RULE_RESULT also expose POU_DT; they retain their internal PERIOD_VALUE keys
+for compatibility, uniqueness and joins. Use POU_DT for date display. Historical
+runs without a captured mapping remain NULL; dates are never inferred from
+month labels or backfilled from today's source. Failure/retry removes owned
+DQ_RUN_PERIOD rows alongside the other results.
 
 ## Field availability
 

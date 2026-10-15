@@ -50,6 +50,8 @@ main: BEGIN
     DECLARE V_SUFFIX VARCHAR(12);
     DECLARE V_FIELD VARCHAR(150);
     DECLARE V_SOURCE_FILTER VARCHAR(1000);
+    DECLARE V_SOURCE_JOIN VARCHAR(20);
+    DECLARE V_SOURCE_JOIN_ON VARCHAR(16);
     DECLARE V_CHUNK_YEAR VARCHAR(7);
     DECLARE V_YEAR_BOUNDS VARCHAR(500);
     DECLARE V_YEAR_COUNT VARCHAR(1000);
@@ -305,6 +307,15 @@ main: BEGIN
                       || TRIM(C.CHUNK_VALUE);
                     SET V_CHUNK_YEAR=TRIM(C.CHUNK_VALUE);
                 END IF;
+                /* Calendar years and UNKNOWN contain staged rows. A product
+                   join avoids redistributing detail rows by constant bounds.
+                   Only the empty-source ALL sentinel needs an outer row. */
+                SET V_SOURCE_JOIN=' CROSS JOIN ';
+                SET V_SOURCE_JOIN_ON='';
+                IF C.CHUNK_VALUE='ALL' THEN
+                    SET V_SOURCE_JOIN=' LEFT JOIN ';
+                    SET V_SOURCE_JOIN_ON=' ON 1=1';
+                END IF;
                 SET V_YEAR_TOTAL='CAST(NULL AS BIGINT)';
                 SET V_YEAR_JOIN='';
                 IF V_PROFILE_YEARLY='Y' THEN
@@ -323,8 +334,8 @@ main: BEGIN
                   || ' FROM (SELECT MAX(TOTAL_N) AS TOTAL_N' || V_OVERALL_BOUND_PROJECTION
                   || ' FROM DQ_NO_BOUNDS WHERE PERIOD_LEVEL=''OVERALL'' AND PERIOD_VALUE=''ALL'') B0'
                   || V_YEAR_JOIN
-                  || ' LEFT JOIN (SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE
-                  || '" WHERE ' || V_SOURCE_FILTER || ') S ON 1=1'
+                  || V_SOURCE_JOIN || '(SELECT ' || V_SOURCE_PROJECTION || ' FROM "' || V_DB || '"."' || V_SOURCE
+                  || '" WHERE ' || V_SOURCE_FILTER || ') S' || V_SOURCE_JOIN_ON
                   || ' LEFT JOIN DQ_NO_BOUNDS BM ON ''' || V_PROFILE_MONTHLY || '''=''Y'' AND BM.PERIOD_LEVEL=''MONTHLY'' AND BM.PERIOD_VALUE=CASE'
                   || ' WHEN S.DQ_DT IS NULL THEN ''UNKNOWN'' ELSE CAST(''' || V_CHUNK_YEAR
                   || '-''||SUBSTR(''00''||TRIM(CAST(EXTRACT(MONTH FROM S.DQ_DT) AS VARCHAR(2))),'

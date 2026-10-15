@@ -10,6 +10,7 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const db=new DatabaseSync(':memory:');
 db.function('NULLIFZERO',value=>value===0?null:value);
 db.exec(`CREATE TABLE DQ_FIELD_AVAILABILITY (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,EARLIEST_DATE TEXT,LATEST_DATE TEXT);
+CREATE TABLE DQ_RUN_PERIOD (RUN_ID TEXT,PROJECT_ID TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,POU_DT TEXT,UNIQUE(RUN_ID,PROJECT_ID,PERIOD_LEVEL,PERIOD_VALUE));
 CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,STATUS TEXT,PROJECT_ID TEXT DEFAULT 'TEST');
 CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT PRIMARY KEY,RUN_NUMBER INTEGER UNIQUE);
 CREATE TABLE DQ_METRIC_RESULT (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,
@@ -86,6 +87,13 @@ db.exec(`INSERT INTO DQ_RULE_RESULT
  METRIC_VALUE,1,5,DQ_COLOUR,CASE WHEN DQ_COLOUR='NOT_EVALUATED' THEN 'No eligible observations' END
  FROM DQ_METRIC_RESULT WHERE DQ_COLOUR IS NOT NULL;
  UPDATE DQ_METRIC_RESULT SET DQ_COLOUR=NULL;`);
+// Actual snapshot dates need not be month ends; other projects must not join.
+for(const [run,project,level,period,date] of [
+ ['mixed','TEST','MONTHLY','2000-01','2000-01-27'],
+ ['mixed','TEST','MONTHLY','2000-02','2000-02-29'],
+ ['mixed','TEST','YEARLY','2000','2000-02-29'],
+ ['mixed','OTHER','MONTHLY','2000-01','2099-01-01']])
+ db.prepare('INSERT INTO DQ_RUN_PERIOD VALUES (?,?,?,?,?)').run(run,project,level,period,date);
 for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
@@ -101,7 +109,7 @@ const legacy=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=6 AND FI
 assert.equal(legacy.STDDEV_POP,null,'legacy sample deviation is not converted or shown as population deviation');
 assert.equal(Object.hasOwn(legacy,'STDDEV_SAMP'),false);
 const category=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='CATEGORY' AND PERIOD_LEVEL='OVERALL'").get();
-assert.equal(category.MISSING_COUNT,1);assert.equal(category.MISSING_RATE_PCT,25);
+assert.equal(category.MISSING_COUNT,1);assert.equal(category.MISSING_RATE,0.25);
 assert.equal(category.DISTINCT_COUNT,2);assert.equal(category.TOTAL_COUNT,4);
 assert.equal(category.NON_MISSING_COUNT,3);
 assert.equal(category.MINIMUM,null);assert.equal(category.FIRST_AVAILABLE_FACT_DT,'2000-01-31');
@@ -122,7 +130,7 @@ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUM
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND PERIOD_LEVEL<>'OVERALL' AND (FIRST_AVAILABLE_FACT_DT IS NOT NULL OR LAST_AVAILABLE_FACT_DT IS NOT NULL)").get().n,0);
 assert.equal(db.prepare("SELECT MINIMUM FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get().MINIMUM,0);
 assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_TYPE='DATE'").get().n,16);
-assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_TYPE='DATE' AND (MINIMUM IS NOT NULL OR MAXIMUM IS NOT NULL OR DISTINCT_COUNT IS NOT NULL OR ZERO_COUNT IS NOT NULL OR ZERO_RATE_PCT IS NOT NULL OR MEAN IS NOT NULL OR STDDEV_POP IS NOT NULL)").get().n,0);
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_TYPE='DATE' AND (MINIMUM IS NOT NULL OR MAXIMUM IS NOT NULL OR DISTINCT_COUNT IS NOT NULL OR ZERO_COUNT IS NOT NULL OR ZERO_RATE IS NOT NULL OR MEAN IS NOT NULL OR STDDEV_POP IS NOT NULL)").get().n,0);
 const combined=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(combined.MINIMUM,0);assert.equal(combined.SPECIAL_COUNT,0);
 assert.equal(combined.MODULE_NAME,'NUMERIC_BASIC+OUTLIERS');
@@ -136,7 +144,20 @@ assert.equal(only.OUTLIER_COUNT,2);assert.equal(only.OUTLIER_VALID_COUNT,33);ass
 const reviewDdl=fs.readFileSync(path.join(root,'teradata/results','93_dq_basic_review.sql'),'utf8');
 assert.doesNotMatch(reviewDdl,/AS "[A-Z_]*COLOUR"/);
 assert.match(reviewDdl,/AS DECIMAL\(38,0\)\) AS "TOTAL_COUNT"/);
-assert.match(reviewDdl,/AS DECIMAL\(9,2\)\) AS "MISSING_RATE_PCT"/);
-assert.match(reviewDdl,/AS DECIMAL\(38,4\)\) AS "MINIMUM"/);
+assert.match(reviewDdl,/AS DECIMAL\(9,6\)\) AS "MISSING_RATE"/);
+assert.match(reviewDdl,/AS DECIMAL\(38,6\)\) AS "MINIMUM"/);
+assert.equal(combined.POU_DT,null);
+assert.equal(Object.hasOwn(combined,'PERIOD_VALUE'),false);
+assert.equal(Object.hasOwn(combined,'MISSING_RATE_PCT'),false);
+assert.equal(combined.ZERO_RATE,0.25);assert.equal(combined.SPECIAL_RATE,0);
+assert.equal(db.prepare("SELECT POU_DT FROM DQ_BASIC_REVIEW WHERE RUN_ID='mixed' AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='MONTHLY' ORDER BY POU_DT DESC LIMIT 1").get().POU_DT,'2000-02-29');
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_ID='mixed' AND PERIOD_LEVEL='MONTHLY' AND POU_DT='2000-01-27'").get().n,6);
+assert.equal(legacy.POU_DT,null);
+assert.ok(Math.abs(only.OUTLIER_RATE-2/33)<1e-10);
+assert.equal(date.MISSING_RATE,0.25);
+assert.equal(db.prepare("SELECT MISSING_RATE FROM DQ_BASIC_REVIEW WHERE RUN_ID='date-only' LIMIT 1").get().MISSING_RATE,null);
+assert.equal(db.prepare("SELECT MISSING_RATE FROM DQ_BASIC_REVIEW WHERE RUN_ID='mixed' AND FIELD_NAME='NULL_CATEGORY' AND PERIOD_LEVEL='OVERALL'").get().MISSING_RATE,1);
+assert.equal((reviewDdl.match(/DECIMAL\(9,6\)/g)||[]).length,4);
+assert.equal((reviewDdl.match(/DECIMAL\(38,6\)/g)||[]).length,6);
 db.close();
 console.log('Portable review logic checks passed: pivot, period separation, date-only summary, short numbers and completed-run filtering. Teradata/SAS execution NOT tested.');

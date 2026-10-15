@@ -131,3 +131,18 @@ now materializes both 2018 outputs and checks all columns using bidirectional
 MINUS, row counts and duplicate keys. Local mutation tests reject changed
 values, NULL differences, missing rows, duplicates and both-empty outputs.
 Teradata comparison results remain pending; the production procedure is unchanged.
+
+The user then confirmed the Teradata D3 result: 12 old rows, 12 new rows, zero
+differences, zero duplicate keys on both sides, MATCH. The procedure now uses
+CROSS JOIN for populated calendar/UNKNOWN chunks and retains the outer join
+for the empty-source ALL sentinel. Local regressions cover all seven reporting
+level combinations, empty sources, NULL dates, specials and strict bounds. The
+updated complete SPL procedure and full-run runtime remain unverified on Teradata.
+
+Review rates now display as fractions and decimal statistics use six places.
+POU_DT captures the latest actual source reporting date from existing Basic or
+standalone statistics aggregates; overall/unknown dates remain NULL. Portable
+checks execute the generated date INSERTs for every type and reporting-level
+combination, test non-month-end dates, project isolation, legacy NULL dates and
+rate units. SQLite does not verify Teradata DECIMAL rounding, SPL, DDL or grants.
+Server fixture expectations and SAS reconciliation were updated but not run here.

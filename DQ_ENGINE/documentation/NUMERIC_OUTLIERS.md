@@ -25,7 +25,7 @@ Settings; the engine rejects a different value when outliers are selected.
 | OUTLIER_VALID_COUNT | Non-NULL, non-special population used for statistics/testing |
 | OUTLIER_LOWER_BOUND / OUTLIER_UPPER_BOUND | Period-specific mean minus/plus 3 times population deviation |
 | OUTLIER_COUNT | Number of valid values strictly outside bounds |
-| OUTLIER_RATE_PCT | 100 * OUTLIER_COUNT / OUTLIER_VALID_COUNT |
+| OUTLIER_RATE | OUTLIER_COUNT / OUTLIER_VALID_COUNT, displayed to six decimals; stored OUTLIER_RATE_PCT retains percentage units |
 
 No valid observations cannot define a deviation: bounds, outlier count and rate
 are NULL; the matching rule status is NOT_EVALUATED. With one valid observation,

@@ -219,7 +219,7 @@ main: BEGIN
         /* GROUPING distinguishes an actual NULL date bucket from rolled-up
            NULLs. An empty source still emits its OVERALL aggregate row. */
         SET V_SQL = 'CREATE VOLATILE TABLE DQ_NB_AGG AS ('
-          || 'SELECT ' || V_TIME_SELECT || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+          || 'SELECT ' || V_TIME_SELECT || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
           || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
           || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
           || V_GROUP_CLAUSE
@@ -230,6 +230,24 @@ main: BEGIN
         CALL DBC.SysExecSQL(V_SQL);
         SET V_VT_EXISTS = 1;
 
+        /* Capture actual source dates from an existing aggregate, once per run.
+           No extra source scan. Keep source/configuration stable during a run. */
+        IF V_FIRST=1 THEN
+            SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_PERIOD
+             WHERE RUN_ID=P_RUN_ID AND PROJECT_ID=P_PROJECT_ID;
+            IF V_COUNT=0 THEN
+                SET V_SQL='INSERT INTO DQ_DB.DQ_RUN_PERIOD '
+                  || '(RUN_ID,PROJECT_ID,PERIOD_LEVEL,PERIOD_VALUE,POU_DT) SELECT '''
+                  || P_RUN_ID || ''',''' || P_PROJECT_ID || ''','
+                  || 'CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END,'
+                  || 'CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
+                  || 'WHEN A.GM=1 THEN TRIM(CAST(A.DQ_YEAR AS CHAR(4))) ELSE '
+                  || 'TRIM(CAST(A.DQ_YEAR AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))),'
+                  || 'CHARACTER_LENGTH(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))))-1,2) END,'
+                  || 'CASE WHEN A.GY=1 THEN CAST(NULL AS DATE) ELSE A.POU_DT END FROM DQ_NB_AGG A';
+                CALL DBC.SysExecSQL(V_SQL);
+            END IF;
+        END IF;
         FOR R AS RESULTS_CURSOR CURSOR FOR
             SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
              WHERE RUN_ID = P_RUN_ID AND FIELD_TYPE = 'NUMERIC'

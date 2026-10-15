@@ -195,7 +195,7 @@ main: BEGIN
         END FOR;
         IF P_TYPE='DATE' THEN
             SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS ('
-          || 'SELECT ' || V_TIME_SELECT || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+          || 'SELECT ' || V_TIME_SELECT || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
           || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
           || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
           || V_GROUP_CLAUSE
@@ -212,18 +212,18 @@ main: BEGIN
                 SIGNAL SQLSTATE 'U0023' SET MESSAGE_TEXT = 'Period SQL part too long; reduce SQL_BATCH_SIZE';
             END IF;
             SET V_OVERALL='SELECT CAST(NULL AS INTEGER) AS DQ_YEAR,CAST(NULL AS INTEGER) AS DQ_MONTH,'
-              || '1 AS GY,1 AS GM,COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+              || '1 AS GY,1 AS GM,COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
               || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
               || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S';
             SET V_YEARLY='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
               || 'CAST(NULL AS INTEGER) AS DQ_MONTH,0 AS GY,1 AS GM,'
-              || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+              || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
               || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
               || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
               || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT)';
             SET V_MONTHLY='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
               || 'EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,0 AS GY,0 AS GM,'
-              || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N'
+              || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
               || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
               || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
               || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)';
@@ -248,6 +248,24 @@ main: BEGIN
            AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
         CALL DBC.SysExecSQL(V_SQL);
         SET V_VT_EXISTS=1;
+        /* Capture actual source dates from an existing aggregate, once per run.
+           No extra source scan. Keep source/configuration stable during a run. */
+        IF V_FIRST=1 THEN
+            SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_PERIOD
+             WHERE RUN_ID=P_RUN_ID AND PROJECT_ID=P_PROJECT_ID;
+            IF V_COUNT=0 THEN
+                SET V_SQL='INSERT INTO DQ_DB.DQ_RUN_PERIOD '
+                  || '(RUN_ID,PROJECT_ID,PERIOD_LEVEL,PERIOD_VALUE,POU_DT) SELECT '''
+                  || P_RUN_ID || ''',''' || P_PROJECT_ID || ''','
+                  || 'CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END,'
+                  || 'CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
+                  || 'WHEN A.GM=1 THEN TRIM(CAST(A.DQ_YEAR AS CHAR(4))) ELSE '
+                  || 'TRIM(CAST(A.DQ_YEAR AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))),'
+                  || 'CHARACTER_LENGTH(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))))-1,2) END,'
+                  || 'CASE WHEN A.GY=1 THEN CAST(NULL AS DATE) ELSE A.POU_DT END FROM DQ_OB_AGG A';
+                CALL DBC.SysExecSQL(V_SQL);
+            END IF;
+        END IF;
         FOR R AS RESULTS_CURSOR CURSOR FOR
             SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
              WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE=P_TYPE

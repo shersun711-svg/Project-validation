@@ -84,7 +84,10 @@ original input audit CSV. It is not part of the SAS loader and is not intended
 to approve users' edited workbooks. Tests remain in version control even when
 synthetic test tables are removed from a deployed database.
 
-The current runner/classifier require setup/17_create_rule_results.sql.
+The current runner/classifier require setup/17_create_rule_results.sql and
+setup/21_capture_period_dates.sql. Use the current deployment sequence; review
+rates are fractions with six decimal places, and POU_DT is the latest actual
+reporting date in each group. Internal stored percentage metrics keep their units.
 The updated test_colour.sql checks separate rule persistence and idempotence;
 review assertions use the compatible DQ_COMPLETED_RESULT colour column.
 Local rule checks exercise actual view/INSERT SQL, not Teradata SPL or grants.

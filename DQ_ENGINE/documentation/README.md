@@ -60,7 +60,10 @@ are needed. See [field selection](CONFIGURATION_GUIDE.md).
 DQ_METRIC_RESULT stores one row per metric. DQ_COMPLETED_RESULT exposes only
 successful runs in that same layout. DQ_BASIC_REVIEW is the final profiling view across all four types, including date counts
 and overall field availability. The view contains one row per field and period. Counts display as whole numbers,
-percentages to two decimals and descriptive numeric values to four decimals; DQ_METRIC_RESULT keeps full precision.
+rates as decimal fractions (25% becomes 0.250000), and descriptive numeric values to six decimals.
+The four rate columns are MISSING_RATE, ZERO_RATE, SPECIAL_RATE and OUTLIER_RATE.
+DQ_METRIC_RESULT keeps its full precision and percentage units. POU_DT is the latest actual
+source reporting date in the monthly/yearly group; overall and unknown dates are NULL.
 Rule statuses are separate in DQ_RULE_RESULT. NULL statistics retain their meaning.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT are overall coverage for each
 non-missing field. Date counts use this same layout; unrelated metrics are NULL.
@@ -77,7 +80,7 @@ ORDER BY FIELD_NAME;
 ```
 
 Remove the period filter for yearly/monthly results too; order by FIELD_NAME,
-PERIOD_LEVEL, PERIOD_VALUE. Always filter by RUN_NUMBER to keep historical runs
+PERIOD_LEVEL, POU_DT. Always filter by RUN_NUMBER to keep historical runs
 separate. For 50 numeric fields only, OVERALL returns 50 rows. Categorical/identifier
 fields store five and three metrics per period respectively; date fields store four count/rate metrics.
 Numeric Basic stores twelve metrics per field/period.
@@ -121,27 +124,30 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 11. `teradata/setup/16_create_outlier_support.sql`
 12. `teradata/setup/17_create_rule_results.sql`
 13. `teradata/setup/20_configure_reporting_levels.sql` **section B only** (fresh schema)
-14. `teradata/setup/07_apply_excel_config.sql`
-15. `teradata/results/90_colour_classification.sql`
-16. `teradata/results/91_dq_summary_views.sql`
-17. `teradata/results/93_dq_basic_review.sql`
-18. `teradata/modules/01_assign_run_number.sql`
-19. `teradata/modules/02_special_value_list.sql`
-20. `teradata/modules/03_numeric_statistics.sql` (source helper/grant, then compatible wrapper/grant)
-21. `teradata/modules/10_numeric_basic.sql`
-22. `teradata/modules/12_numeric_outliers.sql`
-23. `teradata/modules/15_other_basic.sql`
-24. `teradata/modules/20_categorical_basic.sql`
-25. `teradata/modules/30_date_basic.sql`
-26. `teradata/modules/40_identifier_basic.sql`
-27. `teradata/modules/00_run_engine.sql` (EXTENDED, then PROFILE, BASIC and ENGINE separately)
+14. `teradata/setup/21_capture_period_dates.sql`
+15. `teradata/setup/07_apply_excel_config.sql`
+16. `teradata/results/90_colour_classification.sql`
+17. `teradata/results/91_dq_summary_views.sql`
+18. `teradata/results/93_dq_basic_review.sql`
+19. `teradata/modules/01_assign_run_number.sql`
+20. `teradata/modules/02_special_value_list.sql`
+21. `teradata/modules/03_numeric_statistics.sql` (source helper/grant, then compatible wrapper/grant)
+22. `teradata/modules/10_numeric_basic.sql`
+23. `teradata/modules/12_numeric_outliers.sql`
+24. `teradata/modules/15_other_basic.sql`
+25. `teradata/modules/20_categorical_basic.sql`
+26. `teradata/modules/30_date_basic.sql`
+27. `teradata/modules/40_identifier_basic.sql`
+28. `teradata/modules/00_run_engine.sql` (EXTENDED, then PROFILE, BASIC and ENGINE separately)
 
 Table CREATE files are one-time operations. Do not rerun them on an existing
 installation. File 00 installs fixed metric definitions; project configuration
 comes from Excel. Numbering is retained for compatibility with existing
 installations; missing numbers are not deployment steps.
 
-For existing installations, follow [the reporting-level upgrade](REPORTING_LEVELS.md).
+For existing installations with reporting levels already deployed, follow
+[the review/date and outlier upgrade](REVIEW_UPDATE.md). Earlier installations must
+first complete [the reporting-level upgrade](REPORTING_LEVELS.md).
 Completed one-time migrations and the earlier history reset are available in Git
 history; they are not part of current deployment. Fresh installations already
 seed `STDDEV_POP`. No history reset is required.

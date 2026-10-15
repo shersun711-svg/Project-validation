@@ -74,7 +74,8 @@ Use one fresh SQL Assistant session and submit sections separately:
    bounds and changes only the join of the single overall-bounds row to the
    source from LEFT JOIN to CROSS JOIN. Do not remove EXPLAIN or apply this
    unconditionally to the procedure: an empty source still needs its zero-row
-   population summary. No production procedure change is included at this step.
+   population summary. The current procedure uses CROSS JOIN only for populated
+   chunks and retains LEFT JOIN for the empty-source sentinel.
 5. D3 optionally runs the original and candidate counts for 2018 once each into
    DQ_DIAG_OUT_OLD and DQ_DIAG_OUT_NEW (small volatile tables). If B/C are still
    present, run D3 only, one statement at a time, recording each CREATE's elapsed
@@ -107,8 +108,10 @@ These are individual optimizer estimates, not measured or additive peak spool.
 Broadcasting the one-row bounds table/product join is not itself evidence of
 an error. D2 tests whether removing the outer-preservation requirement for a
 known populated chunk removes constant-key redistribution and its restoration
-join. Compare the actual plan and then a controlled one-year timing before
-changing the production procedure. No runtime improvement is established yet.
+join. The supplied new plan removes these steps. The user measured two seconds
+for 2018 and confirmed D3: 12 old rows, 12 new rows, zero differences, zero duplicate
+keys, MATCH. The join is now integrated for populated chunks. Full-engine runtime
+is still unmeasured; repeat the same five-field run after deployment.
 
 ## Controlled source staging
 
