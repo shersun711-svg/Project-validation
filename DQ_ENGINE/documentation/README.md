@@ -204,9 +204,16 @@ is abandoned from elapsed time: verify it ended before operator recovery.
 | `teradata/setup/` | Current one-time configuration, results and logging schema |
 | `teradata/modules/` | Profiling calculations and run orchestration |
 | `teradata/results/` | Classification, completed results and review views |
+| `teradata/maintenance/` | Explicitly requested result/history cleanup; retains configuration and run numbers |
 | `tests/` | Optional database/SAS regression, source and performance checks |
 | `tools/` | Developer-only local static/workbook checks |
 | `documentation/` | Setup, configuration, metric semantics and evidence |
+
+To deliberately clear all projects' profiling results and execution history,
+use [clear_run_history.sql](../teradata/maintenance/clear_run_history.sql).
+Pause engine work and run its active-run check first. It retains loaded
+configuration, definitions, configuration-load history and run-number
+mappings/counter. It deletes records, without dropping engine tables.
 
 Further details: [configuration](CONFIGURATION_GUIDE.md),
 [metric definitions](RESULTS_DICTIONARY.md), [performance](PERFORMANCE_NOTES.md)
