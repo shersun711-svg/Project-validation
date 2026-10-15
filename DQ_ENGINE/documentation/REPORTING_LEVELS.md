@@ -66,8 +66,8 @@ approved schema, currently LAB_T_ORION_MVT. Use a Teradata-mode session.
    `teradata/setup/21_capture_period_dates.sql` once before recompilation.
 2. Recompile the complete procedure in `teradata/setup/07_apply_excel_config.sql`
    and execute its included grant.
-3. Recompile `teradata/modules/03_numeric_statistics.sql`: source helper/grant
-   first, then wrapper/grant, as separate complete statements.
+3. Recompile `teradata/modules/03_numeric_statistics.sql`: BATCH helper/grant first,
+   then SOURCE wrapper/grant and STATISTICS wrapper/grant, as separate complete statements.
 4. Recompile `teradata/modules/10_numeric_basic.sql`,
    `teradata/modules/15_other_basic.sql` and `teradata/modules/12_numeric_outliers.sql`,
    including their grants. The unchanged categorical/date/identifier wrappers

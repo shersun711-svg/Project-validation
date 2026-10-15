@@ -10,6 +10,8 @@ Numeric Outliers is implemented with the agreed +/-3 population-standard-deviati
 Field-level MoM/YoY comparisons of saved monthly results are available through
 [the comparison view and SAS controls](FIELD_CHANGES.md), with no new tables.
 PSI and Excel report generation remain deferred.
+For the 415-field permanent-space fix, follow
+[bounded outlier storage](OUTLIER_STORAGE_UPDATE.md).
 See [outlier deployment for an existing engine](NUMERIC_OUTLIERS.md).
 For separate rule-decision storage, see [shared rule evaluation](RULE_RESULTS.md).
 For this extension, follow [deployment and test instructions](SPECIAL_VALUES.md).
@@ -137,7 +139,7 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 19. `teradata/results/94_dq_field_change_review.sql`
 20. `teradata/modules/01_assign_run_number.sql`
 21. `teradata/modules/02_special_value_list.sql`
-22. `teradata/modules/03_numeric_statistics.sql` (source helper/grant, then compatible wrapper/grant)
+22. `teradata/modules/03_numeric_statistics.sql` (BATCH helper/grant, SOURCE wrapper/grant, then STATISTICS wrapper/grant)
 23. `teradata/modules/10_numeric_basic.sql`
 24. `teradata/modules/12_numeric_outliers.sql`
 25. `teradata/modules/15_other_basic.sql`

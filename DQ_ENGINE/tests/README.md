@@ -109,3 +109,13 @@ These SAS/server checks have not been executed here.
 Local check: `node DQ_ENGINE/tools/check_field_changes.mjs`. This executes the
 actual view SQL with narrow SQLite syntax adaptations and checks calendar gaps,
 all field types, rate units, zero/NULL values and run/project isolation.
+
+## Bounded outlier working storage
+
+Run `node DQ_ENGINE/tools/check_outlier_storage.mjs` locally. It executes actual
+copy/cursor/statistics templates against 415 synthetic fields at settings
+1/5/10/15/20/25/30, verifies max-20 copies/max-5 counting and same-copy statistics,
+and simulates a rejected load followed by cleanup. Quota/SPL/transaction behavior
+is not executed. Follow [the server pilot](../documentation/OUTLIER_STORAGE_UPDATE.md)
+for compilation/grants, database-space recovery and controlled 10-field testing.
+The current file 03 contains BATCH, SOURCE and STATISTICS, each with its grant.

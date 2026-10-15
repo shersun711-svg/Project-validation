@@ -1,3 +1,4 @@
+For the current bounded-copy upgrade, use [working storage](OUTLIER_STORAGE_UPDATE.md).
 For configurable overall/monthly/yearly output, follow the current
 [reporting-level upgrade](REPORTING_LEVELS.md) before using these procedures.
 
@@ -47,7 +48,7 @@ count in DQ_NUMERIC_STATISTICS while processing its existing aggregate. Outliers
 reuse those values, rather than rounded DECIMAL results. If Basic=N, the internal
 SP_DQ_NUMERIC_STATISTICS prerequisite calculates the same aggregates; it emits
 no Basic metric rows or availability dates. Outliers now use the internal
-SP_DQ_NUMERIC_STATS_SOURCE helper against their narrow working table; the original
+SP_DQ_NUMERIC_STATS_BATCH helper against the same bounded working copy; the original
 two-argument statistics procedure remains a compatible wrapper. Statistics timing
 appears in module logs but not the metric-based run summary.
 
@@ -110,105 +111,49 @@ SQLite data with narrow dialect adaptations. They are not Teradata SPL or SAS
 execution. Actual procedure compilation, privileges, cleanup/transaction behaviour,
 numerical behaviour and workload must be verified on the installed release.
 
-Outliers create a narrow MULTISET table in the engine schema containing the
-reporting-date column, selected numeric columns and two internal physical keys.
-The original final view is referenced once for materialization, without extra
-row filters, DISTINCT, source-column casts or special removal. Native source
-types, NULLs and duplicate rows are retained. A stored year key partitions rows
-by year; 0 holds NULL dates. A random integer bucket is the nonunique primary
-index, distributing rows independently of repeated dates, values or duplicates.
-Internal names are chosen outside the selected source-column namespace. Neither
-key changes profiling values or participates in outlier bounds/counts.
-The table uses permanent space, not a volatile raw-row spool. Partition and year
-statistics are collected once after loading. Each chunk filters its stored year
-key directly, allowing static partition elimination; confirm it with EXPLAIN.
+Outliers use one bounded MULTISET working copy at a time. SQL_BATCH_SIZE controls
+its width, capped at 20 numeric fields plus the reporting date and physical keys;
+counting queries retain the five-field cap. A 10-field copy serves two counting
+batches, then is dropped before copying the next group. Copies preserve native
+values, NULLs and duplicates, year partitions and independent random distribution.
+They use permanent space; aggregation uses small volatile summaries.
 
-Standalone statistics and period counting read that table thereafter. The
-outlier procedure aggregates one calendar year per statement, grouping that
-year into at most twelve monthly summaries while retaining overall, yearly and
-monthly bounds/counts. It then rolls the compact summaries into final periods.
-This avoids the full-history aggregate that exhausted spool and avoids one
-query per month. For 415 numeric fields over 22 populated years, it generates
-roughly 1,900 year-chunk and rollup statements at the five-field cap, versus
-about 21,165 month-level statements in the earlier loop. This query-count
-estimate does not guarantee Teradata runtime or spool use. The source view is
-still materialized once; each year query filters the narrow stage. Basic
-statistics are reused when available; keep the source stable during a combined
-Basic+Outlier run. Existing count checks detect population changes, not all
-value changes.
+The faster join for populated year chunks and the empty-source outer join remain
+unchanged. Reuse unrounded Basic statistics when present; otherwise the bounded
+shared helper computes this counting batch's statistics from the same copy.
+Only the current group's source columns are loaded. Keep source/configuration
+stable while processing groups; count checks cannot detect every value change.
 
-Work tables are named DQ_OS_<UUID without hyphens>_A<attempt>, so concurrent runs
-and retries use distinct names. The outlier batch-0 SQL_TEXT retains the exact
-creation statement/table name. Successful or handled-failure paths drop only the
-table this invocation created. They do not overwrite/drop an existing table when
-creation fails. An external abort/session loss may bypass SPL cleanup and leave
-a work table; follow the recovery instructions below. No raw values are logged,
-read by SAS or copied into repository files.
+Names include run UUID, attempt and first counting batch. Batch 1 is logged
+before loading. Batch 0 is the overall summary and retains copy identity for
+recovery. Empty-table creation precedes loading so handled load failures can drop
+an owned table. Hard session termination can bypass cleanup. No unowned or active
+work table may be removed automatically. See [deployment, recovery, exact limits
+and validation](OUTLIER_STORAGE_UPDATE.md).
 
-This trades permanent-space allocation and one materialization for avoiding
-repeated expensive view work. The CTAS can still need substantial source-view
-spool. Partitioning adds row storage, redistribution and statistics-collection
-cost at creation. Actual runtime, AMP distribution, permanent-space requirements,
-partitioned CTAS/RANDOM support, DDL/statistics/grant permissions and cleanup need
-server testing. No measured
-performance improvement is claimed. FLOAT calculations, DECIMAL storage,
-population standard deviation and the five outlier metrics are unchanged. PSI and Excel
-report generation remain deferred.
-
-Grant statements are separate from SPL procedure definitions. A client that
-handles SPL deployment sequences can execute both from the same file. With
-BTEQ .COMPILE FILE, compile only the procedure block, then submit its GRANT.
-No grants have been executed from this workspace.
+This reduces peak copy width but adds source reads; it does not guarantee a
+full-run runtime or that one copy fits the remaining database quota. Existing
+math and period results are unchanged. Live Teradata compilation, grants,
+transaction/cleanup behavior, permanent and spool space still need verification.
 
 ## Upgrade an existing outlier deployment after error 2646
 
-This update assumes the reporting-level upgrade is installed. It changes only
-modules/12_numeric_outliers.sql; no Excel, SAS, configuration/result schema,
-statistics-helper or runner recompilation is required. Keep the five-field cap.
-Runtime needs CREATE/DROP TABLE, grantable SELECT and permission to collect
-statistics on the work table it creates. The dynamic SELECT grant and the
-procedure EXECUTE grant are included. No database deployment is performed here.
+Use the current [bounded-storage deployment](OUTLIER_STORAGE_UPDATE.md): file 03
+now has three helper/wrapper procedures, and file 12 uses bounded copies. Do not
+follow an older instruction to compile file 12 alone. No table migration is
+needed. Submit each procedure and its included grant separately.
 
-1. Confirm the previous database request/session has ended. An interrupted
-   client's RUNNING log is not proof of a live query. Resolve its stale status
-   and exact orphan table using the recovery guidance below; do not drop tables
-   belonging to active requests or change other runs.
-2. Run [test_outlier_partition.sql](../tests/test_outlier_partition.sql) in an
-   approved test schema, replacing DQ_DB globally. It creates two tiny permanent
-   tables with eight synthetic rows and no RDS access. Verify their names are
-   unused first; submit statements separately and stop on any error. Expected:
-   TOTAL_ROWS=8, YEAR_KEYS=6, BAD_KEYS=0, DUPLICATE_ROWS=2. Save EXPLAIN output;
-   confirm partition elimination for year 2005 and key 0 (NULL dates). Drop only
-   these successfully created test tables using the final statements.
-3. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of
-   modules/12_numeric_outliers.sql. Compile the whole procedure, then execute
-   its included GRANT separately. Do not change the SQL_BATCH_SIZE or field
-   selection for the comparison.
-4. Run the same five fields and source population with the same module switches
-   and Y/Y/N overall/monthly/yearly settings, using a fresh run ID. The update
-   omits the disabled yearly bounds join/comparisons. Numeric Basic reuse and
-   standalone outliers remain supported. Compare identical module selections;
-   a Basic+Outlier run is not a timing baseline for Outliers-only.
-5. Require SUCCEEDED, unchanged metrics and normal working-table cleanup. Record
-   materialization/statistics overhead and full module/batch elapsed minutes.
-   Review the actual counting query's plan and approved DBQL I/O, peak spool and
-   AMP skew. The synthetic preflight does not establish RDS performance. Expand
-   the field selection only after this comparison passes.
+The optional [partition preflight](../tests/test_outlier_partition.sql) creates
+an eight-row source and one small working table in an approved test schema.
+Verify names are unused first; stop on errors. Expected: TOTAL_ROWS=8,
+YEAR_KEYS=6, BAD_KEYS=0, DUPLICATE_ROWS=2. Confirm EXPLAIN partition elimination
+for year 2005 and key 0 (NULL dates). Drop only the two test tables created by
+that preflight. It checks empty-table CREATE, INSERT, statistics and partition
+predicates, without proving RDS capacity or runtime.
 
-The table range covers year keys 0 through 9999. Normal chunks address one year
-partition; NULL-date chunks address key 0, and the empty-source chunk reads no
-rows. It is still a sequential year loop, with global bounds applied to every
-chunk for OVERALL counts and separate monthly bounds for MONTHLY counts. Overall
-counts are not the sum of monthly outlier counts. Explicit period widths,
-duplicate-key/population guards, special exclusions and publication are unchanged.
-
-Batch-0 SQL_TEXT identifies the work-table CTAS. Later SQL_TEXT records the
-current batch aggregate or metric insert. A failed aggregate can cover all
-reporting periods for that batch. The source view still needs enough spool for
-materialization.
-Resolve permanent-space or DDL/grant errors before another run. Do not silently
-change the source population or statistical rule. Teradata compilation, storage
-and spool/runtime effects have not been verified from this workspace.
+Stored year keys span 0-9999. Overall counts use overall bounds across chunks,
+rather than adding monthly outlier counts. The conditional fast join, explicit
+period widths, duplicate/population guards and special exclusions are retained.
 
 ## Check period keys after the rollup duplicate-key error
 
@@ -250,7 +195,7 @@ belongs to the stopped attempt; do not use wildcard or broad schema cleanup.
 If SHOW TABLE reports it absent, no working-data cleanup is needed.
 
 For example, the fixture run 40000000-0000-4000-8000-000000000001 attempt 1 uses
-DQ_OS_40000000000040008000000000000001_A1. This is an example, not a table name to
+DQ_OS_40000000000040008000000000000001_A1_B1. This is an example, not a table name to
 reuse for a real run. A retry creates its own attempt-specific work table and
 will not delete an older orphan. Existing run recovery rules still apply: do not
 manually mark an active database request FAILED, and retain run-number mappings.

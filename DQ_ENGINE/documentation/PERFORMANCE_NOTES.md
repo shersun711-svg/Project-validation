@@ -11,6 +11,7 @@ are retained. Keep source and configuration stable during execution.
 | Categorical Basic | 8 | Three explicit overall/year/month queries using UNION ALL |
 | Identifier Basic | 20 | Three explicit period queries using UNION ALL |
 | Date Basic | 30 | One aggregate statement using GROUPING SETS |
+| Numeric Outliers | 5 counted; up to 20 copied | One bounded working copy per group; partitioned year-chunk counting |
 
 SQL_BATCH_SIZE remains configurable from 1 to 30; effective size is the lower
 of the setting and module cap. Special lists increase generated query size;
@@ -129,15 +130,15 @@ automatic outlier work table described below.
 
 ## Numeric Outliers
 
-Outliers materialize the final source view once into a narrow MULTISET work table
+Outliers materialize one bounded field group at a time into a MULTISET work table
 in the engine schema, projecting the reporting date and selected numeric fields
 without source-column casts, filters or deduplication. It uses permanent space,
 with a stored year partition key (0 for NULL dates) and an independent random
 bucket as its nonunique primary index. Internal keys preserve all source rows
-and values. Partition/year statistics are collected once after loading. Counting
+and values. Partition/year statistics are collected once per loaded field group. Counting
 queries constrain the stored partition key directly instead of extracting the
 year from every staged row for every batch. Standalone statistics and counting
-queries read that table;
+queries read that copy;
 Basic statistics remain reusable as before.
 
 Outliers aggregate one calendar year at a time, grouping each year's rows into
@@ -150,17 +151,17 @@ query-count estimate; runtime, source scans and spool depend on Teradata's
 optimizer. Confirm that each counting request eliminates the other year
 partitions. The new layout adds distribution, partition storage and statistics
 cost during staging; measure total elapsed time, not just chunk timing.
-Standalone statistics use the selected sequential aggregates capped at ten
-fields. Materialization itself may exhaust view spool; runtime, permanent space,
+Standalone statistics use the same copy, restricted to the current five-field
+counting batch. Materialization itself may exhaust view spool; runtime, permanent space,
 I/O and AMP distribution require EXPLAIN/DBQL on the installed release.
 Use tests/test_outlier_partition.sql first to check the physical DDL and partition
 predicates on eight synthetic rows before a controlled five-field RDS comparison.
 
-Names include run UUID and attempt. The work table is dropped on success/handled
+Names include run UUID, attempt and first counting batch. The work table is dropped on success/handled
 failure. External abort/session loss can leave an orphan; batch-0 SQL_TEXT retains
-its exact creation SQL for targeted recovery after the request has stopped.
+its current copy creation/load SQL for targeted recovery after the request has stopped.
 No measured speed/spool improvement or server compilation is claimed. See
-[Numeric Outliers](NUMERIC_OUTLIERS.md#upgrade-an-existing-outlier-deployment-after-error-2646)
+[bounded outlier storage](OUTLIER_STORAGE_UPDATE.md)
 for the helper/wrapper compile order, privileges and working-data cleanup.
 
 ## Configurable reporting levels
@@ -171,3 +172,13 @@ still schedule reads when YEARLY reporting is off; a small run-owned calendar
 is populated from the stage once. This does not establish a runtime improvement.
 RDS uses overall/monthly, with yearly disabled; benchmark the selected scope
 against the same population. See [reporting levels](REPORTING_LEVELS.md).
+
+## Full RDS permanent-space failure
+
+The user reported run 9: 415-field Numeric Basic took about 77 minutes, then
+the old all-field outlier preparation failed after about 6 minutes 40 seconds
+with error 2644 in LAB_T_ORION_MVT. The revised flow caps copied fields at 20
+while retaining five-field counting; start by benchmarking SQL_BATCH_SIZE=10.
+Completed groups are dropped before the next copy. This bounds working width
+but adds source reads, so full-run runtime is unverified. See
+[bounded storage and deployment](OUTLIER_STORAGE_UPDATE.md).

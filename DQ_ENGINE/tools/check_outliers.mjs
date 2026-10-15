@@ -50,8 +50,9 @@ const adapt=q=>q.replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)').replaceAll(
  .replaceAll('EXTRACT(YEAR FROM "FACT_DT")',"CAST(strftime('%Y',FACT_DT) AS INTEGER)")
  .replaceAll('EXTRACT(MONTH FROM "FACT_DT")',"CAST(strftime('%m',FACT_DT) AS INTEGER)");
 // Execute the actual narrow CTAS (only remove Teradata physical-table syntax).
-const stageName='DQ_OS_'+id.replaceAll('-','')+'_A1';
-function workName(run,attempt){return evaluate(assignment('V_STAGE',0,sql),{"OREPLACE(TRIM(P_RUN_ID),'-','')":run.replaceAll('-',''),V_ATTEMPT:attempt});}
+const stageName='DQ_OS_'+id.replaceAll('-','')+'_A1_B1';
+function workName(run,attempt,batch=1){return evaluate(assignment('V_STAGE',0,sql),{"OREPLACE(TRIM(P_RUN_ID),'-','')":run.replaceAll('-',''),V_ATTEMPT:attempt,V_BATCH:batch});}
+assert.notEqual(workName(id,1,1),workName(id,1,2));
 assert.equal(workName(id,1),stageName);assert.notEqual(workName(id,2),stageName);
 assert.notEqual(workName('40000000-0000-4000-8000-000000000002',1),stageName);
 const stageYear='DQ_OS_YEAR_0',stageBucket='DQ_OS_BUCKET_0';
@@ -60,12 +61,18 @@ const stageYear='DQ_OS_YEAR_0',stageBucket='DQ_OS_BUCKET_0';
 let bucket=0;db.function('RANDOM',(lo,hi)=>lo+(bucket++%(hi-lo+1)));
 const stageVars={V_STAGE:stageName,V_STAGE_YEAR:stageYear,V_STAGE_BUCKET:stageBucket,V_DATE:'FACT_DT',V_STAGE_PROJECTION:'"FACT_DT"',V_DB:'SOURCE',V_SOURCE:'FIXTURE'};
 for(const name of fields){stageVars['W.FIELD_NAME']=name;stageVars.V_STAGE_PROJECTION=evaluate(assignment('V_STAGE_PROJECTION',sql.indexOf('FOR W AS'),sql),stageVars);}
-const stageSql=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),stageVars);
+function stageCreate(v){
+ v.V_STAGE_SELECT=evaluate(assignment('V_STAGE_SELECT',sql.indexOf('FOR W AS'),sql),v);
+ return evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),v);
+}
+function stageLoad(v){return evaluate(assignment('V_SQL',sql.indexOf('SET V_STAGE_EXISTS =1'),sql),v);}
+const stageSql=stageCreate(stageVars);
 lex(stageSql,'outlier source materialization');assert.ok(stageSql.length<32000);
-const wideStage=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),{...stageVars,V_STAGE_PROJECTION:'X'.repeat(28000),V_STAGE:'X'.repeat(128),V_DB:'X'.repeat(128),V_SOURCE:'X'.repeat(128)});
+const wideStage=stageCreate({...stageVars,V_STAGE_PROJECTION:'X'.repeat(28000),V_STAGE:'X'.repeat(128),V_DB:'X'.repeat(128),V_SOURCE:'X'.repeat(128)});
 lex(wideStage,'maximum stage SQL width');assert.ok(wideStage.length<32000);
 assert.ok(!stageSql.includes('DISTINCT'));assert.ok(!stageSql.includes(' WHERE '));assert.ok(!stageSql.includes('CAST('));
-const stageSelect=stageSql.slice(stageSql.indexOf(' AS (')+5,stageSql.lastIndexOf(') WITH DATA'));
+assert.ok(stageSql.includes('WITH NO DATA'));
+const stageSelect=stageVars.V_STAGE_SELECT;
 db.exec('CREATE TABLE '+stageName+' AS '+adapt(stageSelect));
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+stageName).get().n,raw.length);
 const sourceColumns=['FACT_DT',...fields].map(f=>'"'+f+'"').join(',');
@@ -383,8 +390,9 @@ console.log('Synthetic server rollup fixture checked locally: 10 distinct full p
 // checks syntax and partition selection before an expensive RDS rerun.
 const partitionVars={...stageVars,V_STAGE:'DQ_TEST_OUT_PART_STAGE',V_STAGE_PROJECTION:'"FACT_DT","AMOUNT"',
  V_DB:'DQ_DB',V_SOURCE:'DQ_TEST_OUT_PART_INPUT'};
-const partitionCreate=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),partitionVars);
-const partitionStats=evaluate(assignment('V_SQL',sql.indexOf('/* One statistics request'),sql),partitionVars);
+const partitionCreate=stageCreate(partitionVars);
+const partitionLoad=stageLoad(partitionVars);
+const partitionStats=evaluate(assignment('V_SQL',sql.indexOf('/* Collect partition statistics'),sql),partitionVars);
 const partitionDates=[['2005-01-31',7],['2005-01-31',7],['2005-02-28',-9999],
  ['2006-01-31',4],['2026-03-31',5],[null,null],['0001-01-01',-2],['9999-12-31',9]];
 const partitionInserts=partitionDates.map(([date,value])=>
@@ -402,6 +410,7 @@ CREATE MULTISET TABLE DQ_DB.DQ_TEST_OUT_PART_INPUT
 ${partitionInserts}
 
 ${partitionCreate};
+${partitionLoad};
 ${partitionStats};
 
 SHOW TABLE DQ_DB.DQ_TEST_OUT_PART_STAGE;
@@ -424,7 +433,7 @@ partitionDb.function('RANDOM',(lo,hi)=>lo+(bucket++%(hi-lo+1)));
 partitionDb.exec('CREATE TABLE DQ_TEST_OUT_PART_INPUT (FACT_DT TEXT,AMOUNT NUMERIC)');
 const partitionPut=partitionDb.prepare('INSERT INTO DQ_TEST_OUT_PART_INPUT VALUES (?,?)');
 partitionDates.forEach(r=>partitionPut.run(...r));
-const partitionSelect=partitionCreate.slice(partitionCreate.indexOf(' AS (')+5,partitionCreate.lastIndexOf(') WITH DATA'));
+const partitionSelect=partitionVars.V_STAGE_SELECT;
 partitionDb.exec('CREATE TABLE DQ_TEST_OUT_PART_STAGE AS '+adapt(partitionSelect).replaceAll('"DQ_DB".',''));
 assert.equal(partitionDb.prepare('SELECT COUNT(*) AS N FROM DQ_TEST_OUT_PART_STAGE').get().N,8);
 assert.deepEqual(partitionDb.prepare('SELECT DQ_OS_YEAR_0 AS Y,COUNT(*) AS N FROM DQ_TEST_OUT_PART_STAGE GROUP BY 1 ORDER BY 1').all().map(r=>({...r})),
@@ -453,8 +462,10 @@ for(const [i,name]of diagnosticFields.entries()){
   dv[part]=evaluate(assignment(part,cursor,sql),dv);
 }
 yearJoin(dv);sourceJoin(dv);
-const diagnosticStage=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),{...dv,V_SOURCE:'VW_RDS_PHASE2_FACT'});
-const diagnosticStats=evaluate(assignment('V_SQL',sql.indexOf('/* One statistics request'),sql),dv);
+const diagnosticVars={...dv,V_SOURCE:'VW_RDS_PHASE2_FACT'};
+const diagnosticStage=stageCreate(diagnosticVars);
+const diagnosticLoad=stageLoad(diagnosticVars);
+const diagnosticStats=evaluate(assignment('V_SQL',sql.indexOf('/* Collect partition statistics'),sql),dv);
 const diagnosticBounds=evaluate(assignment('V_SQL',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
 const diagnosticCandidate=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
 // Preserve the historical outer-join query for a reproducible comparison with
@@ -534,6 +545,7 @@ ${diagnosticPreflight}
 /* B: Recreate the same physical stage, with a diagnostic-only name.
    This scans RDS once; record its elapsed minutes from SQL Assistant. */
 ${diagnosticStage};
+${diagnosticLoad};
 ${diagnosticStats};
 
 /* C: Recreate this batch's saved bounds in this session. No source scan. */
@@ -674,14 +686,22 @@ console.log('RDS plan diagnostic checked: actual stage/bounds/count templates, m
 console.log('Nonempty chunk join candidate passed: identical measurements for populated and NULL-date chunks; empty-source distinction retained. Production uses the tested conditional join.');
 console.log('Automatic diagnostic comparison passed: all-column equality, NULL changes, missing rows, duplicate keys and both-empty rejection. Teradata execution pending.');
 
-// Lifecycle/API structure: materialize once before internal statistics, use the
+// Lifecycle/API structure: materialize a bounded group before its statistics, use the
 // stage for subsequent reads, never overwrite another run's table, drop only
 // the successfully-created table, and retain creation SQL for abort recovery.
 assert.equal([...sql.matchAll(/CREATE MULTISET TABLE DQ_DB\./g)].length,1);
-assert.ok(sql.indexOf('SET V_STAGE_EXISTS=1')<sql.indexOf('CALL DQ_DB.SP_DQ_NUMERIC_STATS_SOURCE'));
+assert.ok(sql.indexOf('SET V_STAGE_EXISTS=1')<sql.indexOf('CALL DQ_DB.SP_DQ_NUMERIC_STATS_BATCH'));
 assert.ok(sql.includes("SET V_DB ='DQ_DB'"));assert.ok(sql.includes('SET V_SOURCE =V_STAGE'));
 assert.equal([...sql.matchAll(/DROP TABLE DQ_DB\./g)].length,2);
 assert.ok(sql.includes("' TO DQ_DB WITH GRANT OPTION'"));
+assert.ok(sql.indexOf('SET V_STAGE_EXISTS=1')<sql.indexOf("SET V_SQL ='INSERT INTO DQ_DB.'"),'ownership must precede a failing load');
+assert.ok(sql.includes('IF V_LAST=V_STAGE_LAST THEN'),'release each copy at the end of its field group');
+assert.ok(ns.includes('REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_STATS_BATCH'));
+assert.ok(ns.includes('SET V_FIRST =P_FIELD_FIRST'));
+assert.ok(ns.includes('P_FIELD_LAST'));
+assert.ok(ns.includes('P_LOG_BATCH'));
+assert.ok(ns.includes('IF P_FIELD_LAST>=V_FIELDS THEN'));
+assert.ok(sql.indexOf("VALUES (P_RUN_ID,'NUMERIC_OUTLIERS',V_ATTEMPT,V_BATCH")<sql.indexOf("SET V_SQL ='CREATE MULTISET TABLE"),'field-batch log must precede loading');
 assert.ok(ns.includes('REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_STATISTICS'));
 assert.ok(ns.includes('CALL DQ_DB.SP_DQ_NUMERIC_STATS_SOURCE(P_RUN_ID,P_PROJECT_ID,V_DB,V_SOURCE,V_DATE)'));
 console.log('Narrow stage checks passed: native column projection, unchanged rows/duplicates, source independence, standalone stage statistics and isolated cleanup structure. Server DDL/grants/abort cleanup NOT tested.');

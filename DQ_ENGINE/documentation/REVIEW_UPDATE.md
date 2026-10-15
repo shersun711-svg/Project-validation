@@ -8,8 +8,8 @@ These instructions assume the reporting-level upgrade is already installed.
 1. Run `teradata/setup/21_capture_period_dates.sql` once. It adds POU_DT DATE to
    the existing DQ_METRIC_RESULT and DQ_RULE_RESULT tables. Submit the two ALTERs
    separately; skip a column that already exists. No new table is created.
-2. Recompile both procedures and grants in `modules/03_numeric_statistics.sql`,
-   source helper first and wrapper second.
+2. Recompile all three procedures and grants in `modules/03_numeric_statistics.sql`,
+   BATCH helper first, SOURCE wrapper second, STATISTICS wrapper third.
 3. Recompile `modules/10_numeric_basic.sql`, `modules/12_numeric_outliers.sql`
    and `modules/15_other_basic.sql`, including their grants.
 4. Recompile the four procedures/grants in `modules/00_run_engine.sql`

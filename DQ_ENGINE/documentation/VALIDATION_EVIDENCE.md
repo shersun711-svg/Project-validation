@@ -160,3 +160,14 @@ The development team's comparison behavior was reviewed as reference; their
 implementation was not copied. PSI/account-level checks remain deferred.
 Teradata view compilation/optimizer behavior, grants, DECIMAL rounding and SAS
 execution still require server checks; the optional SQL fixture is provided.
+
+The user reported full RDS run 9: Numeric Basic completed 415 fields in about
+77 minutes, but outlier preparation failed with error 2644 (permanent space in
+LAB_T_ORION_MVT) after about 6 minutes 40 seconds. No counting batches existed.
+The subsequent revision limits working-copy width to min(SQL_BATCH_SIZE,20),
+counts at most five fields per query, drops each group before copying another,
+and registers ownership before INSERT. Standalone bounded statistics use the
+same copy and preserve the public statistics APIs. A new synthetic 415-field
+check exercises settings 1/5/10/15/20/25/30 and simulated load-failure cleanup.
+These are SQLite/generated-SQL checks, not real database quota, SPL or
+transaction tests. No full-run speed or capacity claim is established.

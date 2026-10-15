@@ -101,3 +101,8 @@ succeeds. Both default to N. They use the selected run's saved monthly metrics;
 they add no Excel settings or field flags. Use file 06 to compare an existing
 successful run by short run number without starting profiling. See
 [field comparisons](FIELD_CHANGES.md) for scope, units and deployment.
+
+For Numeric Outliers, SQL_BATCH_SIZE now controls working-copy width up to 20
+fields; counting queries stay at at most five. Start at 10 when checking
+permanent storage, then benchmark 15/20. Numeric Basic still caps at ten. See
+[bounded outlier storage](OUTLIER_STORAGE_UPDATE.md).

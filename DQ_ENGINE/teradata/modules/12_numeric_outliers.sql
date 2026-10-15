@@ -2,8 +2,8 @@
    Exclude NULL and configured numeric specials from statistics, testing and
    rate denominator. Reuse unrounded Basic statistics when present; otherwise
    calculate the prerequisite internally without producing Basic results.
-   Materialize reporting date and selected numeric fields ONCE into a narrow
-   per-run/attempt MULTISET work table in DQ_DB, preserving types and duplicates.
+   Materialize reporting date and a bounded group of numeric fields into
+   one run/attempt/batch MULTISET work table, preserving types and duplicates.
    Partition the projection by a stored year key (0 for NULL dates); distribute
    rows by an independent random bucket, not by date or a possibly skewed value.
    Use permanent space for the projection, not volatile raw-row spool. Drop it
@@ -18,8 +18,14 @@ SQL SECURITY INVOKER
 main: BEGIN
     DECLARE V_DB VARCHAR(128);
     DECLARE V_SOURCE VARCHAR(128);
+    DECLARE V_SOURCE_DATABASE VARCHAR(128);
+    DECLARE V_SOURCE_TABLE VARCHAR(128);
+    DECLARE V_NEED_STATS INTEGER DEFAULT 0;
     DECLARE V_DATE VARCHAR(128);
     DECLARE V_SIZE INTEGER;
+    DECLARE V_STAGE_SIZE INTEGER;
+    DECLARE V_STAGE_FIRST INTEGER;
+    DECLARE V_STAGE_LAST INTEGER;
     DECLARE V_PROFILE_OVERALL CHAR(1);
     DECLARE V_PROFILE_MONTHLY CHAR(1);
     DECLARE V_PROFILE_YEARLY CHAR(1);
@@ -40,6 +46,7 @@ main: BEGIN
     DECLARE V_STAGE_YEAR VARCHAR(30);
     DECLARE V_KEY_SUFFIX INTEGER DEFAULT 0;
     DECLARE V_STAGE_PROJECTION VARCHAR(28000);
+    DECLARE V_STAGE_SELECT VARCHAR(30000);
     DECLARE V_SQL VARCHAR(32000);
     DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
     DECLARE V_PROJECTION VARCHAR(6000);
@@ -97,6 +104,9 @@ main: BEGIN
     SELECT PROFILE_OVERALL,PROFILE_MONTHLY,PROFILE_YEARLY
       INTO V_PROFILE_OVERALL,V_PROFILE_MONTHLY,V_PROFILE_YEARLY
       FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID;
+    /* SQL_BATCH_SIZE controls copy width (maximum 20). Keep the tested
+       counting-query width at five fields, independently of copy width. */
+    SET V_STAGE_SIZE=LEAST(V_SIZE,20);
     SET V_SIZE=LEAST(V_SIZE,5);
     INSERT INTO DQ_DB.DQ_MODULE_LOG (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS)
     VALUES (P_RUN_ID,'NUMERIC_OUTLIERS',V_ATTEMPT,0,CURRENT_TIMESTAMP(6),'RUNNING');
@@ -113,7 +123,7 @@ main: BEGIN
     IF V_COUNT<>5 OR V_METRIC_NAMES<>5 THEN
         SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT='Outlier metric definitions must contain five unique names';
     END IF;
-    /* Materialize the final configured view once. No DISTINCT, extra row
+    /* Prepare bounded copies of the final configured view. No DISTINCT, extra row
        filters, numeric casts or special removal: preserve the view population.
        Internal keys affect physical placement only, never the test population.
        A different name per run/attempt isolates concurrent work and retries. */
@@ -124,7 +134,8 @@ main: BEGIN
        OR REGEXP_SIMILAR(V_DATE,'^[A-Za-z_][A-Za-z0-9_]*$','c')<>1 THEN
         SIGNAL SQLSTATE 'U0004' SET MESSAGE_TEXT='Unsafe outlier source or run identifier';
     END IF;
-    SET V_STAGE='DQ_OS_' || OREPLACE(TRIM(P_RUN_ID),'-','') || '_A' || TRIM(CAST(V_ATTEMPT AS VARCHAR(12)));
+    SET V_SOURCE_DATABASE=V_DB;
+    SET V_SOURCE_TABLE=V_SOURCE;
     /* Choose internal column names outside the projected source namespace.
        A source field may legitimately have one of these names. */
     SET V_COUNT=1;
@@ -137,69 +148,93 @@ main: BEGIN
         IF UPPER(V_DATE) IN (V_STAGE_BUCKET,V_STAGE_YEAR) THEN SET V_COUNT=V_COUNT+1; END IF;
         SET V_KEY_SUFFIX=V_KEY_SUFFIX+1;
     END WHILE;
-    SET V_STAGE_PROJECTION='"' || V_DATE || '"';
-    FOR W AS STAGE_FIELDS_CURSOR CURSOR FOR
-        SELECT FIELD_NAME FROM DQ_DB.DQ_RUN_FIELD_CONFIG
-         WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC' ORDER BY FIELD_ORDINAL
-    DO
-        /* If reporting date is also selected, project it only once. */
-        IF UPPER(TRIM(W.FIELD_NAME))<>UPPER(V_DATE) THEN
-            IF CHARACTER_LENGTH(V_STAGE_PROJECTION)+CHARACTER_LENGTH(TRIM(W.FIELD_NAME))+3>28000 THEN
-                SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Outlier projection SQL too long; select fewer numeric fields';
-            END IF;
-            SET V_STAGE_PROJECTION=V_STAGE_PROJECTION || ',"' || TRIM(W.FIELD_NAME) || '"';
-        END IF;
-    END FOR;
-    SET V_SQL='CREATE MULTISET TABLE DQ_DB.' || V_STAGE || ' AS (SELECT ' || V_STAGE_PROJECTION
-      || ',RANDOM(1,2147483647) AS "' || V_STAGE_BUCKET || '"'
-      || ',COALESCE(EXTRACT(YEAR FROM "' || V_DATE || '"),0) AS "' || V_STAGE_YEAR || '"'
-      || ' FROM "' || V_DB || '"."' || V_SOURCE || '") WITH DATA'
-      || ' PRIMARY INDEX ("' || V_STAGE_BUCKET || '")'
-      || ' PARTITION BY RANGE_N("' || V_STAGE_YEAR || '" BETWEEN 0 AND 9999 EACH 1)';
-    /* Batch 0 retains creation SQL/table identity for operator recovery. */
-    UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
-     WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS' AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=0;
-    CALL DBC.SysExecSQL(V_SQL);
-    SET V_STAGE_EXISTS=1;
-    /* Include owner-reference access for the dynamic work table. */
-    SET V_SQL='GRANT SELECT ON DQ_DB.' || V_STAGE || ' TO DQ_DB WITH GRANT OPTION';
-    CALL DBC.SysExecSQL(V_SQL);
-    /* One statistics request after loading, not once per field batch/year.
-       Batch 0 keeps the CTAS so operators can identify an orphan work table. */
-    SET V_SQL='COLLECT STATISTICS COLUMN (PARTITION), COLUMN ("' || V_STAGE_YEAR
-      || '") ON DQ_DB.' || V_STAGE;
-    CALL DBC.SysExecSQL(V_SQL);
-    SET V_DB='DQ_DB';
-    SET V_SOURCE=V_STAGE;
-    /* Scan scheduling is independent of reporting levels. This small run-owned
-       calendar contains no profile metrics and is removed on completion/failure. */
-    DELETE FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR WHERE RUN_ID=P_RUN_ID;
-    SET V_SQL='INSERT INTO DQ_DB.DQ_OUTLIER_CHUNK_YEAR (RUN_ID,CHUNK_YEAR) SELECT DISTINCT '''
-      || P_RUN_ID || ''',CAST(CASE WHEN "' || V_STAGE_YEAR || '"=0 THEN ''UNKNOWN'' '
-      || 'ELSE TRIM(CAST("' || V_STAGE_YEAR || '" AS CHAR(4))) END AS VARCHAR(7)) '
-      || 'FROM DQ_DB.' || V_STAGE;
-    CALL DBC.SysExecSQL(V_SQL);
-    INSERT INTO DQ_DB.DQ_OUTLIER_CHUNK_YEAR (RUN_ID,CHUNK_YEAR)
-    SELECT P_RUN_ID,'ALL' FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID
-       AND NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR WHERE RUN_ID=P_RUN_ID);
+    /* Decide once whether Basic supplied the prerequisite. Otherwise each
+       small copy supplies its own statistics before outlier counting. */
     SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_NUMERIC_STATISTICS WHERE RUN_ID=P_RUN_ID;
-    IF V_COUNT=0 THEN
-        CALL DQ_DB.SP_DQ_NUMERIC_STATS_SOURCE(P_RUN_ID,P_PROJECT_ID,V_DB,V_SOURCE,V_DATE);
-    END IF;
-    /* Never silently mix partially captured and newly computed statistics. */
-    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_FIELD_CONFIG F
-     WHERE F.RUN_ID=P_RUN_ID AND F.FIELD_TYPE='NUMERIC' AND NOT EXISTS
-       (SELECT 1 FROM DQ_DB.DQ_NUMERIC_STATISTICS S WHERE S.RUN_ID=F.RUN_ID
-        AND S.FIELD_NAME=F.FIELD_NAME)
-       AND (V_PROFILE_OVERALL='Y' OR EXISTS
-         (SELECT 1 FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR C WHERE C.RUN_ID=P_RUN_ID AND C.CHUNK_YEAR<>'ALL'));
-    IF V_COUNT>0 THEN SIGNAL SQLSTATE 'U0040' SET MESSAGE_TEXT='Captured numeric statistics are incomplete'; END IF;
+    IF V_COUNT=0 THEN SET V_NEED_STATS=1; END IF;
     CALL DQ_DB.SP_DQ_SPECIAL_LIST(P_RUN_ID,'NUMERIC',V_LIST);
     WHILE V_FIRST<=V_FIELDS DO
+        IF V_STAGE_EXISTS=0 THEN
+            SET V_STAGE_FIRST=V_FIRST;
+            SET V_STAGE_LAST=LEAST(V_STAGE_FIRST+V_STAGE_SIZE-1,V_FIELDS);
+        END IF;
         SET V_BATCH=V_BATCH+1;
-        SET V_LAST=LEAST(V_FIRST+V_SIZE-1,V_FIELDS);
+        SET V_LAST=LEAST(V_FIRST+V_SIZE-1,V_FIELDS,V_STAGE_LAST);
         INSERT INTO DQ_DB.DQ_MODULE_LOG (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS,FIELD_COUNT)
         VALUES (P_RUN_ID,'NUMERIC_OUTLIERS',V_ATTEMPT,V_BATCH,CURRENT_TIMESTAMP(6),'RUNNING',V_LAST-V_FIRST+1);
+        IF V_STAGE_EXISTS=0 THEN
+            SET V_STAGE='DQ_OS_' || OREPLACE(TRIM(P_RUN_ID),'-','') || '_A'
+              || TRIM(CAST(V_ATTEMPT AS VARCHAR(12))) || '_B' || TRIM(CAST(V_BATCH AS VARCHAR(12)));
+            SET V_DB=V_SOURCE_DATABASE;
+            SET V_SOURCE=V_SOURCE_TABLE;
+            SET V_STAGE_PROJECTION='"' || V_DATE || '"';
+            FOR W AS STAGE_FIELDS_CURSOR CURSOR FOR
+                SELECT FIELD_NAME FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+                 WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC'
+                   AND FIELD_ORDINAL BETWEEN V_STAGE_FIRST AND V_STAGE_LAST ORDER BY FIELD_ORDINAL
+            DO
+                /* If reporting date is also selected, project it only once. */
+                IF UPPER(TRIM(W.FIELD_NAME))<>UPPER(V_DATE) THEN
+                    IF CHARACTER_LENGTH(V_STAGE_PROJECTION)+CHARACTER_LENGTH(TRIM(W.FIELD_NAME))+3>28000 THEN
+                        SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Outlier projection SQL too long; select fewer numeric fields';
+                    END IF;
+                    SET V_STAGE_PROJECTION=V_STAGE_PROJECTION || ',"' || TRIM(W.FIELD_NAME) || '"';
+                END IF;
+            END FOR;
+            SET V_STAGE_SELECT='SELECT ' || V_STAGE_PROJECTION
+              || ',RANDOM(1,2147483647) AS "' || V_STAGE_BUCKET || '"'
+              || ',COALESCE(EXTRACT(YEAR FROM "' || V_DATE || '"),0) AS "' || V_STAGE_YEAR || '"'
+              || ' FROM "' || V_DB || '"."' || V_SOURCE || '"';
+            /* Establish table ownership before loading. If INSERT runs out of room,
+               the handler can drop this owned table even though loading failed. */
+            SET V_SQL='CREATE MULTISET TABLE DQ_DB.' || V_STAGE || ' AS (' || V_STAGE_SELECT || ') WITH NO DATA'
+              || ' PRIMARY INDEX ("' || V_STAGE_BUCKET || '")'
+              || ' PARTITION BY RANGE_N("' || V_STAGE_YEAR || '" BETWEEN 0 AND 9999 EACH 1)';
+            /* Batch 0 retains creation SQL/table identity for operator recovery. */
+            UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS' AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID IN (0,V_BATCH);
+            CALL DBC.SysExecSQL(V_SQL);
+            SET V_STAGE_EXISTS=1;
+            SET V_SQL='INSERT INTO DQ_DB.' || V_STAGE || ' ' || V_STAGE_SELECT;
+            UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
+               AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID IN (0,V_BATCH);
+            CALL DBC.SysExecSQL(V_SQL);
+            /* Include owner-reference access for the dynamic work table. */
+            SET V_SQL='GRANT SELECT ON DQ_DB.' || V_STAGE || ' TO DQ_DB WITH GRANT OPTION';
+            CALL DBC.SysExecSQL(V_SQL);
+            /* Collect partition statistics once per loaded field batch, not per year.
+               Batch 0 retains INSERT/table identity for operator recovery. */
+            SET V_SQL='COLLECT STATISTICS COLUMN (PARTITION), COLUMN ("' || V_STAGE_YEAR
+              || '") ON DQ_DB.' || V_STAGE;
+            CALL DBC.SysExecSQL(V_SQL);
+            SET V_DB='DQ_DB';
+            SET V_SOURCE=V_STAGE;
+            /* Scan scheduling is independent of reporting levels. This small run-owned
+               calendar contains no profile metrics and is removed on completion/failure. */
+            DELETE FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR WHERE RUN_ID=P_RUN_ID;
+            SET V_SQL='INSERT INTO DQ_DB.DQ_OUTLIER_CHUNK_YEAR (RUN_ID,CHUNK_YEAR) SELECT DISTINCT '''
+              || P_RUN_ID || ''',CAST(CASE WHEN "' || V_STAGE_YEAR || '"=0 THEN ''UNKNOWN'' '
+              || 'ELSE TRIM(CAST("' || V_STAGE_YEAR || '" AS CHAR(4))) END AS VARCHAR(7)) '
+              || 'FROM DQ_DB.' || V_STAGE;
+            CALL DBC.SysExecSQL(V_SQL);
+            INSERT INTO DQ_DB.DQ_OUTLIER_CHUNK_YEAR (RUN_ID,CHUNK_YEAR)
+            SELECT P_RUN_ID,'ALL' FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID
+               AND NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR WHERE RUN_ID=P_RUN_ID);
+        END IF;
+        IF V_NEED_STATS=1 THEN
+            CALL DQ_DB.SP_DQ_NUMERIC_STATS_BATCH(P_RUN_ID,P_PROJECT_ID,V_DB,V_SOURCE,V_DATE,
+                 V_FIRST,V_LAST,V_BATCH);
+        END IF;
+        /* Never silently mix partially captured and newly computed statistics. */
+        SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_FIELD_CONFIG F
+         WHERE F.RUN_ID=P_RUN_ID AND F.FIELD_TYPE='NUMERIC'
+           AND F.FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST AND NOT EXISTS
+           (SELECT 1 FROM DQ_DB.DQ_NUMERIC_STATISTICS S WHERE S.RUN_ID=F.RUN_ID
+            AND S.FIELD_NAME=F.FIELD_NAME)
+           AND (V_PROFILE_OVERALL='Y' OR EXISTS
+             (SELECT 1 FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR C WHERE C.RUN_ID=P_RUN_ID AND C.CHUNK_YEAR<>'ALL'));
+        IF V_COUNT>0 THEN SIGNAL SQLSTATE 'U0040' SET MESSAGE_TEXT='Captured numeric statistics are incomplete'; END IF;
         SET V_SOURCE_PROJECTION='"' || V_DATE || '" AS DQ_DT,1 AS DQ_PRESENT';
         SET V_BOUND_PROJECTION='';
         SET V_OVERALL_BOUND_PROJECTION='';
@@ -453,12 +488,16 @@ main: BEGIN
         SET V_AGG_EXISTS=0;
         CALL DBC.SysExecSQL('DROP TABLE DQ_NO_BOUNDS');
         SET V_BOUNDS_EXISTS=0;
+        /* Reuse this copy for its remaining small counting batches. Release
+           permanent space before copying the next field group. */
+        IF V_LAST=V_STAGE_LAST THEN
+            CALL DBC.SysExecSQL('DROP TABLE DQ_DB.' || V_STAGE);
+            SET V_STAGE_EXISTS=0;
+        END IF;
         UPDATE DQ_DB.DQ_MODULE_LOG SET STATUS='SUCCEEDED',END_TIME=CURRENT_TIMESTAMP(6)
          WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS' AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
         SET V_FIRST=V_LAST+1;
     END WHILE;
-    CALL DBC.SysExecSQL('DROP TABLE DQ_DB.' || V_STAGE);
-    SET V_STAGE_EXISTS=0;
     DELETE FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR WHERE RUN_ID=P_RUN_ID;
     UPDATE DQ_DB.DQ_MODULE_LOG SET STATUS='SUCCEEDED',END_TIME=CURRENT_TIMESTAMP(6),FIELD_COUNT=V_FIELDS
      WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS' AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=0;
