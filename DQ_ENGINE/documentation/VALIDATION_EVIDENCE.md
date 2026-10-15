@@ -165,7 +165,7 @@ The user reported full RDS run 9: Numeric Basic completed 415 fields in about
 77 minutes, but outlier preparation failed with error 2644 (permanent space in
 LAB_T_ORION_MVT) after about 6 minutes 40 seconds. No counting batches existed.
 The subsequent revision limits working-copy width to min(SQL_BATCH_SIZE,20),
-counts at most five fields per query, drops each group before copying another,
+counts at most 20 fields per query, splitting long SQL, drops each group before copying another,
 and registers ownership before INSERT. Standalone bounded statistics use the
 same copy and preserve the public statistics APIs. A new synthetic 415-field
 check exercises settings 1/5/10/15/20/25/30 and simulated load-failure cleanup.
@@ -182,3 +182,16 @@ Current RDS names/specials generate 21 rather than 42 aggregate requests.
 Existing Basic persistence and reporting-scope checks cover metric formulas,
 rate denominators, unrounded prerequisite statistics and availability. These
 SQLite checks do not compile SPL or establish Teradata spool/runtime performance.
+
+### Wider outlier calculation checks
+
+Generated calculations at widths five, ten and twenty produce identical saved
+metrics for seven reporting scopes, including empty sources, NULL/special
+values, boundary equality and population deviation. Width checks cover all
+415 RDS numeric fields, maximum source identifiers, full configured specials,
+UNKNOWN/empty chunks, and near-maximum custom lists that force smaller batches.
+Standalone statistics remain capped at ten internally and allocate log IDs
+after the largest existing statistics batch, avoiding collisions across wider
+counting calls. The 415-field storage simulation exercises these actual
+allocation expressions with a uniqueness constraint. This is not Teradata SPL,
+quota/transaction testing or evidence of faster RDS runtime.

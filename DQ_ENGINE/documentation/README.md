@@ -232,3 +232,5 @@ See [field selection and module switches](CONFIGURATION_GUIDE.md) to choose
 which fields and tests to run.
 
 For the Numeric Basic scan reduction, see [deployment and benchmark](NUMERIC_BASIC_UPDATE.md).
+
+For up-to-20-field outlier calculations, see [deployment and benchmark](OUTLIER_WIDTH_UPDATE.md).

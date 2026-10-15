@@ -12,26 +12,26 @@ Use the existing Excel SQL_BATCH_SIZE setting; no new setting or table is added.
 | SQL_BATCH_SIZE | Maximum numeric fields copied together | Fields per counting query |
 |---|---:|---:|
 | 5 | 5 | 5 |
-| 10 | 10 | 5 |
-| 15 | 15 | 5 |
-| 20 | 20 | 5 |
-| 25 or 30 | 20 | 5 |
+| 10 | 10 | Up to 10 |
+| 15 | 15 | Up to 15 |
+| 20 | 20 | Up to 20 |
+| 25 or 30 | 20 | Up to 20 |
 
-Values below 5 use that smaller size for both. Other values up to 20 are accepted
-but can produce smaller counting batches at copy boundaries; multiples of 5
-are convenient. Numeric Basic now allows up to 20 fields per aggregate with automatic
+The calculation uses up to the copied width, automatically splitting if its
+SQL fragments would exceed their safe length budget. Smaller settings remain
+supported. Numeric Basic now allows up to 20 fields per aggregate with automatic
 SQL-length splitting; see [Basic update](NUMERIC_BASIC_UPDATE.md).
 
 For size 10, copy ten numeric fields plus the reporting date, calculate fields
-1-5 and then 6-10, drop the copy, and load the next ten fields. Only one copy
+1-10 together if SQL length permits, drop the copy, and load the next ten fields. Only one copy
 exists per invocation at a time. With 415 fields this means 42 copies at size
 10, 28 at 15, or 21 at 20, instead of one full-width copy. Each copy retains
 native values, NULLs, duplicate rows, random distribution and year partitioning.
 No filtering, sampling or precision reduction is introduced.
 
 Counting retains the faster CROSS JOIN for populated year chunks and the outer
-join for the empty-source sentinel. Five-field counting keeps the tested SQL
-width and spool strategy. Population deviation, +/-3 bounds, special-value
+join for the empty-source sentinel. Wider counting can increase spool;
+benchmark it independently of working-copy storage. Population deviation, +/-3 bounds, special-value
 exclusions, periods, metrics and publication rules are unchanged.
 
 If Basic already supplied statistics in this run, reuse them as before.
@@ -44,6 +44,9 @@ enough free permanent space, and the source SELECT can require spool. Source and
 configuration must remain stable while processing groups. More source copies
 can add elapsed time; a full-run speedup is not claimed. Test storage and timing
 at 10 first, then consider 15/20 if capacity permits.
+
+For the latest counting-width deployment and benchmark, see
+[20-field calculations](OUTLIER_WIDTH_UPDATE.md).
 
 ## Deployment and recovery
 
@@ -79,7 +82,7 @@ so a later outlier failure cannot discard a different run's published results.
 Batch 0 remains the overall module summary until every counting batch finishes.
 Batch 1 is now logged before the first copy is loaded. First counting batches
 in a group include copy time; subsequent batches reuse the same copy. FIELD_COUNT
-reports counted fields (at most five), not the width of the copy.
+reports the accepted calculation width (at most 20), not necessarily copy width.
 
 Copies use DQ_OS_<UUID without hyphens>_A<attempt>_B<first counting batch>.
 Batch 0 retains the current copy's creation/load SQL and identity for recovery;
@@ -91,13 +94,15 @@ A handled INSERT failure can therefore drop the owned table. Completed groups
 release space before the next group. A failed CREATE never drops an unowned
 existing table. Session termination can still bypass SPL cleanup.
 
-Standalone statistics batch IDs match counting batch IDs. Its summary completes
+Standalone statistics have their own monotonically increasing batch IDs:
+a 20-field counting batch may require two ten-field statistics batches. Its summary completes
 only after the final numeric field is processed; summary wall time includes
 the intervening outlier work and must not be added to parent/module timings.
 
 ## Validation limits
 
-Run tools/check_outlier_storage.mjs and tools/check_outliers.mjs with Node.
+Run tools/check_outlier_storage.mjs, tools/check_outliers.mjs and
+tools/check_outlier_width.mjs with Node.
 Synthetic checks cover 415 fields at settings 1/5/10/15/20/25/30, bounded cursors,
 one copy at a time, native values/duplicates, same-copy statistics, unique names,
 and simulated load-failure cleanup. Existing counting checks cover reporting

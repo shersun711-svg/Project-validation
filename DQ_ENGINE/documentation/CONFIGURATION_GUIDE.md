@@ -103,7 +103,8 @@ successful run by short run number without starting profiling. See
 [field comparisons](FIELD_CHANGES.md) for scope, units and deployment.
 
 For Numeric Outliers, SQL_BATCH_SIZE now controls working-copy width up to 20
-fields; counting queries stay at at most five. Start at 10 when checking
+fields; counting queries also accept up to 20 with automatic SQL-length
+splitting. Start at 10 when checking
 permanent storage, then benchmark 15/20. Numeric Basic now caps at 20 and automatically splits shorter batches if
 generated SQL would exceed its safe length. Smaller settings remain supported
 if spool is limited. See

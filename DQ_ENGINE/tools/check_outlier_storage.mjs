@@ -18,6 +18,7 @@ put.run('2005-01-31',...fields.map((_,i)=>i+1));
 put.run('2006-01-31',...fields.map(()=>-9999));
 put.run(null,...fields.map(()=>null));
 db.exec(`CREATE TABLE DQ_RUN_FIELD_CONFIG (RUN_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT,FIELD_ORDINAL INTEGER);
+ CREATE TABLE DQ_MODULE_LOG (RUN_ID TEXT,MODULE_NAME TEXT,ATTEMPT_NO INTEGER,BATCH_ID INTEGER, UNIQUE(RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID));
  CREATE TABLE DQ_NUMERIC_STATISTICS (RUN_ID TEXT,FIELD_NAME TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,TOTAL_COUNT INTEGER,VALID_COUNT INTEGER,MEAN_VALUE NUMERIC,STDDEV_VALUE NUMERIC);`);
 const id='70000000-0000-4000-8000-000000000001';
 fields.forEach((n,i)=>db.prepare('INSERT INTO DQ_RUN_FIELD_CONFIG VALUES (?,?,?,?)').run(id,n,'NUMERIC',i+1));
@@ -26,7 +27,7 @@ const adapt=q=>q.replaceAll('DQ_DB.','')
  .replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)")
  .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)");
 function scalar(source,name,vars,start=0){
- const q=assignment(name,start,source).replaceAll('LEAST(','MIN(')
+ const q=assignment(name,start,source).replaceAll('LEAST(','MIN(').replaceAll('GREATEST(','MAX(')
    .replace(/\b(?:V_|P_)[A-Z0-9_]+\b/g,n=>':'+n);
  return db.prepare('SELECT '+q+' AS N').get(vars).N;
 }
@@ -56,12 +57,21 @@ function prepareStage(v){
  return {selected,load:adapt(load)};
 }
 function boundedStatistics(v,first,last,batch,setting){
+ const callLast=last;
+ let logBatch=scalar(stats,'V_BATCH',{P_LOG_BATCH:batch});
+ const logAt=stats.indexOf('SELECT COALESCE(MAX(BATCH_ID),0)');
+ const logQuery=stats.slice(logAt,stats.indexOf(';',logAt)).replace('INTO V_COUNT','AS N').replaceAll('DQ_DB.','')
+   .replaceAll('P_RUN_ID',':run').replaceAll('V_ATTEMPT',':attempt');
+ logBatch=scalar(stats,'V_BATCH',{V_BATCH:logBatch,V_COUNT:db.prepare(logQuery).get({run:id,attempt:1}).N},logAt);
+ while(first<=callLast){
+ last=scalar(stats,'V_LAST',{V_FIRST:first,V_SIZE:Math.min(setting,10),V_FIELDS:415,P_FIELD_LAST:callLast},stats.indexOf('WHILE V_FIRST'));
+ logBatch++;db.prepare('INSERT INTO DQ_MODULE_LOG VALUES (?,?,?,?)').run(id,'NUMERIC_STATISTICS',1,logBatch);
  const bindings={P_RUN_ID:id,V_FIRST:first,V_LAST:last};
  const selected=cursor(stats,'FOR F AS',bindings);
  assert.equal(selected.length,last-first+1);
  const actualLast=scalar(stats,'V_LAST',{V_FIRST:first,V_SIZE:Math.min(setting,10),V_FIELDS:415,P_FIELD_LAST:last},stats.indexOf('WHILE V_FIRST'));
  assert.equal(actualLast,last,'statistics must stop at this counting batch');
- assert.equal(scalar(stats,'V_BATCH',{P_LOG_BATCH:batch}),batch-1);
+
  const q={P_RUN_ID:id,P_PROJECT_ID:'RDS',V_DB:'main',V_SOURCE:v.V_STAGE,V_DATE:'FACT_DT',
   V_LIST:'(-9999)',V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_PROJECTION:''};
  for(const f of selected){q['F.FIELD_NAME']=f.FIELD_NAME;q.V_SUFFIX=String(f.FIELD_ORDINAL);q.V_FIELD='S.DQ_C'+q.V_SUFFIX;
@@ -76,11 +86,13 @@ function boundedStatistics(v,first,last,batch,setting){
   db.exec(adapt(evaluate(assignment('V_SQL',stats.indexOf('FOR R AS'),stats),q)));
  }
  db.exec('DROP TABLE DQ_NS_AGG');
+ first=last+1;
+ }
 }
 for(const setting of [1,5,10,15,20,25,30]){
- db.exec('DELETE FROM DQ_NUMERIC_STATISTICS');
+ db.exec('DELETE FROM DQ_NUMERIC_STATISTICS; DELETE FROM DQ_MODULE_LOG');
  const size=scalar(out,'V_STAGE_SIZE',{V_SIZE:setting}),countSize=scalar(out,'V_SIZE',{V_SIZE:setting});
- assert.equal(size,Math.min(setting,20));assert.equal(countSize,Math.min(setting,5));
+ assert.equal(size,Math.min(setting,20));assert.equal(countSize,Math.min(setting,20));
  let first=1,batch=0,staged=0,copies=0;const tested=[],names=new Set();
  while(first<=415){
   const stageFirst=first;
@@ -95,7 +107,7 @@ for(const setting of [1,5,10,15,20,25,30]){
   while(first<=stageLast){
    batch++;const last=scalar(out,'V_LAST',{V_FIRST:first,V_SIZE:countSize,V_FIELDS:415,V_STAGE_LAST:stageLast},out.indexOf('WHILE V_FIRST<=V_FIELDS'));
    const selectedCount=cursor(out,'FOR F AS',{P_RUN_ID:id,V_FIRST:first,V_LAST:last});
-   assert.ok(selectedCount.length<=5);tested.push(...selectedCount.map(f=>f.FIELD_NAME));
+   assert.ok(selectedCount.length<=20);tested.push(...selectedCount.map(f=>f.FIELD_NAME));
    // Statistics use only the current fields, even though the copy is wider.
    boundedStatistics(v,first,last,batch,setting);
    first=last+1;
@@ -125,4 +137,4 @@ assert.ok(out.includes('IF V_LAST=V_STAGE_LAST THEN'));
 assert.ok(stats.includes('IF P_FIELD_LAST>=V_FIELDS THEN'));
 assert.ok(stats.includes('P_SOURCE_DATABASE,P_SOURCE_TABLE,P_REPORTING_DATE_FIELD,1,2147483647,1'));
 db.close();
-console.log('Outlier storage checks passed: 415 fields at widths 1/5/10/15/20/25/30; max 20 copied, max 5 counted, one copy at a time, no missing/duplicate fields, same-copy bounded statistics and simulated load-failure cleanup. Teradata quotas/SPL/transactions NOT tested.');
+console.log('Outlier storage checks passed: 415 fields at widths 1/5/10/15/20/25/30; max 20 copied, max 20 counted, one copy at a time, no missing/duplicate fields, same-copy bounded statistics and simulated load-failure cleanup. Teradata quotas/SPL/transactions NOT tested.');

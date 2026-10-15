@@ -125,3 +125,9 @@ compares generated aggregates at 1/10/15/20/25/30 settings for all 415 numeric
 fields, seven reporting scopes, NULL/special/empty populations, and long-SQL
 automatic splitting. SQLite dialect adaptation does not verify SPL compilation,
 Teradata GROUPING SETS plans, quota, spool or elapsed time.
+
+Wider outlier SQL checks: `node DQ_ENGINE/tools/check_outlier_width.mjs`.
+The main outlier checker also compares saved metrics at 5/10/20-field widths;
+the storage checker exercises <=10-field prerequisite batches with independent,
+unique statistics log IDs. Live SPL compilation and spool measurements remain
+required before expanding beyond the controlled 20-field population.

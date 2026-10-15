@@ -37,8 +37,9 @@ The completed work remains in the result tables for successful retained runs;
 no Basic recalculation is required just to review it.
 
 If the wider batch is slower or exhausts spool, use SQL_BATCH_SIZE=10. Smaller
-settings remain supported. Do not change five-field outlier counting based on
-a Basic-only benchmark: these are different query shapes.
+settings remain supported. Outlier counting also supports up to 20 fields after the
+[separate outlier update](OUTLIER_WIDTH_UPDATE.md). Benchmark it separately;
+a Basic-only benchmark does not validate its spool requirement.
 
 For a subsequent full Basic + Outliers run, enable both in 00. Outliers already
 reuses Basic's unrounded mean and population standard deviation; a separate

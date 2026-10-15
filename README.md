@@ -15,7 +15,7 @@ All field types support independently selected reporting levels (Excel defaults:
 overall Y, monthly Y, yearly N); percentages use
 the shared green/amber/red rules. Configurable special-value checks are implemented.
 Numeric Outliers uses mean +/- 3 times population standard deviation. Working
-copies are capped at 20 fields, counting at five; see the
+copies and counting batches are capped at 20 fields, with SQL-length splitting; see the
 [permanent-space update](DQ_ENGINE/documentation/OUTLIER_STORAGE_UPDATE.md).
 Field-level MoM/YoY compares saved monthly results without another RDS scan.
 See [comparison deployment and operation](DQ_ENGINE/documentation/FIELD_CHANGES.md).

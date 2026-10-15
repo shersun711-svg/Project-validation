@@ -11,7 +11,7 @@ are retained. Keep source and configuration stable during execution.
 | Categorical Basic | 8 | Three explicit overall/year/month queries using UNION ALL |
 | Identifier Basic | 20 | Three explicit period queries using UNION ALL |
 | Date Basic | 30 | One aggregate statement using GROUPING SETS |
-| Numeric Outliers | 5 counted; up to 20 copied | One bounded working copy per group; partitioned year-chunk counting |
+| Numeric Outliers | Up to 20 copied/counted; SQL-length splitting | One bounded working copy per group; partitioned year-chunk counting |
 
 SQL_BATCH_SIZE remains configurable from 1 to 30; effective size is the lower
 of the setting and module cap. Special lists increase generated query size;
@@ -152,8 +152,8 @@ query-count estimate; runtime, source scans and spool depend on Teradata's
 optimizer. Confirm that each counting request eliminates the other year
 partitions. The new layout adds distribution, partition storage and statistics
 cost during staging; measure total elapsed time, not just chunk timing.
-Standalone statistics use the same copy, restricted to the current five-field
-counting batch. Materialization itself may exhaust view spool; runtime, permanent space,
+Standalone statistics use the same copy, restricted to the accepted
+counting batch; its internal statistics aggregates remain capped at ten. Materialization itself may exhaust view spool; runtime, permanent space,
 I/O and AMP distribution require EXPLAIN/DBQL on the installed release.
 Use tests/test_outlier_partition.sql first to check the physical DDL and partition
 predicates on eight synthetic rows before a controlled five-field RDS comparison.
@@ -179,7 +179,8 @@ against the same population. See [reporting levels](REPORTING_LEVELS.md).
 The user reported run 9: 415-field Numeric Basic took about 77 minutes, then
 the old all-field outlier preparation failed after about 6 minutes 40 seconds
 with error 2644 in LAB_T_ORION_MVT. The revised flow caps copied fields at 20
-while retaining five-field counting; start by benchmarking SQL_BATCH_SIZE=10.
+with counting also capped at 20 and SQL-length splitting; benchmark the same
+20-field population before expanding to all fields.
 Completed groups are dropped before the next copy. This bounds working width
 but adds source reads, so full-run runtime is unverified. See
 [bounded storage and deployment](OUTLIER_STORAGE_UPDATE.md).
@@ -209,3 +210,16 @@ User-supplied run 10 completed 20 outlier fields in 3m31.52s, including standalo
 statistics and a 20-field copy. This confirms one group fits that workload; it is
 not a full-RDS throughput guarantee or a benchmark of the new Basic procedure.
 See [Basic deployment and benchmark](NUMERIC_BASIC_UPDATE.md).
+
+## Wider outlier calculations
+
+Run 12, supplied by the user, completed 20-field Basic in 1m43.63s and
+20-field Outliers in 2m55.85s using four five-field counting batches. Batch 1
+included working-copy setup. These logs do not isolate CPU, I/O or spool.
+
+Outlier calculations now accept up to 20 fields using the same 20-field copy.
+A combined fragment budget leaves room for joins/wrappers and automatically
+splits larger SQL without skipping fields. Current RDS names/specials fit
+20-field calculations across all scopes in local generation checks. This reduces
+counting passes but can increase peak aggregation spool; no live speedup or
+spool-fit guarantee is claimed. See [deployment and benchmark](OUTLIER_WIDTH_UPDATE.md).

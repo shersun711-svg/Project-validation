@@ -9,7 +9,7 @@
    Use permanent space for the projection, not volatile raw-row spool. Drop it
    on success/handled failure; a terminated session may leave it for recovery.
    Aggregate one calendar year at a time to bound peak work while counting
-   against overall, yearly and monthly bounds (maximum 5 fields).
+   against overall, yearly and monthly bounds (up to 20 fields; automatic SQL-length splitting).
    Roll up the compact yearly chunks after aggregation.
    The shared orchestrator owns status, rollback of partial output and retries. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_NUMERIC_OUTLIERS
@@ -48,9 +48,12 @@ main: BEGIN
     DECLARE V_STAGE_PROJECTION VARCHAR(28000);
     DECLARE V_STAGE_SELECT VARCHAR(30000);
     DECLARE V_SQL VARCHAR(32000);
-    DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
-    DECLARE V_PROJECTION VARCHAR(6000);
-    DECLARE V_BOUND_PROJECTION VARCHAR(6000);
+    DECLARE V_SOURCE_PROJECTION VARCHAR(24000);
+    DECLARE V_SOURCE_PART VARCHAR(10000);
+    DECLARE V_PROJECTION_PART VARCHAR(4000);
+    DECLARE V_OVERALL_PART VARCHAR(1000);
+    DECLARE V_PROJECTION VARCHAR(24000);
+    DECLARE V_BOUND_PROJECTION VARCHAR(16000);
     DECLARE V_OVERALL_BOUND_PROJECTION VARCHAR(3000);
     DECLARE V_CHECK VARCHAR(2000);
     DECLARE V_LIST VARCHAR(8000);
@@ -64,7 +67,7 @@ main: BEGIN
     DECLARE V_YEAR_COUNT VARCHAR(1000);
     DECLARE V_YEAR_TOTAL VARCHAR(100);
     DECLARE V_YEAR_JOIN VARCHAR(500);
-    DECLARE V_PERIOD_QUERY VARCHAR(24000);
+    DECLARE V_PERIOD_QUERY VARCHAR(32000);
     DECLARE V_ROLLUP_OVERALL VARCHAR(6000);
     DECLARE V_ROLLUP_YEARLY VARCHAR(6000);
     DECLARE V_ROLLUP_MONTHLY VARCHAR(6000);
@@ -105,9 +108,9 @@ main: BEGIN
       INTO V_PROFILE_OVERALL,V_PROFILE_MONTHLY,V_PROFILE_YEARLY
       FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID;
     /* SQL_BATCH_SIZE controls copy width (maximum 20). Keep the tested
-       counting-query width at five fields, independently of copy width. */
+       counting-query width at 20 fields, with SQL-length splitting below. */
     SET V_STAGE_SIZE=LEAST(V_SIZE,20);
-    SET V_SIZE=LEAST(V_SIZE,5);
+    SET V_SIZE=LEAST(V_SIZE,20);
     INSERT INTO DQ_DB.DQ_MODULE_LOG (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS)
     VALUES (P_RUN_ID,'NUMERIC_OUTLIERS',V_ATTEMPT,0,CURRENT_TIMESTAMP(6),'RUNNING');
     SET V_OWNED=1;
@@ -222,6 +225,100 @@ main: BEGIN
             SELECT P_RUN_ID,'ALL' FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID
                AND NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR WHERE RUN_ID=P_RUN_ID);
         END IF;
+        SET V_SOURCE_PROJECTION='"' || V_DATE || '" AS DQ_DT,1 AS DQ_PRESENT';
+        SET V_BOUND_PROJECTION='';
+        SET V_OVERALL_BOUND_PROJECTION='';
+        SET V_PROJECTION='';
+        SET V_ROLLUP_OVERALL='';
+        SET V_ROLLUP_YEARLY='';
+        SET V_ROLLUP_MONTHLY='';
+        SET V_CHECK='A.ACTUAL_TOTAL<>A.TOTAL_N';
+        FOR F AS FIELDS_CURSOR CURSOR FOR
+            SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+             WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC' AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST ORDER BY FIELD_ORDINAL
+        DO
+            IF F.FIELD_ORDINAL<=V_LAST THEN
+                SET V_SUFFIX=TRIM(CAST(F.FIELD_ORDINAL AS VARCHAR(12)));
+                SET V_SOURCE_PART='' || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_LIST
+                  || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
+                SET V_OVERALL_PART=''
+                  || ',MAX(N' || V_SUFFIX || ') AS N' || V_SUFFIX
+                  || ',MAX(L' || V_SUFFIX || ') AS L' || V_SUFFIX
+                  || ',MAX(U' || V_SUFFIX || ') AS U' || V_SUFFIX;
+                SET V_FIELD='S.DQ_C' || V_SUFFIX;
+                /* Keep the small chunk layout stable without generating yearly
+                   comparisons or a yearly bounds join when that level is off. */
+                IF V_PROFILE_YEARLY='Y' THEN
+                    SET V_YEAR_BOUNDS=',MAX(B1.N' || V_SUFFIX || ') AS YN' || V_SUFFIX
+                      || ',MAX(B1.L' || V_SUFFIX || ') AS YL' || V_SUFFIX
+                      || ',MAX(B1.U' || V_SUFFIX || ') AS YU' || V_SUFFIX;
+                    SET V_YEAR_COUNT=',COALESCE(SUM(CAST(CASE WHEN CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX
+                      || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B1.U' || V_SUFFIX
+                      || ' THEN 1 ELSE 0 END AS BIGINT)),0) AS YO' || V_SUFFIX;
+                ELSE
+                    SET V_YEAR_BOUNDS=',CAST(NULL AS BIGINT) AS YN' || V_SUFFIX
+                      || ',CAST(NULL AS FLOAT) AS YL' || V_SUFFIX || ',CAST(NULL AS FLOAT) AS YU' || V_SUFFIX;
+                    SET V_YEAR_COUNT=',CAST(0 AS BIGINT) AS YO' || V_SUFFIX;
+                END IF;
+                SET V_PROJECTION_PART=''
+                  || ',MAX(B0.N' || V_SUFFIX || ') AS ON' || V_SUFFIX
+                  || ',MAX(B0.L' || V_SUFFIX || ') AS OL' || V_SUFFIX
+                  || ',MAX(B0.U' || V_SUFFIX || ') AS OU' || V_SUFFIX
+                  || V_YEAR_BOUNDS
+                  || ',MAX(BM.N' || V_SUFFIX || ') AS MN' || V_SUFFIX
+                  || ',MAX(BM.L' || V_SUFFIX || ') AS ML' || V_SUFFIX
+                  || ',MAX(BM.U' || V_SUFFIX || ') AS MU' || V_SUFFIX
+                  || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL' || V_SUFFIX
+                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_OVERALL || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<B0.L' || V_SUFFIX
+                  || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B0.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS OO' || V_SUFFIX
+                  || V_YEAR_COUNT
+                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_MONTHLY || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<BM.L' || V_SUFFIX
+                  || ' OR CAST(' || V_FIELD || ' AS FLOAT)>BM.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS MO' || V_SUFFIX;
+                /* Reserve 3,000 characters for joins, period/date expressions and
+                   physical names. Oversized candidates stay for the next batch.
+                   Validate before appending to the bounded fragment buffers. */
+                IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SOURCE_PART)>24000
+                   OR CHARACTER_LENGTH(V_PROJECTION)+CHARACTER_LENGTH(V_PROJECTION_PART)>24000
+                   OR CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SOURCE_PART)
+                     +CHARACTER_LENGTH(V_PROJECTION)+CHARACTER_LENGTH(V_PROJECTION_PART)
+                     +CHARACTER_LENGTH(V_OVERALL_BOUND_PROJECTION)+CHARACTER_LENGTH(V_OVERALL_PART)>29000 THEN
+                    IF F.FIELD_ORDINAL=V_FIRST THEN
+                        SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Single outlier field SQL exceeds safe length';
+                    END IF;
+                    SET V_LAST=F.FIELD_ORDINAL-1;
+                ELSE
+                    SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION || V_SOURCE_PART;
+                    SET V_PROJECTION=V_PROJECTION || V_PROJECTION_PART;
+                    SET V_OVERALL_BOUND_PROJECTION=V_OVERALL_BOUND_PROJECTION || V_OVERALL_PART;
+                    SET V_BOUND_PROJECTION=V_BOUND_PROJECTION
+                      || ',MAX(CASE WHEN FIELD_NAME=''' || TRIM(F.FIELD_NAME) || ''' THEN VALID_COUNT END) AS N' || V_SUFFIX
+                      || ',MAX(CASE WHEN FIELD_NAME=''' || TRIM(F.FIELD_NAME) || ''' THEN LB END) AS L' || V_SUFFIX
+                      || ',MAX(CASE WHEN FIELD_NAME=''' || TRIM(F.FIELD_NAME) || ''' THEN UB END) AS U' || V_SUFFIX;
+                    SET V_ROLLUP_OVERALL=V_ROLLUP_OVERALL
+                      || ',MAX(C.ON' || V_SUFFIX || ') AS N' || V_SUFFIX
+                      || ',MAX(C.OL' || V_SUFFIX || ') AS L' || V_SUFFIX
+                      || ',MAX(C.OU' || V_SUFFIX || ') AS U' || V_SUFFIX
+                      || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
+                      || ',SUM(C.OO' || V_SUFFIX || ') AS O' || V_SUFFIX;
+                    SET V_ROLLUP_YEARLY=V_ROLLUP_YEARLY
+                      || ',MAX(C.YN' || V_SUFFIX || ') AS N' || V_SUFFIX
+                      || ',MAX(C.YL' || V_SUFFIX || ') AS L' || V_SUFFIX
+                      || ',MAX(C.YU' || V_SUFFIX || ') AS U' || V_SUFFIX
+                      || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
+                      || ',SUM(C.YO' || V_SUFFIX || ') AS O' || V_SUFFIX;
+                    SET V_ROLLUP_MONTHLY=V_ROLLUP_MONTHLY
+                      || ',MAX(C.MN' || V_SUFFIX || ') AS N' || V_SUFFIX
+                      || ',MAX(C.ML' || V_SUFFIX || ') AS L' || V_SUFFIX
+                      || ',MAX(C.MU' || V_SUFFIX || ') AS U' || V_SUFFIX
+                      || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
+                      || ',SUM(C.MO' || V_SUFFIX || ') AS O' || V_SUFFIX;
+                    SET V_CHECK=V_CHECK || ' OR A.N' || V_SUFFIX || ' IS NULL OR A.ACTUAL' || V_SUFFIX || '<>A.N' || V_SUFFIX;
+                END IF;
+            END IF;
+        END FOR;
+        UPDATE DQ_DB.DQ_MODULE_LOG SET FIELD_COUNT=V_LAST-V_FIRST+1
+         WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
+           AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
         IF V_NEED_STATS=1 THEN
             CALL DQ_DB.SP_DQ_NUMERIC_STATS_BATCH(P_RUN_ID,P_PROJECT_ID,V_DB,V_SOURCE,V_DATE,
                  V_FIRST,V_LAST,V_BATCH);
@@ -235,81 +332,6 @@ main: BEGIN
            AND (V_PROFILE_OVERALL='Y' OR EXISTS
              (SELECT 1 FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR C WHERE C.RUN_ID=P_RUN_ID AND C.CHUNK_YEAR<>'ALL'));
         IF V_COUNT>0 THEN SIGNAL SQLSTATE 'U0040' SET MESSAGE_TEXT='Captured numeric statistics are incomplete'; END IF;
-        SET V_SOURCE_PROJECTION='"' || V_DATE || '" AS DQ_DT,1 AS DQ_PRESENT';
-        SET V_BOUND_PROJECTION='';
-        SET V_OVERALL_BOUND_PROJECTION='';
-        SET V_PROJECTION='';
-        SET V_ROLLUP_OVERALL='';
-        SET V_ROLLUP_YEARLY='';
-        SET V_ROLLUP_MONTHLY='';
-        SET V_CHECK='A.ACTUAL_TOTAL<>A.TOTAL_N';
-        FOR F AS FIELDS_CURSOR CURSOR FOR
-            SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
-             WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE='NUMERIC' AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST ORDER BY FIELD_ORDINAL
-        DO
-            SET V_SUFFIX=TRIM(CAST(F.FIELD_ORDINAL AS VARCHAR(12)));
-            IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_LIST)+2*CHARACTER_LENGTH(TRIM(F.FIELD_NAME))+100>8000 THEN
-                SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Outlier SQL too long; reduce batch size or special list';
-            END IF;
-            SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_LIST
-              || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
-            SET V_BOUND_PROJECTION=V_BOUND_PROJECTION
-              || ',MAX(CASE WHEN FIELD_NAME=''' || TRIM(F.FIELD_NAME) || ''' THEN VALID_COUNT END) AS N' || V_SUFFIX
-              || ',MAX(CASE WHEN FIELD_NAME=''' || TRIM(F.FIELD_NAME) || ''' THEN LB END) AS L' || V_SUFFIX
-              || ',MAX(CASE WHEN FIELD_NAME=''' || TRIM(F.FIELD_NAME) || ''' THEN UB END) AS U' || V_SUFFIX;
-            SET V_OVERALL_BOUND_PROJECTION=V_OVERALL_BOUND_PROJECTION
-              || ',MAX(N' || V_SUFFIX || ') AS N' || V_SUFFIX
-              || ',MAX(L' || V_SUFFIX || ') AS L' || V_SUFFIX
-              || ',MAX(U' || V_SUFFIX || ') AS U' || V_SUFFIX;
-            SET V_FIELD='S.DQ_C' || V_SUFFIX;
-            /* Keep the small chunk layout stable without generating yearly
-               comparisons or a yearly bounds join when that level is off. */
-            IF V_PROFILE_YEARLY='Y' THEN
-                SET V_YEAR_BOUNDS=',MAX(B1.N' || V_SUFFIX || ') AS YN' || V_SUFFIX
-                  || ',MAX(B1.L' || V_SUFFIX || ') AS YL' || V_SUFFIX
-                  || ',MAX(B1.U' || V_SUFFIX || ') AS YU' || V_SUFFIX;
-                SET V_YEAR_COUNT=',COALESCE(SUM(CAST(CASE WHEN CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX
-                  || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B1.U' || V_SUFFIX
-                  || ' THEN 1 ELSE 0 END AS BIGINT)),0) AS YO' || V_SUFFIX;
-            ELSE
-                SET V_YEAR_BOUNDS=',CAST(NULL AS BIGINT) AS YN' || V_SUFFIX
-                  || ',CAST(NULL AS FLOAT) AS YL' || V_SUFFIX || ',CAST(NULL AS FLOAT) AS YU' || V_SUFFIX;
-                SET V_YEAR_COUNT=',CAST(0 AS BIGINT) AS YO' || V_SUFFIX;
-            END IF;
-            SET V_PROJECTION=V_PROJECTION
-              || ',MAX(B0.N' || V_SUFFIX || ') AS ON' || V_SUFFIX
-              || ',MAX(B0.L' || V_SUFFIX || ') AS OL' || V_SUFFIX
-              || ',MAX(B0.U' || V_SUFFIX || ') AS OU' || V_SUFFIX
-              || V_YEAR_BOUNDS
-              || ',MAX(BM.N' || V_SUFFIX || ') AS MN' || V_SUFFIX
-              || ',MAX(BM.L' || V_SUFFIX || ') AS ML' || V_SUFFIX
-              || ',MAX(BM.U' || V_SUFFIX || ') AS MU' || V_SUFFIX
-              || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL' || V_SUFFIX
-              || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_OVERALL || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<B0.L' || V_SUFFIX
-              || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B0.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS OO' || V_SUFFIX
-              || V_YEAR_COUNT
-              || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_MONTHLY || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<BM.L' || V_SUFFIX
-              || ' OR CAST(' || V_FIELD || ' AS FLOAT)>BM.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS MO' || V_SUFFIX;
-            SET V_ROLLUP_OVERALL=V_ROLLUP_OVERALL
-              || ',MAX(C.ON' || V_SUFFIX || ') AS N' || V_SUFFIX
-              || ',MAX(C.OL' || V_SUFFIX || ') AS L' || V_SUFFIX
-              || ',MAX(C.OU' || V_SUFFIX || ') AS U' || V_SUFFIX
-              || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
-              || ',SUM(C.OO' || V_SUFFIX || ') AS O' || V_SUFFIX;
-            SET V_ROLLUP_YEARLY=V_ROLLUP_YEARLY
-              || ',MAX(C.YN' || V_SUFFIX || ') AS N' || V_SUFFIX
-              || ',MAX(C.YL' || V_SUFFIX || ') AS L' || V_SUFFIX
-              || ',MAX(C.YU' || V_SUFFIX || ') AS U' || V_SUFFIX
-              || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
-              || ',SUM(C.YO' || V_SUFFIX || ') AS O' || V_SUFFIX;
-            SET V_ROLLUP_MONTHLY=V_ROLLUP_MONTHLY
-              || ',MAX(C.MN' || V_SUFFIX || ') AS N' || V_SUFFIX
-              || ',MAX(C.ML' || V_SUFFIX || ') AS L' || V_SUFFIX
-              || ',MAX(C.MU' || V_SUFFIX || ') AS U' || V_SUFFIX
-              || ',SUM(C.ACTUAL' || V_SUFFIX || ') AS ACTUAL' || V_SUFFIX
-              || ',SUM(C.MO' || V_SUFFIX || ') AS O' || V_SUFFIX;
-            SET V_CHECK=V_CHECK || ' OR A.N' || V_SUFFIX || ' IS NULL OR A.ACTUAL' || V_SUFFIX || '<>A.N' || V_SUFFIX;
-        END FOR;
         /* Bounds table contains period aggregates only. Fixed 3 is recorded
            in SQL; no rounded DECIMAL mean/deviation is read from metric results. */
         SET V_SQL='CREATE VOLATILE TABLE DQ_NO_BOUNDS AS (SELECT PERIOD_LEVEL,PERIOD_VALUE,MAX(TOTAL_COUNT) AS TOTAL_N'

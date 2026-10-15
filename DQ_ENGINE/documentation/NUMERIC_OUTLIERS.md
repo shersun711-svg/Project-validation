@@ -113,8 +113,9 @@ numerical behaviour and workload must be verified on the installed release.
 
 Outliers use one bounded MULTISET working copy at a time. SQL_BATCH_SIZE controls
 its width, capped at 20 numeric fields plus the reporting date and physical keys;
-counting queries retain the five-field cap. A 10-field copy serves two counting
-batches, then is dropped before copying the next group. Copies preserve native
+counting queries also accept up to 20 fields, splitting automatically if their
+generated SQL would be too long. A 20-field copy normally serves one counting
+batch, then is dropped before copying the next group. Copies preserve native
 values, NULLs and duplicates, year partitions and independent random distribution.
 They use permanent space; aggregation uses small volatile summaries.
 
@@ -129,7 +130,8 @@ before loading. Batch 0 is the overall summary and retains copy identity for
 recovery. Empty-table creation precedes loading so handled load failures can drop
 an owned table. Hard session termination can bypass cleanup. No unowned or active
 work table may be removed automatically. See [deployment, recovery, exact limits
-and validation](OUTLIER_STORAGE_UPDATE.md).
+and validation](OUTLIER_STORAGE_UPDATE.md). For the wider calculation update,
+see [20-field deployment](OUTLIER_WIDTH_UPDATE.md).
 
 This reduces peak copy width but adds source reads; it does not guarantee a
 full-run runtime or that one copy fits the remaining database quota. Existing
