@@ -75,7 +75,18 @@ Use one fresh SQL Assistant session and submit sections separately:
    source from LEFT JOIN to CROSS JOIN. Do not remove EXPLAIN or apply this
    unconditionally to the procedure: an empty source still needs its zero-row
    population summary. No production procedure change is included at this step.
-5. E drops only the two diagnostic tables created successfully. Configuration,
+5. D3 optionally runs the original and candidate counts for 2018 once each into
+   DQ_DIAG_OUT_OLD and DQ_DIAG_OUT_NEW (small volatile tables). If B/C are still
+   present, run D3 only, one statement at a time, recording each CREATE's elapsed
+   time. The summary must report MATCH, equal positive row counts (12 for the
+   supplied plan), zero DIFFERENT_ROWS and zero duplicate keys. Bidirectional
+   MINUS checks every column including NULLs; separate row/duplicate checks
+   prevent set comparison from hiding multiplicity changes. Both empty is a
+   failure. Bounds are copied from the same saved FLOAT values, so this join-only
+   comparison uses exact equality. Optional detail identifies old-only/new-only
+   rows. Stop on errors; do not compare a partial or stale result table.
+6. E drops only the diagnostic tables created successfully. Skip the two D3
+   result-table drops if that section was not run. Configuration,
    source tables, run logs and published results are untouched. Disconnecting
    removes volatile bounds but can leave the permanent diagnostic stage.
 

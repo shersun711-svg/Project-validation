@@ -122,3 +122,12 @@ Local query comparisons preserve measurements for ordinary and NULL-date chunks
 and explicitly demonstrate why the empty-source path cannot be changed the
 same way. Production SQL remains unchanged pending the comparison plan and a
 controlled timing/result check on Teradata.
+
+The supplied D2 plan removes detail redistribution by constant bounds and the
+outer-preservation merge join; the detail spool is now built locally on AMPs.
+The user reported a two-second execution of the new 2018 SELECT. This is one
+chunk's observed timing, not a full-engine benchmark. Diagnostic section D3
+now materializes both 2018 outputs and checks all columns using bidirectional
+MINUS, row counts and duplicate keys. Local mutation tests reject changed
+values, NULL differences, missing rows, duplicates and both-empty outputs.
+Teradata comparison results remain pending; the production procedure is unchanged.
