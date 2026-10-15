@@ -425,6 +425,123 @@ if(process.env.DQ_WRITE_PARTITION_SMOKE==='1')fs.writeFileSync(partitionPath,par
 else assert.equal(fs.readFileSync(partitionPath,'utf8'),partitionSmoke,'Regenerate partition server preflight after template changes');
 console.log('Partition key checks passed: collisions, NULL dates, year limits, timestamps and duplicate preservation. Physical partition elimination/RANDOM/statistics syntax require the supplied Teradata preflight.');
 
+// Reproduce the actual count-query shape for the user's completed five-field
+// RDS run, without DBQL access or a full engine rerun. Source data stays in TD.
+const diagnosticRun='3b807c69-1596-7a40-b091-17f815617580';
+const diagnosticFields=['ARREARS_AMT','ARREARS_AVG_L6M_AMT','ARREARS_AVG_L7_12M_AMT','BALANCE_AMT','MAX_ARREARS_AMT_L6M'];
+const dv={V_PROFILE_OVERALL:'Y',V_PROFILE_YEARLY:'N',V_PROFILE_MONTHLY:'Y',
+ P_RUN_ID:diagnosticRun,P_PROJECT_ID:'RDS',V_DB:'DQ_DB',V_SOURCE:'DQ_DIAG_OUT_R7',V_DATE:'FACT_DT',
+ V_FIRST:1,V_LAST:5,V_LIST:list,V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',
+ V_BOUND_PROJECTION:'',V_OVERALL_BOUND_PROJECTION:'',V_PROJECTION:'',
+ V_STAGE:'DQ_DIAG_OUT_R7',V_STAGE_BUCKET:'DQ_OS_BUCKET_0',V_STAGE_YEAR:'DQ_OS_YEAR_0',
+ V_STAGE_PROJECTION:'"FACT_DT",'+diagnosticFields.map(f=>'"'+f+'"').join(','),
+ 'C.CHUNK_VALUE':'2018',V_CHUNK_YEAR:'2018',V_SOURCE_FILTER:'"DQ_OS_YEAR_0"=2018'};
+for(const [i,name]of diagnosticFields.entries()){
+ dv['F.FIELD_NAME']=name;dv.V_SUFFIX=String(i+1);dv.V_FIELD='S.DQ_C'+(i+1);yearField(dv);
+ for(const part of ['V_SOURCE_PROJECTION','V_BOUND_PROJECTION','V_OVERALL_BOUND_PROJECTION','V_PROJECTION'])
+  dv[part]=evaluate(assignment(part,cursor,sql),dv);
+}
+yearJoin(dv);
+const diagnosticStage=evaluate(assignment('V_SQL',sql.indexOf('FOR W AS'),sql),{...dv,V_SOURCE:'VW_RDS_PHASE2_FACT'});
+const diagnosticStats=evaluate(assignment('V_SQL',sql.indexOf('/* One statistics request'),sql),dv);
+const diagnosticBounds=evaluate(assignment('V_SQL',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+const diagnosticCount=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+const diagnosticPreflight=`SELECT 'Run 7 source, status or reporting scope differs' AS ISSUE
+FROM DQ_DB.DQ_RUN_LOG L JOIN DQ_DB.DQ_RUN_NUMBER N ON L.RUN_ID=N.RUN_ID
+WHERE L.RUN_ID='${diagnosticRun}' AND N.RUN_NUMBER=7 AND L.PROJECT_ID='RDS'
+  AND L.STATUS='SUCCEEDED' AND UPPER(L.SOURCE_DATABASE)='DQ_DB'
+  AND UPPER(L.SOURCE_TABLE)='VW_RDS_PHASE2_FACT' AND UPPER(L.REPORTING_DATE_FIELD)='FACT_DT'
+  AND L.PROFILE_OVERALL='Y' AND L.PROFILE_MONTHLY='Y' AND L.PROFILE_YEARLY='N'
+HAVING COUNT(*)<>1
+UNION ALL
+SELECT 'Numeric field names or ordinals differ' AS ISSUE
+FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+WHERE RUN_ID='${diagnosticRun}' AND FIELD_TYPE='NUMERIC'
+HAVING COUNT(*)<>5 OR SUM(CASE WHEN ${diagnosticFields.map((f,i)=>`(FIELD_ORDINAL=${i+1} AND FIELD_NAME='${f}')`).join(' OR ')} THEN 0 ELSE 1 END)<>0
+UNION ALL
+SELECT 'Captured numeric specials differ' AS ISSUE
+FROM DQ_DB.DQ_RUN_SPECIAL_VALUE
+WHERE RUN_ID='${diagnosticRun}' AND FIELD_TYPE='NUMERIC'
+HAVING COUNT(DISTINCT NUMERIC_VALUE)<>21
+    OR SUM(CASE WHEN NUMERIC_VALUE IN ${list} THEN 0 ELSE 1 END)<>0
+UNION ALL
+SELECT 'Saved overall or 2018 monthly statistics are missing' AS ISSUE
+FROM DQ_DB.DQ_RUN_FIELD_CONFIG F
+WHERE F.RUN_ID='${diagnosticRun}' AND F.FIELD_TYPE='NUMERIC'
+  AND (NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_NUMERIC_STATISTICS S
+        WHERE S.RUN_ID=F.RUN_ID AND S.FIELD_NAME=F.FIELD_NAME AND S.PERIOD_LEVEL='OVERALL' AND S.PERIOD_VALUE='ALL')
+    OR NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_NUMERIC_STATISTICS S
+        WHERE S.RUN_ID=F.RUN_ID AND S.FIELD_NAME=F.FIELD_NAME AND S.PERIOD_LEVEL='MONTHLY' AND S.PERIOD_VALUE LIKE '2018-%'));`;
+const diagnostic=`/* Run 7 / RDS / five numeric fields / year 2018: plan investigation only.
+   Generated from modules/12_numeric_outliers.sql by check_outliers.mjs.
+   Replace ALL DQ_DB tokens (including quoted strings) with LAB_T_ORION_MVT.
+   Use one fresh SQL Assistant session and submit sections separately.
+   No DBQL, catalog SELECT, new procedure, configuration load or engine CALL.
+   A is read-only: it MUST return zero rows. Stop on any mismatch or error.
+   B copies the current full source population for five fields ONCE into a
+   partitioned permanent diagnostic table. It consumes permanent space and
+   source-view spool; it does not recreate the historical source snapshot.
+   C reads saved aggregate statistics only. D EXPLAIN does NOT execute counting.
+   Existing configuration, run logs, rules and results are never modified.
+   Verify DQ_DIAG_OUT_R7 is unused. If CREATE fails, stop; do not proceed to DROP.
+   If disconnected after B, only the permanent DQ_DIAG_OUT_R7 remains.
+   Keep it isolated from normal runs and remove it with E after saving the plan. */
+
+/* A: Check saved run metadata. Expected: ZERO rows. Do this first. */
+${diagnosticPreflight}
+
+/* B: Recreate the same physical stage, with a diagnostic-only name.
+   This scans RDS once; record its elapsed minutes from SQL Assistant. */
+${diagnosticStage};
+${diagnosticStats};
+
+/* C: Recreate this batch's saved bounds in this session. No source scan. */
+${diagnosticBounds};
+
+/* D: Paste the complete EXPLAIN output for review. Keep EXPLAIN in place;
+   this investigates one real count-query shape without executing it. */
+EXPLAIN
+${diagnosticCount};
+
+/* E: Run separately AFTER saving EXPLAIN, and only for tables this diagnostic
+   created successfully. No broad cleanup and no changes to run 7. */
+DROP TABLE DQ_DIAG_OUT_BOUNDS;
+DROP TABLE DQ_DB.DQ_DIAG_OUT_R7;
+`;
+lex(diagnostic,'RDS outlier plan diagnostic');
+assert.ok(diagnosticCount.includes('"DQ_OS_YEAR_0"=2018'));
+assert.ok(!diagnosticCount.includes('B1.'));
+assert.ok(diagnosticStage.includes('PARTITION BY RANGE_N'));
+const diagnosticDb=new DatabaseSync(':memory:');
+diagnosticDb.exec(`CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT,PROJECT_ID TEXT,STATUS TEXT,SOURCE_DATABASE TEXT,SOURCE_TABLE TEXT,REPORTING_DATE_FIELD TEXT,PROFILE_OVERALL TEXT,PROFILE_MONTHLY TEXT,PROFILE_YEARLY TEXT);
+ CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT,RUN_NUMBER INTEGER);
+ CREATE TABLE DQ_RUN_FIELD_CONFIG (RUN_ID TEXT,FIELD_TYPE TEXT,FIELD_ORDINAL INTEGER,FIELD_NAME TEXT);
+ CREATE TABLE DQ_RUN_SPECIAL_VALUE (RUN_ID TEXT,FIELD_TYPE TEXT,NUMERIC_VALUE NUMERIC);
+ CREATE TABLE DQ_NUMERIC_STATISTICS (RUN_ID TEXT,FIELD_NAME TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT);`);
+diagnosticDb.prepare('INSERT INTO DQ_RUN_LOG VALUES (?,?,?,?,?,?,?,?,?)').run(diagnosticRun,'RDS','SUCCEEDED','DQ_DB','VW_RDS_PHASE2_FACT','FACT_DT','Y','Y','N');
+diagnosticDb.prepare('INSERT INTO DQ_RUN_NUMBER VALUES (?,7)').run(diagnosticRun);
+for(const [i,f]of diagnosticFields.entries()){
+ diagnosticDb.prepare('INSERT INTO DQ_RUN_FIELD_CONFIG VALUES (?,?,?,?)').run(diagnosticRun,'NUMERIC',i+1,f);
+ for(const [l,p]of [['OVERALL','ALL'],['MONTHLY','2018-01']])diagnosticDb.prepare('INSERT INTO DQ_NUMERIC_STATISTICS VALUES (?,?,?,?)').run(diagnosticRun,f,l,p);
+}
+for(const n of list.slice(1,-1).split(','))diagnosticDb.prepare('INSERT INTO DQ_RUN_SPECIAL_VALUE VALUES (?,?,?)').run(diagnosticRun,'NUMERIC',Number(n));
+// SQLite needs an explicit aggregate in the SELECT of a HAVING-only query.
+// Use a uniform extra aggregate/count column only on the first three branches.
+const preflightParts=diagnosticPreflight.replaceAll('DQ_DB.','').split('\nUNION ALL\n');
+const getIssues=()=>preflightParts.flatMap((q,i)=>diagnosticDb.prepare(i<3?q.replace(' AS ISSUE',' AS ISSUE,COUNT(*) AS N'):q).all());
+assert.equal(getIssues().length,0);
+for(const mutation of ["UPDATE DQ_RUN_LOG SET PROJECT_ID='OTHER'","UPDATE DQ_RUN_NUMBER SET RUN_NUMBER=8",
+ "UPDATE DQ_RUN_LOG SET PROFILE_YEARLY='Y'","UPDATE DQ_RUN_FIELD_CONFIG SET FIELD_NAME='WRONG' WHERE FIELD_ORDINAL=1",
+ 'DELETE FROM DQ_RUN_SPECIAL_VALUE','DELETE FROM DQ_NUMERIC_STATISTICS']){
+ diagnosticDb.exec('SAVEPOINT bad_metadata');diagnosticDb.exec(mutation);
+ assert.ok(getIssues().length>0,mutation);diagnosticDb.exec('ROLLBACK TO bad_metadata; RELEASE bad_metadata');
+}
+diagnosticDb.close();
+const diagnosticPath=new URL('../tests/diagnose_outlier_rds_run7.sql',import.meta.url);
+if(process.env.DQ_WRITE_RDS_DIAGNOSTIC==='1')fs.writeFileSync(diagnosticPath,diagnostic);
+else assert.equal(fs.readFileSync(diagnosticPath,'utf8'),diagnostic,'Regenerate the RDS plan diagnostic after template changes');
+console.log('RDS plan diagnostic checked: actual stage/bounds/count templates, metadata mismatch checks and EXPLAIN-only counting. No RDS data or Teradata plan accessed locally.');
+
 // Lifecycle/API structure: materialize once before internal statistics, use the
 // stage for subsequent reads, never overwrite another run's table, drop only
 // the successfully-created table, and retain creation SQL for abort recovery.

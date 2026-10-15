@@ -100,3 +100,14 @@ SQLite cannot test Teradata RANGE_N, random-row distribution, partition
 elimination, COLLECT STATISTICS, SPL or grants. No server compilation, measured
 runtime gain or spool reduction is claimed; test_outlier_partition.sql and the
 same-population five-field benchmark remain required server checks.
+
+On 2026-10-15 the user supplied matching synthetic partition-test counts and
+both EXPLAIN outputs showing single-partition access (2005 and NULL-date key 0).
+The user then supplied successful RDS run-7 logs: Basic 3.58 minutes, Outliers
+21.96 minutes including 21.07 minutes in field batch 1. The saved CTAS confirms
+that run used the partitioned stage. This verifies user-reported completion and
+the synthetic access path, not the full counting query's plan or performance
+acceptance for 589 fields. The run-7 no-DBQL diagnostic uses the current generated
+stage/bounds/count SQL, with local checks that mismatched saved metadata is
+reported before materialization. It does not execute RDS counting; the actual
+Teradata EXPLAIN and physical bottleneck remain to be reviewed.

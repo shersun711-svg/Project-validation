@@ -42,6 +42,44 @@ speed. Explain the logged aggregate queries on the installed release
 and confirm sufficient spool before broad RDS use. No timing, spool or throughput
 benchmark of this extension has been executed here.
 
+## Investigate run 7 without DBQL access
+
+The user supplied successful RDS run-7 timings: Numeric Basic 3.58 minutes;
+Outliers 21.96 minutes, of which batch 1 accounts for 21.07 minutes. The initial
+outlier preparation interval is 0.88 minutes. Batch 0 includes batch 1 and must
+not be added to it. These timestamps locate the cost inside batch processing;
+they do not identify its physical query bottleneck or establish a speedup.
+
+Use tests/diagnose_outlier_rds_run7.sql when DBC.QryLogV is unavailable. No new
+catalog privilege is needed. This script is generated from the actual current
+outlier CTAS, bounds and counting templates for the five fields in that run.
+Replace every DQ_DB token, including quoted occurrences, with LAB_T_ORION_MVT.
+Use one fresh SQL Assistant session and submit sections separately:
+
+1. A checks run identity, project, source, Y/Y/N scope, numeric field ordinals,
+   captured specials and available overall/2018 statistics. Require ZERO rows;
+   stop on any mismatch or SQL error. This step does not scan RDS.
+2. B recreates the full five-field working projection once as DQ_DIAG_OUT_R7,
+   with the same physical keys and statistics. This consumes source-view spool
+   and permanent space. Verify the name is unused first; a CREATE error is not
+   permission to drop an existing table. Record its elapsed time separately.
+3. C recreates small session-local bounds from run 7's stored FLOAT statistics.
+   D obtains the complete counting SELECT's plan for year 2018. Keep EXPLAIN in
+   place: it compiles the plan without executing the expensive count query.
+4. Save the entire plan for review of partition access, estimated intermediate
+   rows, redistribution, joins and aggregation. Estimates cannot diagnose
+   historical workload queuing or establish actual CPU/I/O/spool measurements.
+5. E drops only the two diagnostic tables created successfully. Configuration,
+   source tables, run logs and published results are untouched. Disconnecting
+   removes volatile bounds but can leave the permanent diagnostic stage.
+
+The current view is materialized, not the historical source snapshot. Keep the
+source stable; if it changed, this investigates today's plan and cannot prove
+run 7's exact execution. No full profiling run or procedure recompile is needed.
+This diagnostic has been checked locally, but its Teradata plan has not been
+obtained from this workspace. It is a focused investigation artifact rather
+than a new profiling module or general-purpose benchmark API.
+
 ## Controlled source staging
 
 For the complex RDS view, an approved immutable projection of the final view
