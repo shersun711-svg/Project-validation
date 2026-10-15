@@ -93,6 +93,8 @@ db.exec("UPDATE DQ_METRIC_RESULT SET EXECUTION_TIMESTAMP='2026-10-15 10:00:00.00
 for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
+  /* SQLite has no TIMESTAMP precision type; adapt the whole-second display. */
+  .replaceAll('CAST(MAX(R.EXECUTION_TIMESTAMP) AS TIMESTAMP(0))','substr(MAX(R.EXECUTION_TIMESTAMP),1,19)')
   /* SQLite CAST AS DATE differs from Teradata; adapt date extraction only. */
   .replace(/CAST\(CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE FORMAT 'YYYY-MM-DD'\) AS VARCHAR\(64\)\)/g,'date($1)');
  if(file==='93_dq_basic_review.sql')assert.ok(!sql.includes('STDDEV_SAMP'),'review view must not reference legacy sample deviation');
@@ -130,8 +132,8 @@ assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE FIELD_T
 const combined=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL'").get();
 assert.equal(combined.MIN_VALUE,0);assert.equal(combined.SPECIAL_COUNT,0);
 assert.equal(combined.MODULE_NAME,'NUMERIC_BASIC+OUTLIERS');
-assert.equal(combined.CREATED_TIMESTAMP,'2026-10-15 10:02:00.123456');
-assert.equal(date.CREATED_TIMESTAMP,'2026-10-15 10:00:00.000000');
+assert.equal(combined.CREATED_TIMESTAMP,'2026-10-15 10:02:00');
+assert.equal(date.CREATED_TIMESTAMP,'2026-10-15 10:00:00');
 assert.equal(date.SPECIAL_COUNT,null);
 assert.equal(combined.OUTLIER_VALID_COUNT,3);assert.equal(combined.OUTLIER_COUNT,0);
 assert.equal(db.prepare("SELECT STATUS FROM DQ_RULE_RESULT WHERE RUN_ID='mixed' AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL' AND RULE_NAME='OUTLIER_RATE_PCT'").get().STATUS,'GREEN');

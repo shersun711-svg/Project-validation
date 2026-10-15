@@ -16,7 +16,8 @@ RUN_ID and optionally PERIOD_LEVEL; historical runs and different periods
 remain separate. The view reads aggregates, not the source dataset.
 
 `CREATED_TIMESTAMP` is the latest stored metric `EXECUTION_TIMESTAMP` contributing
-to that review row. For combined Basic/Outlier rows it includes both modules.
+to that review row, displayed as TIMESTAMP(0) without fractional seconds
+(e.g. 2026-10-15 10:02:00). For combined Basic/Outlier rows it includes both modules.
 It records result insertion time on Teradata and remains fixed when queried;
 it is separate from the source snapshot date `POU_DT` and run completion time.
 
