@@ -47,7 +47,7 @@ For a completed run, replace 8 below with its short run number:
 
 ```sql
 SELECT RUN_NUMBER,FIELD_NAME,PERIOD_LEVEL,POU_DT,
-       TOTAL_COUNT,MISSING_RATE,SPECIAL_RATE,OUTLIER_RATE,MEAN,STDDEV_POP
+       TOTAL_COUNT,MISSING_RATE,SPECIAL_RATE,OUTLIER_RATE,MEAN_VALUE,STDDEV_VALUE
 FROM LAB_T_ORION_MVT.DQ_BASIC_REVIEW
 WHERE PROJECT_ID='RDS' AND RUN_NUMBER=8
 ORDER BY FIELD_NAME,PERIOD_LEVEL,POU_DT;
@@ -62,3 +62,7 @@ Local generated-query checks passed on synthetic SQLite data. This workspace
 cannot compile or execute SAS/Teradata; verify deployment, rounding and elapsed
 time on the server. Existing isolated fixtures test monthly, yearly, unknown,
 empty and standalone-outlier cases; assertions should return zero rows.
+
+For the latest review-column rename, replace only results/93_dq_basic_review.sql.
+The final columns are MIN_VALUE, MAX_VALUE, MEAN_VALUE and STDDEV_VALUE
+(population standard deviation). No profiling rerun or table change is needed.

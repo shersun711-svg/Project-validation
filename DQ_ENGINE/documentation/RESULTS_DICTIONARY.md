@@ -17,7 +17,9 @@ remain separate. The view reads aggregates, not the source dataset.
 
 `DQ_METRIC_RESULT` stores numeric metrics as DECIMAL(38,10): 28 integral digits, 10 fractional digits. Exact supported source min/max and counts are cast independently before CASE evaluation, avoiding implicit FLOAT promotion. Counts/rate denominators are also preserved as BIGINT where applicable. Mean, population standard deviation and reported rates use FLOAT arithmetic before storage, consistent with SAS floating-point calculations; they require numeric tolerances in reconciliation. Tiny differences and rates below storage scale can round. Colours use exact count comparisons, not the stored rounded rate. FLOAT source min/max already have source floating-point precision.
 
-Numeric Basic stores `STDDEV_POP`; `DQ_BASIC_REVIEW` reads only `STDDEV_POP`.
+Numeric Basic stores `STDDEV_POP`; `DQ_BASIC_REVIEW` exposes it as `STDDEV_VALUE`
+(population standard deviation). Review aliases are `MIN_VALUE`, `MAX_VALUE`,
+`MEAN_VALUE` and `STDDEV_VALUE`; internal metric names are unchanged.
 
 `DATE_METRIC_VALUE` remains reserved and unused. Date Basic emits its four count/missing metrics into DQ_METRIC_RESULT; no date-value extrema are calculated. `EXECUTION_TIMESTAMP` records result insertion time. `IS_PERCENTAGE`, `RATE_NUMERATOR` and `RATE_DENOMINATOR` let future percentage metrics use the shared rules without embedding thresholds in modules.
 
@@ -81,7 +83,7 @@ with unrelated numeric/distinct columns NULL. Empty sources have zero counts and
 extrema remain stored but are excluded from current review/summary views.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT in DQ_BASIC_REVIEW describe
 overall reporting-date coverage for every selected field; other periods show
-NULL. Combined MINIMUM/MAXIMUM remain numeric. See the field-availability definitions below.
+NULL. Combined MIN_VALUE/MAX_VALUE remain numeric. See the field-availability definitions below.
 
 RUN_NUMBER is a BIGINT mapping in DQ_RUN_NUMBER and is exposed in completed
 and review views. It is global across projects and includes failed runs.
@@ -119,7 +121,7 @@ DQ_FIELD_AVAILABILITY stores one row per field/run alongside Basic aggregation.
 Review never recalculates coverage from live source data. Runs without saved
 coverage, including Outliers-only runs, show NULL availability. Yearly and
 monthly rows also show NULL. Historical coverage is not backfilled from extrema
-or counts. Date Basic exposes only counts/missing percentage; MINIMUM/MAXIMUM
+or counts. Date Basic exposes only counts/missing percentage; MIN_VALUE/MAX_VALUE
 and unrelated special/numeric/outlier columns remain NULL for date fields.
 
 ## Numeric outliers

@@ -67,7 +67,7 @@ source reporting date in the monthly/yearly group; overall and unknown dates are
 Rule statuses are separate in DQ_RULE_RESULT. NULL statistics retain their meaning.
 FIRST_AVAILABLE_FACT_DT/LAST_AVAILABLE_FACT_DT are overall coverage for each
 non-missing field. Date counts use this same layout; unrelated metrics are NULL.
-MINIMUM/MAXIMUM are numeric and apply only to numeric fields. Read [availability definitions](RESULTS_DICTIONARY.md#field-availability).
+MIN_VALUE/MAX_VALUE are numeric and apply only to numeric fields. Read [availability definitions](RESULTS_DICTIONARY.md#field-availability).
 The review and DQ_COMPLETED_RESULT include the short RUN_NUMBER.
 
 ```sql
