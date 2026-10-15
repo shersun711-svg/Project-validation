@@ -142,3 +142,11 @@ DQ_RULE_RESULT. See
 
 See [shared rule evaluation](RULE_RESULTS.md) for the simple rule table,
 threshold/reason semantics, historical compatibility and deployment steps.
+
+## Field-level monthly changes
+
+DQ_FIELD_CHANGE_REVIEW is a read-only comparison view over successful monthly
+metrics with captured POU_DT. It exposes MOM/YOY, current/prior values, signed
+differences, relative changes and rate differences in percentage points, plus
+evaluation status/reason. It does not add rule decisions or change profiling
+results. No new result table is created. See [definitions and examples](FIELD_CHANGES.md).

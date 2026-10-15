@@ -92,3 +92,20 @@ The updated test_colour.sql checks separate rule persistence and idempotence;
 review assertions use the compatible DQ_COMPLETED_RESULT colour column.
 Local rule checks exercise actual view/INSERT SQL, not Teradata SPL or grants.
 See [rule deployment and focused server checks](../documentation/RULE_RESULTS.md).
+
+## Field-level MoM/YoY
+
+Deploy results/94_dq_field_change_review.sql. Run optional test_field_changes.sql
+in an isolated engine, with fresh fixture UUIDs; every assertion must return zero
+rows. It creates synthetic saved metrics and one small volatile fixture only.
+No RDS/configuration reads or profiling calls are required. Run numbers remain
+allocated. To exercise SAS, load the current 01 controller and use file 06 with
+the successful fixture run's short number and mom/yoy switches. Require
+dq_change_status=SUCCEEDED and inspect WORK.DQ_CHANGE_SUMMARY. Also try a missing
+number, a wrong project, the failed fixture run, invalid switches and both N.
+The first four must fail; both N must return SKIPPED without a database read.
+These SAS/server checks have not been executed here.
+
+Local check: `node DQ_ENGINE/tools/check_field_changes.mjs`. This executes the
+actual view SQL with narrow SQLite syntax adaptations and checks calendar gaps,
+all field types, rate units, zero/NULL values and run/project isolation.

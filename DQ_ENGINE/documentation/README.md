@@ -7,6 +7,8 @@ metrics, and date counts/missing percentage, across selected reporting levels.
 Excel defaults to overall/monthly enabled and yearly disabled.
 Numeric/categorical special-value checks are implemented.
 Numeric Outliers is implemented with the agreed +/-3 population-standard-deviation rule.
+Field-level MoM/YoY comparisons of saved monthly results are available through
+[the comparison view and SAS controls](FIELD_CHANGES.md), with no new tables.
 PSI and Excel report generation remain deferred.
 See [outlier deployment for an existing engine](NUMERIC_OUTLIERS.md).
 For separate rule-decision storage, see [shared rule evaluation](RULE_RESULTS.md).
@@ -28,7 +30,10 @@ Use a SASApp server session that can access the workbook and Teradata.
    Require STATUS=APPLIED in DQ_CONFIG_LOAD_LOG for the generated LOAD_ID.
 3. Confirm project and switches in `sas/00_run_dq_engine.sas`, then run it.
    Its default project is RDS. Numeric Basic defaults Y; other basics default N.
-4. Require dq_status=SUCCEEDED and retain dq_run_number for reviewing results.
+4. Optional mom/yoy switches in file 00 request comparisons after profiling.
+   To compare an existing run alone, use `sas/06_run_dq_changes.sas`; see
+   [field comparisons](FIELD_CHANGES.md).
+5. Require dq_status=SUCCEEDED and retain dq_run_number for reviewing results.
    The internal dq_run_id remains available for failed-run retries.
 
 If configuration has not changed and the controller is already loaded, run
@@ -129,16 +134,17 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 16. `teradata/results/90_colour_classification.sql`
 17. `teradata/results/91_dq_summary_views.sql`
 18. `teradata/results/93_dq_basic_review.sql`
-19. `teradata/modules/01_assign_run_number.sql`
-20. `teradata/modules/02_special_value_list.sql`
-21. `teradata/modules/03_numeric_statistics.sql` (source helper/grant, then compatible wrapper/grant)
-22. `teradata/modules/10_numeric_basic.sql`
-23. `teradata/modules/12_numeric_outliers.sql`
-24. `teradata/modules/15_other_basic.sql`
-25. `teradata/modules/20_categorical_basic.sql`
-26. `teradata/modules/30_date_basic.sql`
-27. `teradata/modules/40_identifier_basic.sql`
-28. `teradata/modules/00_run_engine.sql` (EXTENDED, then PROFILE, BASIC and ENGINE separately)
+19. `teradata/results/94_dq_field_change_review.sql`
+20. `teradata/modules/01_assign_run_number.sql`
+21. `teradata/modules/02_special_value_list.sql`
+22. `teradata/modules/03_numeric_statistics.sql` (source helper/grant, then compatible wrapper/grant)
+23. `teradata/modules/10_numeric_basic.sql`
+24. `teradata/modules/12_numeric_outliers.sql`
+25. `teradata/modules/15_other_basic.sql`
+26. `teradata/modules/20_categorical_basic.sql`
+27. `teradata/modules/30_date_basic.sql`
+28. `teradata/modules/40_identifier_basic.sql`
+29. `teradata/modules/00_run_engine.sql` (EXTENDED, then PROFILE, BASIC and ENGINE separately)
 
 Table CREATE files are one-time operations. Do not rerun them on an existing
 installation. File 00 installs fixed metric definitions; project configuration

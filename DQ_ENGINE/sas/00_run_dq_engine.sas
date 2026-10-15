@@ -19,6 +19,10 @@
 %let date_basic = N;
 %let identifier_basic = N;
 %let export_excel = N;
+/* Optional field-level comparisons AFTER this profiling run succeeds.
+   Use 06_run_dq_changes.sas to compare an already completed run instead. */
+%let mom = N;
+%let yoy = N;
 /* Blank creates a UUID. Set only to a FAILED run UUID to replay that run. */
 %let retry_run_id = ;
 
@@ -49,6 +53,8 @@ options nomprint nomlogic nosymbolgen; /* Authentication is resolved by SAS. */
     date_basic=&date_basic,
     identifier_basic=&identifier_basic,
     export_excel=&export_excel,
+    mom=&mom,
+    yoy=&yoy,
     retry_run_id=&retry_run_id
 );
 

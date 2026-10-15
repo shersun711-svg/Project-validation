@@ -3,7 +3,7 @@
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
 %global dq_controller_version;
-%let dq_controller_version=20261013_BASIC_SPECIAL_OUTLIERS;
+%let dq_controller_version=20261015_FIELD_CHANGES;
 %put NOTE: DQ controller loaded: &dq_controller_version;
 %put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
 
@@ -58,16 +58,19 @@
 
 %macro run_dq_engine(project=RDS,numeric_basic=Y,
     numeric_outliers=N,categorical_basic=N,categorical_psi=N,date_basic=N,
-    identifier_basic=N,export_excel=N,retry_run_id=);
+    identifier_basic=N,export_excel=N,retry_run_id=,mom=N,yoy=N);
     %local _switches _i _name _value _rc _call_rc _msg _project_sql _run_sql
         _numeric_sql _categorical_sql _date_sql _identifier_sql _outliers_sql;
-    %global dq_run_id dq_run_number dq_status dq_error;
+    %global dq_run_id dq_run_number dq_status dq_error dq_change_status dq_change_error dq_change_run_number;
+    %let dq_change_status=SKIPPED;
+    %let dq_change_error=;
+    %let dq_change_run_number=;
     %let dq_run_id=;
     %let dq_run_number=;
     %let dq_status=FAILED;
     %let dq_error=;
     %let _switches=numeric_basic numeric_outliers
-        categorical_basic categorical_psi date_basic identifier_basic export_excel;
+        categorical_basic categorical_psi date_basic identifier_basic export_excel mom yoy;
     %do _i=1 %to %sysfunc(countw(&_switches));
         %let _name=%scan(&_switches,&_i);
         %if %length(%superq(&_name))=0 %then %do;
@@ -126,7 +129,8 @@
     /* Clear our previous aggregate outputs so stale WORK data cannot be read
        as the result of a connection failure. */
     proc datasets library=work nolist;
-        delete dq_configuration_report dq_run_status dq_module_status dq_summary;
+        delete dq_configuration_report dq_run_status dq_module_status dq_summary
+            dq_change_source dq_change_summary;
     quit;
     proc sql;
         %dq_connect;
@@ -228,9 +232,157 @@
         var RUN_NUMBER PROJECT_ID MODULE_NAME FIELD_TYPE FIELDS_TESTED
             METRIC_RESULT_COUNT GREEN_COUNT AMBER_COUNT RED_COUNT;
     run;
+    /* Comparisons read this successful run only. A comparison read failure
+       does not change or invalidate its saved profiling status/results. */
+    %if &mom=Y or &yoy=Y %then %do;
+        %run_dq_changes(project=&project,run_number=&dq_run_number,mom=&mom,yoy=&yoy);
+    %end;
     %return;
 %invalid:
     %let dq_status=FAILED;
     %put ERROR: &dq_error;
     %put NOTE: DQ run ID = &dq_run_id. No successful run is being reported.;
+%mend;
+
+/* Independent, read-only analysis of an EXISTING successful profiling run.
+   Only compact summaries are imported into SAS. Detailed rows stay in the
+   Teradata view. No new UUID, log writes, source scans or Excel loads. */
+%macro run_dq_changes(project=RDS,run_number=,mom=Y,yoy=Y);
+    %local _name _i _value _types _project_sql _rc _n _source_status _rows;
+    %global dq_change_status dq_change_error dq_change_run_number;
+    %let dq_change_status=FAILED;
+    %let dq_change_error=;
+    %let dq_change_run_number=;
+    %let _rows=0;
+    /* Remove previous summary even if this invocation has invalid inputs. */
+    proc datasets library=work nolist;
+        delete dq_change_source dq_change_summary;
+    quit;
+    %do _i=1 %to 2;
+        %let _name=%scan(mom yoy,&_i);
+        %if %length(%superq(&_name))=0 %then %do;
+            %let dq_change_error=MoM and YoY switches must be Y or N.;
+            %goto change_failed;
+        %end;
+        %let _value=%upcase(%qsysfunc(strip(%superq(&_name))));
+        %if %length(%superq(_value)) ne 1 %then %do;
+            %let dq_change_error=MoM and YoY switches must be Y or N.;
+            %goto change_failed;
+        %end;
+        %if %superq(_value) ne Y and %superq(_value) ne N %then %do;
+            %let dq_change_error=MoM and YoY switches must be Y or N.;
+            %goto change_failed;
+        %end;
+        %let &_name=&_value;
+    %end;
+    %if &mom=N and &yoy=N %then %do;
+        %let dq_change_status=SKIPPED;
+        %put NOTE: MoM and YoY are both N. Comparisons skipped.;
+        %return;
+    %end;
+    %if %length(%superq(project))=0 or %length(%superq(run_number))=0 %then %do;
+        %let dq_change_error=Specify project and the short number of a successful profiling run.;
+        %goto change_failed;
+    %end;
+    %if %sysfunc(prxmatch(%str(/^[A-Za-z_][A-Za-z0-9_]{0,29}$/),%superq(project)))=0
+        or %sysfunc(prxmatch(%str(/^[1-9][0-9]{0,18}$/),%superq(run_number)))=0 %then %do;
+        %let dq_change_error=Invalid project or short run number.;
+        %goto change_failed;
+    %end;
+    %dq_validate_context;
+    %if &dq_context_ok ne 1 %then %do;
+        %let dq_change_error=Invalid Teradata connection settings.;
+        %goto change_failed;
+    %end;
+    %let _project_sql=%sysfunc(quote(%superq(project),%str(%')));
+    %let _types=;
+    %if &mom=Y %then %let _types=%sysfunc(quote(MOM,%str(%')));
+    %if &yoy=Y %then %do;
+        %if &mom=Y %then %let _types=&_types,%sysfunc(quote(YOY,%str(%')));
+        %else %let _types=%sysfunc(quote(YOY,%str(%')));
+    %end;
+    proc sql noprint;
+        %dq_connect;
+        %dq_check_sql(dbms=N);
+        %if &dq_sql_failed %then %do;
+            %let dq_change_error=Comparison connection failed. Check the SAS log.;
+            quit;
+            %goto change_failed;
+        %end;
+        create table work.dq_change_source as select * from connection to dq
+            (select L.RUN_ID,L.PROJECT_ID,L.STATUS,
+                    CAST(N.RUN_NUMBER AS VARCHAR(19)) AS RUN_NUMBER
+             from &dq_database..DQ_RUN_LOG L
+             join &dq_database..DQ_RUN_NUMBER N on L.RUN_ID=N.RUN_ID
+             where L.PROJECT_ID=&_project_sql and N.RUN_NUMBER=&run_number);
+        %dq_check_sql;
+        %if &dq_sql_failed %then %do;
+            %let dq_change_error=Cannot read the requested profiling run.;
+            disconnect from dq;
+            quit;
+            %goto change_failed;
+        %end;
+        select count(*),max(STATUS) into :_n trimmed,:_source_status trimmed
+          from work.dq_change_source;
+        %dq_check_sql(dbms=N);
+        %if &dq_sql_failed %then %do;
+            %let dq_change_error=Cannot verify the comparison source run.;
+            disconnect from dq;
+            quit;
+            %goto change_failed;
+        %end;
+        %if &_n ne 1 %then %do;
+            %let dq_change_error=The requested run number was not found for this project.;
+            disconnect from dq;
+            quit;
+            %goto change_failed;
+        %end;
+        %if %superq(_source_status) ne SUCCEEDED %then %do;
+            %let dq_change_error=Comparisons require a successful run belonging to the selected project.;
+            disconnect from dq;
+            quit;
+            %goto change_failed;
+        %end;
+        %put NOTE: DQ CHANGE READ: project=&project run_number=&run_number;
+        create table work.dq_change_summary as select * from connection to dq
+            (select COMPARISON_TYPE,
+                    CAST(COUNT(*) AS FLOAT) AS METRIC_COMPARISONS,
+                    CAST(SUM(CASE WHEN COMPARISON_STATUS='EVALUATED' THEN 1 ELSE 0 END) AS FLOAT) AS EVALUATED_COUNT,
+                    CAST(SUM(CASE WHEN COMPARISON_STATUS='NOT_EVALUATED' THEN 1 ELSE 0 END) AS FLOAT) AS NOT_EVALUATED_COUNT,
+                    CAST(COUNT(DISTINCT FIELD_NAME) AS FLOAT) AS FIELDS_COMPARED,
+                    MIN(POU_DT) AS FIRST_POU_DT,MAX(POU_DT) AS LAST_POU_DT
+             from &dq_database..DQ_FIELD_CHANGE_REVIEW
+             where PROJECT_ID=&_project_sql and RUN_NUMBER=&run_number
+               and COMPARISON_TYPE in (&_types)
+             group by COMPARISON_TYPE);
+        %dq_check_sql;
+        %let _rc=&dq_sql_failed;
+        disconnect from dq;
+    quit;
+    %if &_rc ne 0 %then %do;
+        %let dq_change_error=Cannot read comparisons. Check deployment of results/94 and the SAS log.;
+        %goto change_failed;
+    %end;
+    proc sql noprint;
+        select count(*) into :_rows trimmed from work.dq_change_summary;
+        %dq_check_sql(dbms=N);
+        %let _rc=&dq_sql_failed;
+    quit;
+    %if &_rc ne 0 %then %do;
+        %let dq_change_error=Cannot verify the comparison summary.;
+        %goto change_failed;
+    %end;
+    %if &_rows=0 %then %do;
+        %let dq_change_error=No dated monthly results. Run current profiling with PROFILE_MONTHLY=Y first.;
+        %goto change_failed;
+    %end;
+    %let dq_change_run_number=&run_number;
+    %let dq_change_status=SUCCEEDED;
+    %put NOTE: Field comparisons available for project=&project run_number=&run_number.;
+    proc print data=work.dq_change_summary noobs;
+    run;
+    %return;
+%change_failed:
+    %let dq_change_status=FAILED;
+    %put ERROR: &dq_change_error;
 %mend;

@@ -93,3 +93,11 @@ refreshes selection, settings and special lists; completed runs are preserved.
 There is no transaction-wide source snapshot across batches. Use an approved
 immutable source stage if needed. Original audit CSVs support developer checks;
 special_values.csv is a sheet-copy convenience, not a separate runtime loader.
+
+## Field-level comparisons
+
+In file 00, mom=Y and/or yoy=Y requests comparison summaries after profiling
+succeeds. Both default to N. They use the selected run's saved monthly metrics;
+they add no Excel settings or field flags. Use file 06 to compare an existing
+successful run by short run number without starting profiling. See
+[field comparisons](FIELD_CHANGES.md) for scope, units and deployment.
