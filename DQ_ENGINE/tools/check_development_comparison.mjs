@@ -89,3 +89,70 @@ db.exec(`INSERT INTO ${dev} SELECT 1,'OTHER',RUN_TYPE,POU_DT,ROW_COUNT,MISSING_C
 assert.equal(rows().length,34);
 console.log(`Review comparison passed: 34 field/period/metrics; ${scenarios} exception/rounding cases; fractions, output layout, Outliers-only selection and exact large counts. SQLite only; Teradata execution unverified.`);
 db.close();
+
+// Categorical comparison: the two engines have different missing/distinct definitions.
+const catSource=fs.readFileSync(new URL('../tests/compare_categorical_development.sql',import.meta.url),'utf8');
+const catExecutable=catSource.replace(/\/\*[\s\S]*?\*\//g,'');
+assert(!/\b(CREATE|INSERT|UPDATE|DELETE|DROP|CALL|REPLACE)\b/i.test(catExecutable));
+assert(!/VW_RDS_PHASE2_FACT|DQ_METRIC_RESULT|\/\s*100/.test(catExecutable));
+const catSQL=catSource.replaceAll('DQ_DB.','')
+ .replace(/EXTRACT\(YEAR FROM ([DR])\.POU_DT\)/g,(_,alias)=>`CAST(strftime('%Y',${alias}.POU_DT) AS INTEGER)`)
+ .replace(/EXTRACT\(MONTH FROM ([DR])\.POU_DT\)/g,(_,alias)=>`CAST(strftime('%m',${alias}.POU_DT) AS INTEGER)`);
+const catDB=new DatabaseSync(':memory:');
+catDB.function('CHARACTER_LENGTH',v=>v?.length??null);
+catDB.exec(`ATTACH DATABASE ':memory:' AS LAB_P_DECISION_SCIENCE;
+CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT,PROJECT_ID TEXT,STATUS TEXT,ATTEMPT_NO INTEGER,PROFILE_OVERALL TEXT,PROFILE_MONTHLY TEXT,PROFILE_YEARLY TEXT);
+CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT,RUN_NUMBER INTEGER);
+CREATE TABLE DQ_RUN_FIELD_CONFIG (RUN_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT);
+CREATE TABLE DQ_MODULE_LOG (RUN_ID TEXT,MODULE_NAME TEXT,ATTEMPT_NO INTEGER,BATCH_ID INTEGER,STATUS TEXT);
+CREATE TABLE DQ_BASIC_REVIEW (RUN_ID TEXT,PROJECT_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT,PERIOD_LEVEL TEXT,POU_DT TEXT,
+ TOTAL_COUNT INTEGER,NON_MISSING_COUNT INTEGER,MISSING_COUNT INTEGER,MISSING_RATE NUMERIC,SPECIAL_COUNT INTEGER,SPECIAL_RATE NUMERIC,DISTINCT_COUNT INTEGER);
+CREATE TABLE LAB_P_DECISION_SCIENCE.IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT
+ (RUN_ID INTEGER,FIELD_NAME TEXT,RUN_TYPE TEXT,POU_DT TEXT,ROW_COUNT INTEGER,MISSING_COUNT INTEGER,MISSING_PCT NUMERIC,
+ BLANK_COUNT INTEGER,SPECIAL_COUNT INTEGER,SPECIAL_PCT NUMERIC,DISTINCT_COUNT INTEGER);
+INSERT INTO DQ_RUN_LOG VALUES ('cat','RDS','SUCCEEDED',1,'Y','Y','N');
+INSERT INTO DQ_RUN_NUMBER VALUES ('cat',16);
+INSERT INTO DQ_RUN_FIELD_CONFIG VALUES ('cat','CATEGORY','CATEGORICAL');
+INSERT INTO DQ_MODULE_LOG VALUES ('cat','CATEGORICAL_BASIC',1,0,'SUCCEEDED');`);
+const catDev='LAB_P_DECISION_SCIENCE.IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT';
+for(const [level,date] of [['OVERALL',null],['MONTHLY','2018-01-31']]){
+ catDB.prepare('INSERT INTO DQ_BASIC_REVIEW VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run('cat','RDS','CATEGORY','CATEGORICAL',level,date,100,90,10,.1,0,0,3);
+ catDB.prepare(`INSERT INTO ${catDev} VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(1,'CATEGORY',level,date,100,10,.1,0,0,0,3);
+}
+const catRows=(query=catSQL)=>{const stmt=catDB.prepare(query);stmt.setReadBigInts(true);return stmt.all();};
+assert.equal(catRows().length,14);assert(catRows().every(r=>r.STATUS==='MATCH'&&Number(r.DIFFERENCE)===0));
+let catScenarios=0;
+function catCase(change,check){catDB.exec('SAVEPOINT cat_case');try{catDB.exec(change);check(catRows());catScenarios++;}finally{catDB.exec('ROLLBACK TO cat_case; RELEASE cat_case');}}
+catCase(`UPDATE ${catDev} SET BLANK_COUNT=5,MISSING_COUNT=15,MISSING_PCT=.15`,rows=>{
+ const affected=rows.filter(r=>['NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE'].includes(r.METRIC_NAME));
+ assert.equal(affected.length,6);assert(affected.every(r=>r.STATUS==='DEFINITION_DIFFERENCE'));
+ assert(rows.filter(r=>r.METRIC_NAME==='MISSING_COUNT').every(r=>r.DEV_VALUE===15n&&r.OUR_VALUE===10n&&r.DIFFERENCE===-5n));
+ assert(rows.filter(r=>r.METRIC_NAME==='TOTAL_COUNT').every(r=>r.STATUS==='MATCH'));
+});
+catCase(`UPDATE ${catDev} SET SPECIAL_COUNT=4,SPECIAL_PCT=.04,DISTINCT_COUNT=4;UPDATE DQ_BASIC_REVIEW SET SPECIAL_COUNT=4,SPECIAL_RATE=.04`,rows=>{
+ assert(rows.filter(r=>r.METRIC_NAME==='DISTINCT_COUNT').every(r=>r.STATUS==='DEFINITION_DIFFERENCE'));
+ assert(rows.filter(r=>r.METRIC_NAME==='SPECIAL_COUNT').every(r=>r.STATUS==='MATCH'));
+});
+catCase(`UPDATE ${catDev} SET DISTINCT_COUNT=4`,rows=>assert(rows.some(r=>r.METRIC_NAME==='DISTINCT_COUNT'&&r.STATUS==='DIFFERENT')));
+catCase(`UPDATE ${catDev} SET BLANK_COUNT=NULL`,rows=>assert(rows.some(r=>r.METRIC_NAME==='MISSING_COUNT'&&r.STATUS==='NOT_EVALUATED')));
+catCase(`UPDATE DQ_BASIC_REVIEW SET SPECIAL_COUNT=NULL`,rows=>assert(rows.some(r=>r.METRIC_NAME==='DISTINCT_COUNT'&&r.STATUS==='NOT_EVALUATED')));
+catCase(`UPDATE ${catDev} SET SPECIAL_PCT=.000001`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='SPECIAL_RATE').every(r=>r.STATUS==='MATCH')));
+catCase(`UPDATE ${catDev} SET SPECIAL_PCT=.000002`,rows=>assert(rows.some(r=>r.METRIC_NAME==='SPECIAL_RATE'&&r.STATUS==='DIFFERENT')));
+for(const [change,status] of [
+ ['INSERT INTO DQ_BASIC_REVIEW SELECT * FROM DQ_BASIC_REVIEW','DUPLICATE_ENGINE'],
+ [`INSERT INTO ${catDev} SELECT * FROM ${catDev}`,'DUPLICATE_DEVELOPMENT'],
+ [`UPDATE ${catDev} SET POU_DT='2018-01-30' WHERE RUN_TYPE='MONTHLY'`,'SNAPSHOT_MISMATCH'],
+ [`INSERT INTO ${catDev} SELECT RUN_ID,FIELD_NAME,RUN_TYPE,'2018-01-15',ROW_COUNT,MISSING_COUNT,MISSING_PCT,BLANK_COUNT,SPECIAL_COUNT,SPECIAL_PCT,DISTINCT_COUNT FROM ${catDev} WHERE RUN_TYPE='MONTHLY'`,'PERIOD_SCOPE_MISMATCH'],
+ [`DELETE FROM ${catDev} WHERE RUN_TYPE='MONTHLY'`,'MISSING_DEVELOPMENT'],
+ ["DELETE FROM DQ_BASIC_REVIEW WHERE PERIOD_LEVEL='MONTHLY'",'MISSING_ENGINE'],
+ ["INSERT INTO DQ_RUN_FIELD_CONFIG VALUES ('cat','MISSING','CATEGORICAL')",'MISSING_BOTH'],
+ [`UPDATE ${catDev} SET ROW_COUNT=101`,'POPULATION_MISMATCH'],
+ ["UPDATE DQ_RUN_LOG SET STATUS='RUNNING'",'NOT_EVALUATED'],
+ ["UPDATE DQ_MODULE_LOG SET STATUS='FAILED'",'NOT_EVALUATED'],
+ ["UPDATE DQ_RUN_FIELD_CONFIG SET FIELD_TYPE='NUMERIC'",'NOT_EVALUATED'],
+ [`DELETE FROM ${catDev}`,'NOT_EVALUATED']
+])catCase(change,rows=>assert(rows.some(r=>r.STATUS===status)));
+catCase(`UPDATE DQ_BASIC_REVIEW SET DISTINCT_COUNT=9007199254740993;UPDATE ${catDev} SET DISTINCT_COUNT=9007199254740992`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='DISTINCT_COUNT').every(r=>r.STATUS==='DIFFERENT'&&r.DIFFERENCE===1n)));
+assert.equal(catRows(catSQL.replace("CAST('Y' AS CHAR(1)) AS SHOW_MATCHES","CAST('N' AS CHAR(1)) AS SHOW_MATCHES")).length,0);
+console.log(`Categorical comparison passed: 14 field/period/metrics; ${catScenarios} definition/exception cases. Saved values preserved; SQLite only, Teradata execution unverified.`);
+catDB.close();

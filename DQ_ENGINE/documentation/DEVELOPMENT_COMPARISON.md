@@ -1,5 +1,9 @@
 # Compare the final review with development
 
+[Numeric comparison](../tests/compare_numeric_development.sql) and
+[categorical comparison](../tests/compare_categorical_development.sql) use the
+same output layout. Choose the script for the field type; neither reruns profiling.
+
 [compare_numeric_development.sql](../tests/compare_numeric_development.sql)
 compares saved **DQ_BASIC_REVIEW** results with the development team's numeric
 result table. It is read-only: no profiling rerun, source-data scan, new tables,
@@ -96,11 +100,57 @@ The review view can combine or mask individual underlying metric rows; this
 query compares its displayed results, not raw metric completeness or uniqueness.
 It cannot establish that either engine is correct merely because values match.
 
+## Categorical comparison
+
+Use [compare_categorical_development.sql](../tests/compare_categorical_development.sql)
+with the same schema replacement and run-number settings. Choose a successful
+engine run that **contains CATEGORICAL_BASIC results**; a numeric-only run will
+return NOT_EVALUATED. The default engine number is 16 and must be edited if
+that run did not include categorical profiling. Development run ID is 1, using
+`LAB_P_DECISION_SCIENCE.IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT`.
+
+It compares seven metrics, for overall/enabled monthly periods:
+
+| Review metric | Development value |
+|---|---|
+| TOTAL_COUNT | row_count |
+| NON_MISSING_COUNT | row_count - missing_count |
+| MISSING_COUNT / MISSING_RATE | missing_count / missing_pct |
+| SPECIAL_COUNT / SPECIAL_RATE | special_count / special_pct |
+| DISTINCT_COUNT | distinct_count |
+
+Counts compare exactly; fractional rates use absolute tolerance 0.000001.
+The output is the same OUR_VALUE / DEV_VALUE / DIFFERENCE / STATUS layout,
+with six decimals and SHOW_MATCHES=Y by default. Saved values are not adjusted.
+
+The supplied development code has two different definitions:
+
+- **Missing:** development includes NULL and blank/whitespace strings; our
+  missing metric is NULL-only. When development BLANK_COUNT is positive,
+  missing count/rate and non-missing count are flagged DEFINITION_DIFFERENCE.
+- **Distinct:** development counts raw distinct values, including special
+  values; our distinct metric excludes configured special values. When either
+  special count is positive, distinct is flagged DEFINITION_DIFFERENCE, even
+  if the displayed counts happen to agree. Counts alone cannot establish the
+  number of distinct special values to subtract.
+
+If a required blank/special count is unavailable, the affected comparison is
+NOT_EVALUATED. Missing rows, duplicate keys, different populations/dates and
+multiple snapshots per month use the same safeguards as the numeric query.
+Special-value lists, character comparison rules and the source population
+must agree before interpreting results. Development casts strings to
+VARCHAR(4000), while our engine uses the native field for distinct counting;
+longer strings and differing collation/type semantics require separate review.
+Mode, frequencies, blank metrics and string lengths are not engine metrics
+and are not compared. No source data is read and no new objects are created.
+
 ## Verification
 
 `node DQ_ENGINE/tools/check_development_comparison.mjs` executes the checked-in
 SELECT on synthetic review/development results with SQLite dialect adaptations.
 It covers all 17 metrics, fractions, six-decimal rounding, exact large counts,
 missing/duplicate rows, input guards, population/date mismatches and an
-Outliers-only run. Teradata parsing, permissions, query plans and actual results
+Outliers-only run. The same checker executes the categorical query across all
+seven metrics, definition differences, unavailable prerequisites and exception
+cases. Teradata parsing, permissions, query plans and actual results
 remain unverified until you run it in the lab.

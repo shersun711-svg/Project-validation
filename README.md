@@ -33,7 +33,7 @@ See [special-value configuration and validation](DQ_ENGINE/documentation/SPECIAL
 - **New installation:** follow [one-time deployment instructions](DQ_ENGINE/documentation/README.md#one-time-deployment).
 - **Configuration changes:** see [Excel configuration instructions](DQ_ENGINE/documentation/EXCEL_CONFIGURATION.md).
 - **Result meanings:** see [metric definitions](DQ_ENGINE/documentation/RESULTS_DICTIONARY.md).
-- **Compare with development:** use the [read-only numeric comparison](DQ_ENGINE/documentation/DEVELOPMENT_COMPARISON.md) for saved Basic/Outlier results.
+- **Compare with development:** use the [read-only numeric and categorical comparisons](DQ_ENGINE/documentation/DEVELOPMENT_COMPARISON.md) for saved profiling results.
 
 ## Everyday workflow
 

@@ -155,3 +155,9 @@ short run number (default 16) and replace DQ_DB in a local copy, then submit the
 complete statement in SQL Assistant. See [scope, mappings and interpretation](../documentation/DEVELOPMENT_COMPARISON.md).
 Local synthetic regression: `node DQ_ENGINE/tools/check_development_comparison.mjs`.
 No profiling rerun or database objects are needed; Teradata execution is unverified.
+
+[compare_categorical_development.sql](compare_categorical_development.sql) uses
+the same layout for Categorical Basic. Select a successful run containing that
+module. It flags the development team's blank-inclusive missing definition and
+special-inclusive distinct definition where relevant. The same local checker
+tests both scripts; neither requires a deployment or a profiling rerun.
