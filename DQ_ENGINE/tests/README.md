@@ -170,3 +170,9 @@ width expression and checks all reporting-level combinations. The updated
 `check_result_writes.mjs` checks categorical metric/availability publication at
 20-field width. These are SQLite/template checks; Teradata execution is unverified.
 See [deployment and scope](../documentation/PERFORMANCE_NOTES.md#categorical-and-identifier-batch-update).
+
+Wide change review: `node DQ_ENGINE/tools/check_field_changes.mjs` executes the
+file-95 view and compares every current/MoM/YoY metric column with file 94. It
+checks one row per field/month, Basic/Outlier merging, missing comparisons,
+partial statuses, actual reference dates and run/project isolation. Deployment
+is [documented here](../documentation/FIELD_CHANGES.md#wide-final-review).

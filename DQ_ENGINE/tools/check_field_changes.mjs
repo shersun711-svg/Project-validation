@@ -157,5 +157,45 @@ assert.match(macro,/%if &mom=N and &yoy=N/);
 assert.match(macro,/COMPARISON_TYPE in \(&_types\)/);
 assert.doesNotMatch(macro,/execute\s*\(|SQL_TEXT|%let dq_status=/i);
 assert.match(read('sas/06_run_dq_changes.sas'),/%let comparison_run_number = ;/);
+
+// The wide review pivots the detailed view without combining runs or changing
+// values. Compare every metric cell, not just a few layout examples.
+const wideDDL=read('teradata/results/95_dq_change_review.sql');
+assert.doesNotMatch(wideDDL,/DQ_METRIC_RESULT|VW_RDS|DQ_FIELD_CONFIG|DQ_RUN_LOG/i);
+const wideQuery=roundDecimal(wideDDL.slice(0,wideDDL.indexOf('GRANT SELECT'))
+ .replace('REPLACE VIEW DQ_DB.','CREATE VIEW ').replaceAll('DQ_DB.',''));
+db.exec(wideQuery);
+const wide=db.prepare('SELECT * FROM DQ_CHANGE_REVIEW').all();
+const detail=db.prepare('SELECT * FROM DQ_FIELD_CHANGE_REVIEW').all();
+const wideKey=r=>[r.RUN_ID,r.PROJECT_ID,r.FIELD_NAME,r.FIELD_TYPE,r.POU_DT].join('/');
+const grouped=Map.groupBy(detail,wideKey);
+assert.equal(wide.length,grouped.size);assert.equal(new Set(wide.map(wideKey)).size,wide.length);
+const metricNames=['TOTAL_COUNT','NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE','SPECIAL_COUNT','SPECIAL_RATE',
+ 'OUTLIER_VALID_COUNT','OUTLIER_COUNT','OUTLIER_RATE','DISTINCT_COUNT','ZERO_COUNT','ZERO_RATE',
+ 'MIN_VALUE','MAX_VALUE','MEAN_VALUE','STDDEV_VALUE'];
+for(const row of wide){
+ const parts=grouped.get(wideKey(row));assert.equal(row.PERIOD_LEVEL,'MONTHLY');
+ for(const name of metricNames){
+  const cells=parts.filter(p=>p.METRIC_NAME===name);
+  assert.equal(row[name],cells[0]?.CURRENT_VALUE??null,'Current value '+name);
+  for(const type of ['MOM','YOY'])assert.equal(row[name+'_'+type+'_CHANGE'],cells.find(p=>p.COMPARISON_TYPE===type)?.ABSOLUTE_CHANGE??null,'Signed change '+name+'/'+type);
+ }
+ for(const type of ['MOM','YOY']){
+  const cells=parts.filter(p=>p.COMPARISON_TYPE===type),evaluated=cells.filter(p=>p.COMPARISON_STATUS==='EVALUATED').length;
+  assert.equal(row[type+'_STATUS'],evaluated===0?'NOT_EVALUATED':evaluated===cells.length?'EVALUATED':'PARTIALLY_EVALUATED');
+  assert.equal(row[type+'_PREVIOUS_POU_DT'],cells.map(p=>p.PREVIOUS_POU_DT).filter(Boolean).sort().at(-1)??null);
+ }
+ const modules=new Set(parts.map(p=>p.MODULE_NAME));
+ assert.equal(row.MODULE_NAME,modules.has('NUMERIC_BASIC')&&modules.has('NUMERIC_OUTLIERS')?'NUMERIC_BASIC+OUTLIERS':[...modules][0]);
+}
+const wideAmount=wide.find(r=>r.RUN_ID==='main'&&r.FIELD_NAME==='AMOUNT'&&r.POU_DT==='2020-01-30');
+assert.equal(wideAmount.MEAN_VALUE_MOM_CHANGE,25);assert.equal(wideAmount.MISSING_RATE_MOM_CHANGE,.06);
+assert.equal(wideAmount.MEAN_VALUE_YOY_CHANGE,null);assert.equal(wideAmount.YOY_STATUS,'NOT_EVALUATED');
+const widePartial=wide.find(r=>r.RUN_ID==='main'&&r.FIELD_NAME==='AMOUNT'&&r.POU_DT==='2021-03-30');
+assert.equal(widePartial.YOY_STATUS,'PARTIALLY_EVALUATED');
+assert(wide.filter(r=>r.FIELD_TYPE==='DATE').every(r=>r.MEAN_VALUE===null&&r.ZERO_RATE_MOM_CHANGE===null));
+assert.equal(wide.some(r=>['failed','running','legacy'].includes(r.RUN_ID)),false);
+assert.deepEqual(db.prepare("SELECT * FROM DQ_CHANGE_REVIEW WHERE PROJECT_ID='P1' AND RUN_NUMBER=701").all(),wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701));
+console.log(`Wide review passed: ${wide.length} field/month rows, all 48 metric columns match detailed values; statuses, dates, module merging and isolation verified locally.`);
 db.close();
 console.log(`Field change checks passed: ${rows.length} MoM/YoY rows and ${assertions} supplied fixture assertions; exact calendar gaps, all Basic types, outliers, rate units, NULLs/zero baselines, large values, isolation and read-only history. SAS/Teradata NOT executed.`);
