@@ -1,0 +1,56 @@
+/* USER-REQUESTED RESET: permanently delete profiling and execution history
+   for ALL projects in this engine schema. No source rows or configuration
+   are deleted. Keep run-number mappings/counter so numbers are never reused.
+
+   Replace DQ_DB throughout with LAB_T_ORION_MVT (or the approved schema).
+   Pause all profiling submissions/configuration loads first. Use SQL Assistant
+   in Teradata mode, one connection, without an existing transaction.
+   Run A first. If it returns any row, stop and resolve that run before B.
+   An old RUNNING status alone does not prove a database request is active.
+   Never mark a genuinely active run FAILED just to enable this cleanup.
+
+   For B, keep BT through ET in the same session. Stop on an error and issue
+   ROLLBACK before retrying. Each DELETE also refuses to clear data when the
+   log contains RUNNING rows. C must report zero for every cleared table.
+   All table/view definitions, Excel settings, special lists, metric definitions,
+   configuration-load history, and run-number mappings/counter are retained. */
+
+/* A: Expected ZERO rows before continuing. */
+SELECT RUN_ID,PROJECT_ID,START_TIME,STATUS
+FROM DQ_DB.DQ_RUN_LOG
+WHERE STATUS='RUNNING';
+
+/* B: Do not start other engine work until ET completes. */
+BT;
+LOCKING TABLE DQ_DB.DQ_RUN_LOG FOR WRITE
+SELECT COUNT(*) AS RUNNING_RUNS FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING';
+DELETE FROM DQ_DB.DQ_RULE_RESULT
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+DELETE FROM DQ_DB.DQ_METRIC_RESULT
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+DELETE FROM DQ_DB.DQ_FIELD_AVAILABILITY
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+DELETE FROM DQ_DB.DQ_NUMERIC_STATISTICS
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+DELETE FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+DELETE FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+DELETE FROM DQ_DB.DQ_RUN_SPECIAL_VALUE
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+DELETE FROM DQ_DB.DQ_MODULE_LOG
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+DELETE FROM DQ_DB.DQ_RUN_LOG
+WHERE NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_RUN_LOG WHERE STATUS='RUNNING');
+ET;
+
+/* C: Expected ZERO in every REMAINING_ROWS cell. */
+SELECT CAST('DQ_RULE_RESULT' AS VARCHAR(32)) AS TABLE_NAME,COUNT(*) AS REMAINING_ROWS FROM DQ_DB.DQ_RULE_RESULT
+UNION ALL SELECT 'DQ_METRIC_RESULT',COUNT(*) FROM DQ_DB.DQ_METRIC_RESULT
+UNION ALL SELECT 'DQ_FIELD_AVAILABILITY',COUNT(*) FROM DQ_DB.DQ_FIELD_AVAILABILITY
+UNION ALL SELECT 'DQ_NUMERIC_STATISTICS',COUNT(*) FROM DQ_DB.DQ_NUMERIC_STATISTICS
+UNION ALL SELECT 'DQ_OUTLIER_CHUNK_YEAR',COUNT(*) FROM DQ_DB.DQ_OUTLIER_CHUNK_YEAR
+UNION ALL SELECT 'DQ_RUN_FIELD_CONFIG',COUNT(*) FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+UNION ALL SELECT 'DQ_RUN_SPECIAL_VALUE',COUNT(*) FROM DQ_DB.DQ_RUN_SPECIAL_VALUE
+UNION ALL SELECT 'DQ_MODULE_LOG',COUNT(*) FROM DQ_DB.DQ_MODULE_LOG
+UNION ALL SELECT 'DQ_RUN_LOG',COUNT(*) FROM DQ_DB.DQ_RUN_LOG;
