@@ -144,3 +144,12 @@ writer and compares them with per-field publication, checking SQL limits, long
 field names, empty groups, precise counts/statistics and run/range duplicate
 protection. It also reports request counts for the current 589-field selection.
 This does not execute Teradata SPL or establish a production runtime gain.
+
+## Reconcile with development results
+
+[compare_numeric_development.sql](compare_numeric_development.sql) is a read-only
+Numeric Basic/Outliers comparison against development run ID 1. Edit the engine
+short run number (default 16) and replace DQ_DB in a local copy, then submit the
+complete statement in SQL Assistant. See [scope, mappings and interpretation](../documentation/DEVELOPMENT_COMPARISON.md).
+Local synthetic regression: `node DQ_ENGINE/tools/check_development_comparison.mjs`.
+No profiling rerun or database objects are needed; Teradata execution is unverified.
