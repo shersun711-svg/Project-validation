@@ -207,3 +207,15 @@ Routing checks cover combined, Basic-only and Outliers-only paths, captured
 configuration reuse, helper grants, range limits and cleanup propagation.
 These local checks do not execute SPL control flow, validate transaction
 rollback or measure live performance. No two-hour completion claim is made.
+
+### Batched result writes
+
+The actual length guards, SELECT extraction and append expressions are evaluated
+locally and the resulting INSERTs are executed on SQLite. Outputs match single
+per-field writes across Numeric Basic, Outliers, Categorical, Date and Identifier
+modules, including long names, NULL/empty/UNKNOWN domains, raw count precision
+above 2^53, FLOAT prerequisite precision and duplicate rejection. The range-wide
+outlier existence check is run/range isolated. Current full-field generation
+uses 142 result-write requests versus 2,008; this is not a live runtime result.
+Teradata SPL/UNION typing, decimal behavior and transaction cleanup remain
+unverified. See [details](RESULT_WRITE_UPDATE.md).

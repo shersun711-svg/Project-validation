@@ -236,3 +236,5 @@ For the Numeric Basic scan reduction, see [deployment and benchmark](NUMERIC_BAS
 For up-to-20-field outlier calculations, see [deployment and benchmark](OUTLIER_WIDTH_UPDATE.md).
 
 For combined numeric runs sharing one bounded copy, see [deployment](SHARED_NUMERIC_COPY.md).
+
+For bounded bulk result writes, see [deployment and verification](RESULT_WRITE_UPDATE.md).

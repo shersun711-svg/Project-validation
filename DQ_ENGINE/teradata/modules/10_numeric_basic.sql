@@ -22,6 +22,10 @@ main: BEGIN
     DECLARE V_GROUP_CLAUSE VARCHAR(300);
     DECLARE V_TIME_SELECT VARCHAR(500);
     DECLARE V_SQL VARCHAR(32000);
+    DECLARE V_SELECT VARCHAR(8000);
+    DECLARE V_METRIC_INSERT VARCHAR(30000);
+    DECLARE V_STATS_INSERT VARCHAR(30000);
+    DECLARE V_AVAIL_INSERT VARCHAR(30000);
     DECLARE V_PROJECTION VARCHAR(24000);
     DECLARE V_METRIC_PART VARCHAR(4000);
     DECLARE V_SOURCE_PART VARCHAR(10000);
@@ -233,6 +237,11 @@ main: BEGIN
         CALL DBC.SysExecSQL(V_SQL);
         SET V_VT_EXISTS = 1;
 
+        /* Build bounded INSERT/UNION ALL statements from the SAME per-field
+           projections. Only the tiny aggregate is reread, never source rows. */
+        SET V_METRIC_INSERT='';
+        SET V_STATS_INSERT='';
+        SET V_AVAIL_INSERT='';
         FOR R AS RESULTS_CURSOR CURSOR FOR
             SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
              WHERE RUN_ID = P_RUN_ID AND FIELD_TYPE = 'NUMERIC'
@@ -244,7 +253,7 @@ main: BEGIN
               || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,'
               || 'PERIOD_VALUE,METRIC_NAME,METRIC_VALUE,IS_PERCENTAGE,RATE_NUMERATOR,'
               || 'RATE_DENOMINATOR,POU_DT,EXECUTION_TIMESTAMP) SELECT ''' || P_RUN_ID || ''','''
-              || P_PROJECT_ID || ''',''' || TRIM(R.FIELD_NAME) || ''',''NUMERIC'',''NUMERIC_BASIC'','
+              || P_PROJECT_ID || ''',CAST(''' || TRIM(R.FIELD_NAME) || ''' AS VARCHAR(128)),''NUMERIC'',''NUMERIC_BASIC'','
               || 'CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END,'
               || 'CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
               || 'WHEN A.GM=1 THEN TRIM(CAST(A.DQ_YEAR AS CHAR(4))) ELSE '
@@ -266,27 +275,62 @@ main: BEGIN
               || 'CASE WHEN M.IS_PERCENTAGE=''Y'' THEN A.TOTAL_N ELSE NULL END,'
               || 'CASE WHEN A.GY=1 THEN CAST(NULL AS DATE) ELSE A.POU_DT END,CURRENT_TIMESTAMP(6) FROM DQ_NB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
               || 'WHERE M.MODULE_NAME=''NUMERIC_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 12';
-            CALL DBC.SysExecSQL(V_SQL);
+            SET V_SELECT=SUBSTR(V_SQL,POSITION(' SELECT ' IN V_SQL)+1);
+            IF CHARACTER_LENGTH(V_METRIC_INSERT)>0
+               AND CHARACTER_LENGTH(V_METRIC_INSERT)+CHARACTER_LENGTH(V_SELECT)+11>30000 THEN
+                CALL DBC.SysExecSQL(V_METRIC_INSERT);
+                SET V_METRIC_INSERT='';
+            END IF;
+            IF CHARACTER_LENGTH(V_METRIC_INSERT)=0 THEN
+                SET V_METRIC_INSERT=V_SQL;
+            ELSE
+                SET V_METRIC_INSERT=V_METRIC_INSERT || ' UNION ALL ' || V_SELECT;
+            END IF;
             /* Keep unrounded FLOAT mean/deviation for strict Outlier bounds.
                V is the non-NULL, non-special population; no source rescan. */
             SET V_SQL = 'INSERT INTO DQ_DB.DQ_NUMERIC_STATISTICS '
               || '(RUN_ID,FIELD_NAME,PERIOD_LEVEL,PERIOD_VALUE,TOTAL_COUNT,VALID_COUNT,MEAN_VALUE,STDDEV_VALUE) '
-              || 'SELECT ''' || P_RUN_ID || ''',''' || TRIM(R.FIELD_NAME) || ''','
+              || 'SELECT ''' || P_RUN_ID || ''',CAST(''' || TRIM(R.FIELD_NAME) || ''' AS VARCHAR(128)),'
               || 'CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END,'
               || 'CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
               || 'WHEN A.GM=1 THEN TRIM(CAST(A.DQ_YEAR AS CHAR(4))) ELSE '
               || 'TRIM(CAST(A.DQ_YEAR AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))),'
               || 'CHARACTER_LENGTH(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))))-1,2) END,'
               || 'A.TOTAL_N,A.V' || V_SUFFIX || ',A.AV' || V_SUFFIX || ',A.SD' || V_SUFFIX || ' FROM DQ_NB_AGG A';
-            CALL DBC.SysExecSQL(V_SQL);
+            SET V_SELECT=SUBSTR(V_SQL,POSITION(' SELECT ' IN V_SQL)+1);
+            IF CHARACTER_LENGTH(V_STATS_INSERT)>0
+               AND CHARACTER_LENGTH(V_STATS_INSERT)+CHARACTER_LENGTH(V_SELECT)+11>30000 THEN
+                CALL DBC.SysExecSQL(V_STATS_INSERT);
+                SET V_STATS_INSERT='';
+            END IF;
+            IF CHARACTER_LENGTH(V_STATS_INSERT)=0 THEN
+                SET V_STATS_INSERT=V_SQL;
+            ELSE
+                SET V_STATS_INSERT=V_STATS_INSERT || ' UNION ALL ' || V_SELECT;
+            END IF;
             /* Coverage is overall-only and depends on this field being non-NULL.
                NULL reporting dates contribute no availability endpoint. */
             SET V_SQL = 'INSERT INTO DQ_DB.DQ_FIELD_AVAILABILITY '
               || '(RUN_ID,PROJECT_ID,FIELD_NAME,EARLIEST_DATE,LATEST_DATE) SELECT ''' || P_RUN_ID || ''','''
-              || P_PROJECT_ID || ''',''' || TRIM(R.FIELD_NAME) || ''',MIN(A.FA' || V_SUFFIX || '),MAX(A.LA' || V_SUFFIX || ')'
+              || P_PROJECT_ID || ''',CAST(''' || TRIM(R.FIELD_NAME) || ''' AS VARCHAR(128)),MIN(A.FA' || V_SUFFIX || '),MAX(A.LA' || V_SUFFIX || ')'
               || ' FROM DQ_NB_AGG A';
-            CALL DBC.SysExecSQL(V_SQL);
+            SET V_SELECT=SUBSTR(V_SQL,POSITION(' SELECT ' IN V_SQL)+1);
+            IF CHARACTER_LENGTH(V_AVAIL_INSERT)>0
+               AND CHARACTER_LENGTH(V_AVAIL_INSERT)+CHARACTER_LENGTH(V_SELECT)+11>30000 THEN
+                CALL DBC.SysExecSQL(V_AVAIL_INSERT);
+                SET V_AVAIL_INSERT='';
+            END IF;
+            IF CHARACTER_LENGTH(V_AVAIL_INSERT)=0 THEN
+                SET V_AVAIL_INSERT=V_SQL;
+            ELSE
+                SET V_AVAIL_INSERT=V_AVAIL_INSERT || ' UNION ALL ' || V_SELECT;
+            END IF;
         END FOR;
+        /* Flush before releasing the aggregate; the existing error handlers
+           remove partial output and propagate failure to the shared runner. */
+        IF CHARACTER_LENGTH(V_METRIC_INSERT)>0 THEN CALL DBC.SysExecSQL(V_METRIC_INSERT); END IF;
+        IF CHARACTER_LENGTH(V_STATS_INSERT)>0 THEN CALL DBC.SysExecSQL(V_STATS_INSERT); END IF;
+        IF CHARACTER_LENGTH(V_AVAIL_INSERT)>0 THEN CALL DBC.SysExecSQL(V_AVAIL_INSERT); END IF;
         CALL DBC.SysExecSQL('DROP TABLE DQ_NB_AGG');
         SET V_VT_EXISTS = 0;
         UPDATE DQ_DB.DQ_MODULE_LOG SET STATUS = 'SUCCEEDED',END_TIME = CURRENT_TIMESTAMP(6)

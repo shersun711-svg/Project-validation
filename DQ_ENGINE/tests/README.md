@@ -137,3 +137,10 @@ compares actual generated Basic metrics/statistics/availability from the
 original source and shared copies, tests changed-source isolation and bounds,
 and checks routing/failure-propagation structure. Teradata SPL control flow,
 grants, transaction cleanup and full-run runtime remain unverified locally.
+
+Batch publication regression: `node DQ_ENGINE/tools/check_result_writes.mjs`.
+It executes bounded INSERT/UNION ALL statements for every existing profiler
+writer and compares them with per-field publication, checking SQL limits, long
+field names, empty groups, precise counts/statistics and run/range duplicate
+protection. It also reports request counts for the current 589-field selection.
+This does not execute Teradata SPL or establish a production runtime gain.

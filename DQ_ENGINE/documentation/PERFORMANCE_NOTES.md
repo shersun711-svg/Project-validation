@@ -242,3 +242,14 @@ DQ_RUN_LOG for total runtime or sum the individual successful batch rows by
 phase for diagnosis. Neither CTE syntax nor fewer logical source references
 establishes physical I/O or completion within two hours. See
 [shared-copy deployment](SHARED_NUMERIC_COPY.md).
+
+## Result persistence
+
+The user measured a 20-field aggregate alone at 43 seconds, versus about 4m30s
+for the earlier full Basic batch. Workload differences prevent attributing the
+whole difference to writes, but per-field persistence caused many statements.
+The existing per-field projections now enter bounded INSERT/UNION ALL batches
+for Basic and Outliers. Only small aggregate tables are reread. With current
+589-field templates and SQL_BATCH_SIZE=25, local generation uses 142 result
+writes rather than 2,008. This does not reduce result rows or establish runtime.
+See [deployment and validation](RESULT_WRITE_UPDATE.md).

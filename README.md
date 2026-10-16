@@ -19,6 +19,8 @@ copies and counting batches are capped at 20 fields, with SQL-length splitting; 
 [permanent-space update](DQ_ENGINE/documentation/OUTLIER_STORAGE_UPDATE.md).
 Combined Numeric Basic + Outliers now share each bounded working copy; see
 [deployment and phase timings](DQ_ENGINE/documentation/SHARED_NUMERIC_COPY.md).
+Profiling results are persisted using bounded bulk writes; see the
+[result-write update](DQ_ENGINE/documentation/RESULT_WRITE_UPDATE.md).
 Field-level MoM/YoY compares saved monthly results without another RDS scan.
 See [comparison deployment and operation](DQ_ENGINE/documentation/FIELD_CHANGES.md).
 PSI and Excel report export remain deferred.
