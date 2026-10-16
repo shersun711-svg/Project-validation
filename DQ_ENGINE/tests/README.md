@@ -147,8 +147,10 @@ This does not execute Teradata SPL or establish a production runtime gain.
 
 ## Reconcile with development results
 
-[compare_numeric_development.sql](compare_numeric_development.sql) is a read-only
-Numeric Basic/Outliers comparison against development run ID 1. Edit the engine
+[compare_numeric_development.sql](compare_numeric_development.sql) compares
+DQ_BASIC_REVIEW directly against development run ID 1 for Numeric Basic/Outliers.
+It shows OUR_VALUE, DEV_VALUE, DIFFERENCE and STATUS for each field/period/metric;
+rates are fractions and values display to six decimals. Edit the engine
 short run number (default 16) and replace DQ_DB in a local copy, then submit the
 complete statement in SQL Assistant. See [scope, mappings and interpretation](../documentation/DEVELOPMENT_COMPARISON.md).
 Local synthetic regression: `node DQ_ENGINE/tools/check_development_comparison.mjs`.

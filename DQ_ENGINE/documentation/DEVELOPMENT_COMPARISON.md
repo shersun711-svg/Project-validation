@@ -1,103 +1,106 @@
-# Compare saved numeric results with development
+# Compare the final review with development
 
-Use [compare_numeric_development.sql](../tests/compare_numeric_development.sql)
-after profiling succeeds. It compares Numeric Basic and Numeric Outliers;
-it does not rerun profiling, read the RDS source, create objects or change data.
-No SAS files, Excel settings or engine deployment changes are required.
-The query was written independently using the supplied development table
-schema and metric definitions as references.
+[compare_numeric_development.sql](../tests/compare_numeric_development.sql)
+compares saved **DQ_BASIC_REVIEW** results with the development team's numeric
+result table. It is read-only: no profiling rerun, source-data scan, new tables,
+SAS changes or Excel changes are needed. The comparison was written independently
+using the supplied development schema and metric definitions as references.
 
 ## Run in SQL Assistant
 
-1. Download the SQL file and replace `DQ_DB` with `LAB_T_ORION_MVT` in your copy.
-2. At the top, set `OUR_RUN_NUMBER` to the successful engine run you want to
-   check. It defaults to **16**. `DEV_RUN_ID` defaults to the confirmed
-   development **run ID 1**; these are different run identifiers.
-3. Confirm the development table is
-   `LAB_P_DECISION_SCIENCE.IRB_RDS_DQ_NUMERIC_PROFILE_RESULT` and that you
-   have SELECT access. Change that identifier if the table has moved.
-4. Submit the **complete WITH ... SELECT statement** as one request.
+1. Download the SQL file. Replace `DQ_DB` with `LAB_T_ORION_MVT` in your copy.
+2. Set `OUR_RUN_NUMBER` at the top to your successful run; default **16**.
+   Development `DEV_RUN_ID` is already **1**, as confirmed. These identifiers
+   refer to different engines and do not need to have the same number.
+3. Confirm SELECT access to
+   `LAB_P_DECISION_SCIENCE.IRB_RDS_DQ_NUMERIC_PROFILE_RESULT`.
+4. Submit the complete `WITH ... SELECT` statement as one request.
 
-Start with the completed 20-field run. SUMMARY rows count comparisons by
-status. DETAIL rows list exceptions with both values, dates, difference and
-reason. Set `SHOW_MATCHES='Y'` to display matching details as well.
-`MATCH` for every comparison is agreement within the stated rules, not proof
-that either implementation is correct. Investigate every other status.
-`NOT_EVALUATED` means the input checks prevented comparison, not a pass.
+## Read the output
 
-## What is compared
+Every row compares one metric for one field and period. Both rates are already
+**fractions**: `0.050000` means 5%. There is no additional division by 100.
 
-Only numeric fields captured in the chosen engine run are included. A completed
-Numeric Basic or Outliers module is required; each contributes its own metrics.
-An Outliers-only run can be compared without rerunning Basic. The query uses
-saved raw metric precision, not the rounded final review view.
+| FIELD_NAME | METRIC_NAME | OUR_VALUE | DEV_VALUE | DIFFERENCE | STATUS |
+|---|---|---:|---:|---:|---|
+| AMOUNT | MISSING_RATE | 0.050000 | 0.050000 | 0.000000 | MATCH |
+| AMOUNT | ZERO_COUNT | 12.000000 | 10.000000 | 2.000000 | DIFFERENT |
 
-| Engine metric | Development column/expression |
+`DIFFERENCE = OUR_VALUE - DEV_VALUE`. Values and differences display with six
+decimal places. `POU_DT` and `DEV_POU_DT` show both actual monthly source dates;
+our overall date is NULL. The run numbers, project and explanation remain at
+the right for traceability. Results are ordered by field, level, date and metric.
+
+All comparisons are shown by default. To focus on exceptions, change
+`SHOW_MATCHES` from `Y` to `N` at the top. There are no separate summary rows.
+`NOT_EVALUATED` explains missing/invalid inputs and is never a pass. With
+`SHOW_MATCHES=N`, an empty output means no exceptions were found in scope.
+
+## Scope and comparison rules
+
+Only numeric fields captured in the chosen successful engine run are included.
+Successful module logs determine whether Basic, Outliers or both are compared.
+Overall and enabled monthly results are included. **Yearly, categorical,
+identifier, date, rule decisions and MoM/YoY are outside this numeric comparison.**
+The supplied development suite has no yearly output.
+
+| Review metric | Development column/expression |
 |---|---|
 | TOTAL_COUNT | row_count |
 | NON_MISSING_COUNT | row_count - missing_count |
-| MISSING_COUNT / MISSING_RATE_PCT | missing_count / missing_pct |
-| ZERO_COUNT / ZERO_RATE_PCT | zero_count / zero_pct |
-| SPECIAL_COUNT / SPECIAL_RATE_PCT | special_count / special_pct |
-| MINIMUM / MAXIMUM | min_value / max_value |
-| MEAN / STDDEV_POP | mean_value / stddev_value |
+| MISSING_COUNT / MISSING_RATE | missing_count / missing_pct |
+| ZERO_COUNT / ZERO_RATE | zero_count / zero_pct |
+| SPECIAL_COUNT / SPECIAL_RATE | special_count / special_pct |
+| MIN_VALUE / MAX_VALUE | min_value / max_value |
+| MEAN_VALUE / STDDEV_VALUE | mean_value / stddev_value |
 | OUTLIER_LOWER_BOUND / OUTLIER_UPPER_BOUND | outlier_value_lower / outlier_value_upper |
-| OUTLIER_COUNT / OUTLIER_RATE_PCT | outlier_count / outlier_pct |
+| OUTLIER_COUNT / OUTLIER_RATE | outlier_count / outlier_pct |
 | OUTLIER_VALID_COUNT | valid_count |
 
-Rates compare as fractions: an engine raw percentage of `5` becomes `0.05`.
-The default absolute rate tolerance is `0.000001` because development rates
-are rounded to six decimal places. Counts, minimum and maximum compare
-exactly. Mean, population standard deviation and outlier bounds use
-`absolute tolerance + relative tolerance * ABS(development value)`; defaults
-are `0.000001` and `0.000000000001`. NULL equals NULL, but NULL never equals
-zero automatically. `COUNT_DELTA` is an exact decimal difference; `VALUE_DELTA`
-is floating point and is only a display aid for exact comparisons.
+Counts compare exactly. Development minimum/maximum are rounded to six decimal
+places, then compared exactly with the review values. Development mean,
+population standard deviation and outlier bounds are also rounded to six places;
+these compare using `absolute tolerance + relative tolerance * ABS(dev value)`.
+Defaults are `0.000001` absolute and `0.000000000001` relative. Rates use absolute
+tolerance `0.000001`. NULL matches NULL, but is never silently converted to zero.
+This is a comparison at **review precision**, not a full-precision audit.
 
-Overall and enabled monthly periods are compared. The supplied development
-suite has no yearly results, so **yearly is outside this comparison** even
-when our engine has yearly results. Monthly engine grouping is by calendar
-month; development groups by actual snapshot date. A month with several
-development snapshot dates is flagged `PERIOD_SCOPE_MISMATCH` rather than
-pooling its statistics. Actual monthly dates must also match. Engine internal
-period labels remain visible as `PERIOD_KEY` for reconciliation, alongside
-both actual `POU_DT` values. Overall dates are not compared.
+## Investigate exceptions
 
-## Before interpreting a difference
+- `DIFFERENT`: unequal values, a NULL mismatch or an exceeded tolerance.
+- `MISSING_ENGINE`, `MISSING_DEVELOPMENT`, `MISSING_BOTH`: an expected field/period
+  is absent. The expected period domain is the union of saved results; a month
+  absent from both cannot be discovered without reading the source.
+- `DUPLICATE_ENGINE` / `DUPLICATE_DEVELOPMENT`: multiple rows for the comparison
+  key; values are withheld rather than silently choosing one.
+- `PERIOD_SCOPE_MISMATCH`: development has several actual snapshot dates within
+  one engine month. No statistics are pooled. Our engine groups by month,
+  while development groups by snapshot date.
+- `SNAPSHOT_MISMATCH`: actual monthly reporting dates differ.
+- `POPULATION_MISMATCH` / `POPULATION_UNAVAILABLE`: total row counts differ or
+  required totals are absent. An Outliers-only review has no Basic totals,
+  so its total-population equality cannot be verified by this comparison.
+- `DEFINITION_DIFFERENCE`: no valid observations; our undefined outlier count
+  is NULL while development records zero.
 
-Both runs must use the same source population/version, filters, reporting date,
-field types and configured special values. Equal row counts and dates alone
-cannot establish identical source data. Historic saved results cannot prove
-that the underlying RDS data has not changed between runs.
+Both runs must use the same source data/version, filters, reporting date,
+field types and special values. Equal dates/counts cannot prove identical
+source data. Development uses decimal inputs for statistics, while our engine
+uses floating point for some calculations. Values near the strict mean +/- 3
+population-standard-deviation boundary can produce different outlier counts;
+count differences are always flagged. Development monthly joins can omit
+NULL-date groups, and empty-population NULL/zero differences remain visible.
+Post-start development rates and non-equivalent metrics are not compared.
 
-The query flags different total populations, duplicate keys and missing
-fields/periods. Its expected period domain is the union of both saved result
-sets; it cannot discover a month absent from both without reading the source.
-Development fields outside our captured selection are excluded deliberately.
+The review view can combine or mask individual underlying metric rows; this
+query compares its displayed results, not raw metric completeness or uniqueness.
+It cannot establish that either engine is correct merely because values match.
 
-Known definition differences from the supplied development SQL:
+## Verification
 
-- Development records zero outliers for some groups with no valid values;
-  our engine leaves the undefined outlier count NULL. This is labelled
-  `DEFINITION_DIFFERENCE`, not MATCH.
-- Development calculations use decimal inputs for statistics; our engine uses
-  floating point for some calculations. Small differences may be within
-  tolerance, but an outlier count difference is always flagged. Values near
-  the strict mean +/- 3 population-standard-deviation boundary need review.
-- Development joins may omit monthly NULL-date groups; these appear as missing
-  development results. Empty-population NULL/zero differences remain visible.
-- Development post-start missing/zero rates, valid_pct and created timestamps
-  are not compared with different or absent engine metrics.
-
-Categorical, identifier, date, rule decisions and MoM/YoY results are outside
-this numeric comparison. No development implementation was copied into the
-profiling engine.
-
-## Verification limits
-
-`node DQ_ENGINE/tools/check_development_comparison.mjs` runs the SELECT with
-SQLite dialect adaptations against synthetic results. It checks all 17 metric
-mappings across overall/monthly, rates, tolerance, exact large counts,
-missing/duplicate rows, populations, snapshots and input guards.
-This does **not** verify Teradata parsing, permissions, query plans or actual
-customer results. Those remain unverified until the SQL is run in your lab.
+`node DQ_ENGINE/tools/check_development_comparison.mjs` executes the checked-in
+SELECT on synthetic review/development results with SQLite dialect adaptations.
+It covers all 17 metrics, fractions, six-decimal rounding, exact large counts,
+missing/duplicate rows, input guards, population/date mismatches and an
+Outliers-only run. Teradata parsing, permissions, query plans and actual results
+remain unverified until you run it in the lab.
