@@ -3,8 +3,8 @@
    Categorical: five metrics including special count/rate; identifier: three.
    Categorical distinct counts exclude configured specials. No frequencies.
    Date: total/non-missing/missing counts and missing percentage only.
-   Each batch aggregates fields together. Distinct modules use three explicit
-   period queries combined by UNION ALL; DATE retains GROUPING SETS.
+   Each batch aggregates fields together. Distinct modules execute only the
+   enabled explicit period queries separately; DATE retains GROUPING SETS.
    Persistence reads the small volatile aggregate, not the source. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_OTHER_BASIC
     (IN P_RUN_ID CHAR(36), IN P_PROJECT_ID VARCHAR(30), IN P_TYPE VARCHAR(16))
@@ -25,6 +25,8 @@ main: BEGIN
     DECLARE V_FIRST INTEGER DEFAULT 1;
     DECLARE V_LAST INTEGER;
     DECLARE V_BATCH INTEGER DEFAULT 0;
+    DECLARE V_PASS INTEGER;
+    DECLARE V_MAX_FIELD_LENGTH INTEGER;
     DECLARE V_OWNED INTEGER DEFAULT 0;
     DECLARE V_VT_EXISTS INTEGER DEFAULT 0;
     DECLARE V_GROUPS VARCHAR(200);
@@ -34,15 +36,15 @@ main: BEGIN
     DECLARE V_SELECT VARCHAR(8000);
     DECLARE V_METRIC_INSERT VARCHAR(30000);
     DECLARE V_AVAIL_INSERT VARCHAR(30000);
-    DECLARE V_PROJECTION VARCHAR(20000);
-    DECLARE V_SOURCE_PROJECTION VARCHAR(8000);
+    DECLARE V_PROJECTION VARCHAR(18000);
+    DECLARE V_SOURCE_PROJECTION VARCHAR(12000);
     /* Bounded parts also bound SPL's inferred concatenation expression size.
-       Repeating 20,000/8,000-character variables in one expression can fail
+       Repeating large bounded variables in one expression can fail
        compilation even when the actual generated query is below 32,000. */
     DECLARE V_PERIOD_QUERY VARCHAR(30500);
-    DECLARE V_OVERALL VARCHAR(10000);
-    DECLARE V_YEARLY VARCHAR(10000);
-    DECLARE V_MONTHLY VARCHAR(10000);
+    DECLARE V_OVERALL VARCHAR(30000);
+    DECLARE V_YEARLY VARCHAR(30000);
+    DECLARE V_MONTHLY VARCHAR(30000);
     DECLARE V_SUFFIX VARCHAR(12);
     DECLARE V_FIELD VARCHAR(260);
     DECLARE V_DISTINCT VARCHAR(260);
@@ -93,8 +95,8 @@ main: BEGIN
       (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS)
     VALUES (P_RUN_ID,V_MODULE,V_ATTEMPT,0,CURRENT_TIMESTAMP(6),'RUNNING');
     SET V_OWNED=1;
-    /* Coverage expressions increase text size. Keep each distinct UNION part
-       below its 10,000-character bound without changing workbook settings. */
+    /* Bound concurrent DISTINCT expressions. Period statements are separate,
+       so their combined length no longer forces eight-field category batches. */
     IF P_TYPE<>'DATE' THEN
         SET V_SIZE=LEAST(V_SIZE,20);
     END IF;
@@ -111,8 +113,18 @@ main: BEGIN
     END IF;
     IF P_TYPE='CATEGORICAL' THEN
         SET V_METRICS=5;
-        SET V_SIZE=LEAST(V_SIZE,8);
         CALL DQ_DB.SP_DQ_SPECIAL_LIST(P_RUN_ID,P_TYPE,V_SPECIAL_LIST);
+        SELECT MAX(CHARACTER_LENGTH(FIELD_NAME)) INTO V_MAX_FIELD_LENGTH
+          FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+         WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE=P_TYPE;
+        /* Each field occurs three times in the source projection. The margin
+           covers quotes, aliases, SQL syntax and up to 12 ordinal digits.
+           Reduce width for long identifiers/lists before building any text. */
+        SET V_SIZE=LEAST(V_SIZE,CAST(FLOOR(11740.0/
+          (3*V_MAX_FIELD_LENGTH+CHARACTER_LENGTH(V_SPECIAL_LIST)+220)) AS INTEGER));
+        IF V_SIZE<1 THEN
+            SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Categorical projection cannot fit even one field';
+        END IF;
     END IF;
     IF P_TYPE='DATE' THEN
         SET V_METRICS=4;
@@ -173,7 +185,7 @@ main: BEGIN
             SET V_DISTINCT=V_FIELD;
             IF P_TYPE='CATEGORICAL' THEN
                 IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SPECIAL_LIST)
-                   +2*CHARACTER_LENGTH(TRIM(F.FIELD_NAME))+150>8000 THEN
+                   +2*CHARACTER_LENGTH(TRIM(F.FIELD_NAME))+150>12000 THEN
                     SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Categorical SQL too long; reduce SQL_BATCH_SIZE or special list';
                 END IF;
                 SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION
@@ -207,11 +219,12 @@ main: BEGIN
             /* The user's Teradata DISTINCT/GROUPING SETS query returned
                duplicate period rows with every GROUPING flag equal to 1.
                Ordinary GROUP BY and literal flags keep periods unambiguous.
-               This requires three source references per batch; no raw source
+               Each enabled level has one source reference per batch; no raw source
                staging, arbitrary deduplication or relaxed uniqueness index. */
-            /* Guard before assigning bounded parts; never truncate query text. */
+            /* Guard before assigning bounded parts; never truncate query text.
+               Separate period requests avoid one oversized DISTINCT/UNION plan. */
             IF CHARACTER_LENGTH(V_PROJECTION)+CHARACTER_LENGTH(V_SOURCE_PROJECTION)
-               +CHARACTER_LENGTH(V_DB)+CHARACTER_LENGTH(V_SOURCE)+600>10000 THEN
+               +CHARACTER_LENGTH(V_DB)+CHARACTER_LENGTH(V_SOURCE)+600>30000 THEN
                 SIGNAL SQLSTATE 'U0023' SET MESSAGE_TEXT = 'Period SQL part too long; reduce SQL_BATCH_SIZE';
             END IF;
             SET V_OVERALL='SELECT CAST(NULL AS INTEGER) AS DQ_YEAR,CAST(NULL AS INTEGER) AS DQ_MONTH,'
@@ -234,23 +247,39 @@ main: BEGIN
             IF V_PROFILE_OVERALL='N' THEN SET V_OVERALL=''; END IF;
             IF V_PROFILE_YEARLY='N' THEN SET V_YEARLY=''; END IF;
             IF V_PROFILE_MONTHLY='N' THEN SET V_MONTHLY=''; END IF;
-            IF CHARACTER_LENGTH(V_YEARLY)>0 AND CHARACTER_LENGTH(V_OVERALL)>0 THEN
-                SET V_YEARLY=' UNION ALL ' || V_YEARLY;
-            END IF;
-            IF CHARACTER_LENGTH(V_MONTHLY)>0 AND
-               (CHARACTER_LENGTH(V_OVERALL)>0 OR CHARACTER_LENGTH(V_YEARLY)>0) THEN
-                SET V_MONTHLY=' UNION ALL ' || V_MONTHLY;
-            END IF;
-            SET V_PERIOD_QUERY=V_OVERALL || V_YEARLY || V_MONTHLY;
-            SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS ('
-              || V_PERIOD_QUERY
-              || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
         END IF;
-        UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
-         WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE
-           AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
-        CALL DBC.SysExecSQL(V_SQL);
-        SET V_VT_EXISTS=1;
+        /* DATE still uses one GROUPING SETS request. For distinct modules,
+           create the small aggregate from the first enabled period, then
+           append each remaining period. No raw source working table is made. */
+        IF P_TYPE='DATE' THEN
+            UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE
+               AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+            CALL DBC.SysExecSQL(V_SQL);
+            SET V_VT_EXISTS=1;
+        ELSE
+            SET V_PASS=1;
+            WHILE V_PASS<=3 DO
+                IF V_PASS=1 THEN SET V_PERIOD_QUERY=V_OVERALL;
+                ELSEIF V_PASS=2 THEN SET V_PERIOD_QUERY=V_YEARLY;
+                ELSE SET V_PERIOD_QUERY=V_MONTHLY;
+                END IF;
+                IF CHARACTER_LENGTH(V_PERIOD_QUERY)>0 THEN
+                    IF V_VT_EXISTS=0 THEN
+                        SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS (' || V_PERIOD_QUERY
+                          || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
+                    ELSE
+                        SET V_SQL='INSERT INTO DQ_OB_AGG ' || V_PERIOD_QUERY;
+                    END IF;
+                    UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+                     WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE
+                       AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+                    CALL DBC.SysExecSQL(V_SQL);
+                    SET V_VT_EXISTS=1;
+                END IF;
+                SET V_PASS=V_PASS+1;
+            END WHILE;
+        END IF;
         SET V_METRIC_INSERT='';
         SET V_AVAIL_INSERT='';
         FOR R AS RESULTS_CURSOR CURSOR FOR

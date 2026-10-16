@@ -40,10 +40,12 @@ local statement generation gives:
 |---|---:|---:|
 | 20-field Numeric Basic batch | 60 | 4 |
 | All 415 Numeric Basic fields | 1,245 | 83 |
-| All 589 fields: required Basic modules + numeric Outliers | 2,008 | 142 |
+| All 589 fields: required Basic modules + numeric Outliers | 2,008 | 124 |
 
 These are generated request counts, not numbers of result rows, physical scans
-or live speedups. Automatic aggregate SQL splitting, project/name lengths and
+or live speedups. The current count includes the
+[wider categorical batches](PERFORMANCE_NOTES.md#categorical-and-identifier-batch-update).
+Automatic aggregate SQL splitting, project/name lengths and
 future configuration can change the counts. Metadata, source aggregation,
 working-copy preparation, classification, standalone prerequisite statistics,
 SAS readback and cleanup calls are excluded. Results have the same number of

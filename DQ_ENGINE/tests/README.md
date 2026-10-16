@@ -161,3 +161,12 @@ the same layout for Categorical Basic. Select a successful run containing that
 module. It flags the development team's blank-inclusive missing definition and
 special-inclusive distinct definition where relevant. The same local checker
 tests both scripts; neither requires a deployment or a profiling rerun.
+
+Wider categorical batches: `node DQ_ENGINE/tools/check_reporting_levels.mjs`
+also executes separate enabled-period requests and compares wider results with
+the eight-field baseline across all 125 RDS categorical fields, long identifiers,
+long special lists and NULL/blank/special cases. It evaluates the production
+width expression and checks all reporting-level combinations. The updated
+`check_result_writes.mjs` checks categorical metric/availability publication at
+20-field width. These are SQLite/template checks; Teradata execution is unverified.
+See [deployment and scope](../documentation/PERFORMANCE_NOTES.md#categorical-and-identifier-batch-update).

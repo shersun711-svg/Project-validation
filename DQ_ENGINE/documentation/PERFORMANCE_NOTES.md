@@ -8,15 +8,16 @@ are retained. Keep source and configuration stable during execution.
 | Module | Effective maximum fields per batch | Source access |
 |---|---:|---|
 | Numeric Basic | Up to 20, with SQL-length splitting | GROUPING SETS on source for Basic-only; shared copy when Outliers is also selected |
-| Categorical Basic | 8 | Three explicit overall/year/month queries using UNION ALL |
-| Identifier Basic | 20 | Three explicit period queries using UNION ALL |
+| Categorical Basic | Up to 20, reduced for long identifiers/special lists | Separate ordinary GROUP BY request for each enabled period level |
+| Identifier Basic | 20 | Separate ordinary GROUP BY request for each enabled period level |
 | Date Basic | 30 | One aggregate statement using GROUPING SETS |
 | Numeric Outliers | Up to 20 copied/counted; SQL-length splitting | One bounded working copy per group; partitioned year-chunk counting |
 
 SQL_BATCH_SIZE remains configurable from 1 to 30; effective size is the lower
 of the setting and module cap. Special lists increase generated query size;
 Numeric Basic automatically starts a smaller batch before its generated SQL
-exceeds the safe text limit; other modules retain their existing length guards.
+exceeds the safe text limit; Categorical Basic reduces its width using the
+captured maximum field-name length and special-list length. Length guards remain.
 Lower the setting if a wider aggregate exceeds available spool. Caps bound
 query width and are not measured optimal batch sizes. With the current RDS
 special list and default setting, 50 numeric fields use three Basic batches.
@@ -27,9 +28,9 @@ from small volatile aggregates. Numeric Basic emits 12 metrics and categorical
 aggregate and requires no separate source scan.
 
 Categorical/identifier use ordinary GROUP BY with literal period flags because
-the user's DISTINCT/GROUPING SETS query returned duplicate period keys. Three
-source references do not imply exactly three physical scans: check EXPLAIN on
-the actual logged statement. Distinct aggregation can require substantial spool.
+the user's DISTINCT/GROUPING SETS query returned duplicate period keys. Only
+enabled levels execute; check EXPLAIN on the actual logged statement for
+physical scans. Distinct aggregation can require substantial spool.
 
 Run numbering locks its small counter only before profiling.
 
@@ -203,8 +204,8 @@ POU_DT and result publication are unchanged.
 
 A combined Basic + Outliers run reuses the same bounded copy as well as Basic's unrounded statistics;
 standalone Outliers calculates them internally. Do not run a separate statistics
-module before Basic. Categorical/identifier DISTINCT aggregation remains bounded
-under the existing caps; its spool-heavy plans need measurement before widening.
+module before Basic. Categorical/identifier DISTINCT aggregation remains bounded;
+the wider categorical path below needs live runtime/spool measurement.
 
 User-supplied run 10 completed 20 outlier fields in 3m31.52s, including standalone
 statistics and a 20-field copy. This confirms one group fits that workload; it is
@@ -250,6 +251,64 @@ for the earlier full Basic batch. Workload differences prevent attributing the
 whole difference to writes, but per-field persistence caused many statements.
 The existing per-field projections now enter bounded INSERT/UNION ALL batches
 for Basic and Outliers. Only small aggregate tables are reread. With current
-589-field templates and SQL_BATCH_SIZE=25, local generation uses 142 result
+589-field templates and SQL_BATCH_SIZE=25, local generation uses 124 result
 writes rather than 2,008. This does not reduce result rows or establish runtime.
 See [deployment and validation](RESULT_WRITE_UPDATE.md).
+
+## Categorical and identifier batch update
+
+Categorical Basic previously capped each batch at eight fields because the
+overall/yearly/monthly SELECTs had to fit one UNION statement. Each enabled
+period now runs as a separate request: the first creates the existing small
+DQ_OB_AGG volatile aggregate and subsequent requests append to it. No raw
+working copy, persistent table, schema column, setting or SAS switch is added.
+DATE retains its existing single GROUPING SETS request.
+
+The categorical cap is now 20, further limited by SQL_BATCH_SIZE and a conservative
+source-projection bound based on the captured maximum identifier length and
+serialized special-list length. Long names/lists reduce width automatically.
+The source-projection/aggregate buffers and per-period guards remain bounded,
+including declared concatenation widths for Teradata SPL compilation.
+Identifier remains capped at 20; Date remains capped at 30. Their workload has
+no equivalent categorical batch-count reduction.
+
+For all 125 configured RDS categorical fields, the standard special list and
+SQL_BATCH_SIZE=25, this produces **7 batches instead of 16**. With overall and
+monthly enabled, that is 14 period aggregate requests instead of 32 source
+references spread across 16 UNION requests. This reduces repeated view queries;
+it does not prove a physical scan count or a runtime improvement. A wider
+DISTINCT aggregate can require more spool and must be measured in Teradata.
+
+Count/missing/special/distinct formulas, NULL and blank treatment, availability,
+actual POU_DT, bulk result writes, run/project isolation, successful-only
+publication and exception cleanup remain unchanged. The temporary aggregate is
+dropped after its batch and on handled errors. Each batch's SQL_TEXT shows its
+current/latest period request. Keep RDS stable during profiling: enabled
+periods now execute as separate statements rather than one UNION request.
+
+### Deploy before running the remaining field types
+
+1. Wait for any active engine run using these procedures to finish.
+2. Replace DQ_DB with LAB_T_ORION_MVT in a deployment copy of
+   [15_other_basic.sql](../teradata/modules/15_other_basic.sql).
+3. Compile the complete SP_DQ_OTHER_BASIC procedure in SQL Assistant, then run
+   its included GRANT EXECUTE PROCEDURE statement. Public wrappers/signatures
+   are unchanged; no other procedure or view needs recompilation.
+4. Keep the existing Excel configuration and SQL_BATCH_SIZE (25 is suitable
+   for exercising the new effective 20-field limit). No Excel reload is needed
+   unless active fields or settings were edited.
+5. In SAS file 00 use numeric_basic=N, numeric_outliers=N,
+   categorical_basic=Y, date_basic=Y and identifier_basic=Y. Leave other
+   switches N and retry_run_id blank. Each selected type needs active fields.
+6. Require SUCCEEDED, then inspect the new run number and per-batch timings.
+   For all 125 categorical fields and the standard list, expect six 20-field
+   batches and a final five-field batch. Existing numeric run results are retained.
+
+Local checks execute generated period statements for all seven reporting-level
+combinations and compare them with the former UNION plan, including empty and
+UNKNOWN groups. Wider batches are checked against eight-field results across
+all 125 RDS categorical fields, long identifiers/lists and NULL/blank/special
+values. Metric/availability persistence is also checked at 20-field width.
+Teradata SPL compilation, optimizer plans, quota/spool and elapsed time remain
+unverified locally. This change was developed independently of the development
+team's implementation.

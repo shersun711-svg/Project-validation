@@ -21,6 +21,8 @@ Combined Numeric Basic + Outliers now share each bounded working copy; see
 [deployment and phase timings](DQ_ENGINE/documentation/SHARED_NUMERIC_COPY.md).
 Profiling results are persisted using bounded bulk writes; see the
 [result-write update](DQ_ENGINE/documentation/RESULT_WRITE_UPDATE.md).
+Categorical Basic supports up to 20 fields per batch with separate enabled-period
+requests; see the [categorical deployment update](DQ_ENGINE/documentation/PERFORMANCE_NOTES.md#categorical-and-identifier-batch-update).
 Field-level MoM/YoY compares saved monthly results without another RDS scan.
 See [comparison deployment and operation](DQ_ENGINE/documentation/FIELD_CHANGES.md).
 PSI and Excel report export remain deferred.

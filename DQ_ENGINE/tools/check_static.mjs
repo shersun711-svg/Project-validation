@@ -142,11 +142,20 @@ function periodUnion(source,v,o='Y',y='Y',m='Y'){
         v[key]=flag==='Y'?raw:'';
         if(v[key])parts.push(v[key]);
     }
-    // The procedure prefixes only non-first enabled branches.
+    // Independent UNION reference for testing; deployment executes separate requests.
     v.V_PERIOD_QUERY=parts.join(' UNION ALL ');
     return v;
 }
 export {groupingVariables,periodUnion};
+function otherPeriodStatements(source,v,o='Y',y='Y',m='Y'){
+    periodUnion(source,v,o,y,m);
+    const at=source.indexOf('IF V_VT_EXISTS=0 THEN',source.indexOf('/* Guard before assigning'));
+    return ['V_OVERALL','V_YEARLY','V_MONTHLY'].filter(k=>v[k]).map((k,i)=>{
+        v.V_PERIOD_QUERY=v[k];
+        return evaluate(assignment('V_SQL',i===0?at:source.indexOf('ELSE',at),source),v);
+    });
+}
+export {otherPeriodStatements};
 const specialXml=execFileSync('unzip',['-p',path.join(root,'config/DQ_RDS_config.xlsx'),'xl/worksheets/sheet4.xml'],{encoding:'utf8'});
 const specialRows=[...specialXml.matchAll(/<row[^>]*>(.*?)<\/row>/g)].map(m=>[...m[1].matchAll(/<t>(.*?)<\/t>/g)].map(t=>t[1]));
 const numericSpecialList='('+specialRows.filter(r=>r[0]==='NUMERIC').map(r=>Number(r[1]).toFixed(10)).join(',')+')';
@@ -193,7 +202,7 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
     v.V_PERIOD_VALUE=evaluate(assignment('V_PERIOD_VALUE',0,other),v);
     const cursor=other.indexOf('FOR F AS');
     const projectionStart=type==='DATE'?other.indexOf("IF P_TYPE='DATE' THEN",cursor):other.indexOf('            ELSE\n',cursor);
-    const batchSize=type==='DATE'?30:type==='CATEGORICAL'?8:20;
+    const batchSize=type==='DATE'?30:type==='CATEGORICAL'?17:20;
     for(let i=1;i<=batchSize;i++){
         v.V_SUFFIX=String(i);v.V_FIELD='S.DQ_F'+i;v.V_DISTINCT=v.V_FIELD;v['F.FIELD_NAME']='F'+String(i).padStart(127,'X');
         v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cursor,other),v);
@@ -205,8 +214,8 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
         }
         v.V_PROJECTION=evaluate(assignment('V_PROJECTION',projectionStart,other),v);
     }
-    assert.ok(v.V_SOURCE_PROJECTION.length<=8000);
-    assert.ok(v.V_PROJECTION.length<=20000);
+    assert.ok(v.V_SOURCE_PROJECTION.length<=12000);
+    assert.ok(v.V_PROJECTION.length<=18000);
     const dateAggregateStart=other.indexOf("SET V_SQL ='CREATE VOLATILE TABLE DQ_OB_AGG",other.indexOf('WHILE V_FIRST'));
     assert.ok(dateAggregateStart>=0,'Find the date aggregate template');
     const aggregateStart=type==='DATE'?dateAggregateStart:other.indexOf('ELSE',dateAggregateStart);
@@ -221,17 +230,18 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
         }
         assert.ok(evaluate(assignment('V_SQL',aggregateStart,other),declared).length<32000,
             'SPL must not infer an oversized final concatenation from declared part widths');
-        assert.ok(v.V_PROJECTION.length+v.V_SOURCE_PROJECTION.length+v.V_DB.length+v.V_SOURCE.length+600<=10000);
+        assert.ok(v.V_PROJECTION.length+v.V_SOURCE_PROJECTION.length+v.V_DB.length+v.V_SOURCE.length+600<=30000);
     }
-    if(type!=='DATE')periodUnion(other,v);
-    const query=evaluate(assignment('V_SQL',aggregateStart,other),v);
-    lex(query,'generated '+type+' aggregate');assert.ok(query.length<32000);
-    assert.equal((query.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,type==='DATE'?1:3);
+    const queries=type==='DATE'?[evaluate(assignment('V_SQL',aggregateStart,other),v)]:otherPeriodStatements(other,v);
+    const query=queries[0];
+    for(const q of queries){lex(q,'generated '+type+' aggregate');assert.ok(q.length<32000);
+        assert.equal((q.match(/FROM "LAB_T_ORION_MVT"\."VW_RDS_PHASE2_FACT"/g)||[]).length,1);}
     if(type==='DATE'){
         assert.ok(query.includes('GROUP BY GROUPING SETS ((),'));
     }else{
         assert.ok(!/GROUPING\s*\(|GROUPING SETS/i.test(query),'Distinct aggregation must use explicit period groups');
-        assert.equal((query.match(/UNION ALL/g)||[]).length,2);
+        assert.equal(queries.length,3);
+        assert.ok(queries.every(q=>!q.includes('UNION ALL')));
         /* Execute the generated period SELECT logic on synthetic rows, adapting
            EXTRACT only. This tests period uniqueness, not Teradata compatibility. */
         const db=new DatabaseSync(':memory:');
@@ -242,7 +252,7 @@ for(const type of ['CATEGORICAL','IDENTIFIER','DATE']){
         for(const [date,value] of [['2000-01-31','A'],['2000-02-29','B'],['2001-01-31',null],[null,'A']]){
             statement.run(date,value,...Array(batchSize-1).fill(null));
         }
-        const select=query.slice('CREATE VOLATILE TABLE DQ_OB_AGG AS ('.length,query.indexOf(') WITH DATA PRIMARY INDEX'))
+        const select=queries.map((q,i)=>i===0?q.slice('CREATE VOLATILE TABLE DQ_OB_AGG AS ('.length,q.indexOf(') WITH DATA PRIMARY INDEX')):q.slice('INSERT INTO DQ_OB_AGG '.length)).join(' UNION ALL ')
             .replaceAll('EXTRACT(YEAR FROM S.DQ_DT)',"CAST(strftime('%Y',S.DQ_DT) AS INTEGER)")
             .replaceAll('EXTRACT(MONTH FROM S.DQ_DT)',"CAST(strftime('%m',S.DQ_DT) AS INTEGER)")
             .replaceAll('CAST(S.DQ_DT AS DATE)','date(S.DQ_DT)');

@@ -105,7 +105,7 @@ function smallAggregate(table,first,count,type,empty){
  for(const period of periods){const row=[...period];for(let j=0;j<count;j++)row.push(...(outlier?[j===0?0n:80n,j===0?null:-3.123456789,j===0?null:3.123456789,j===0?0n:2n]:[j===0?0n:80n,j===0?0n:5n,j===0?0n:70n,j===0?null:'2000-01-31',j===0?null:'2005-01-31']));put.run(...row);}
 }
 for(const type of ['OUTLIER','CATEGORICAL','DATE','IDENTIFIER']){
- const count=type==='CATEGORICAL'?8:type==='DATE'?25:20,names=['A',...Array.from({length:count-1},(_,i)=>'F'+String(i).padStart(127,'X'))];
+ const count=type==='DATE'?25:20,names=['A',...Array.from({length:count-1},(_,i)=>'F'+String(i).padStart(127,'X'))];
  const table=type==='OUTLIER'?'DQ_NO_AGG':'DQ_OB_AGG';
  for(const empty of [false,true]){
   smallAggregate(table,396,count,type,empty);
@@ -132,7 +132,7 @@ assert.equal(db.prepare(guard).get({run:base.P_RUN_ID,first:1,last:20}).N,0);
 let allCalls=expectedCalls;
 for(let first=1;first<=415;first+=20)allCalls+=pack('V_METRIC_INSERT',outStatements(fields.slice(first-1,first+19),first),out).length;
 const configured=read('config/rds_fields.csv').trim().split('\n').slice(1).map(l=>l.split(','));
-for(const [type,size]of [['CATEGORICAL',8],['DATE',25],['IDENTIFIER',20]]){
+for(const [type,size]of [['CATEGORICAL',20],['DATE',25],['IDENTIFIER',20]]){
  const names=configured.filter(r=>r[1]===type).map(r=>r[0]).sort();
  for(let first=1;first<=names.length;first+=size){const lists=otherStatements(type,names.slice(first-1,first+size-1),first);for(const [i,qs]of lists.entries())allCalls+=pack(i===0?'V_METRIC_INSERT':'V_AVAIL_INSERT',qs,other).length;}
 }

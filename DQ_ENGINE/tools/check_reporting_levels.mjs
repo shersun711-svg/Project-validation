@@ -1,6 +1,6 @@
 /* Generated-query checks only; SQLite is not a Teradata/SAS runtime. */
 import fs from 'node:fs';import assert from 'node:assert/strict';import {DatabaseSync}from'node:sqlite';
-import {numericParts,assignment,evaluate,groupingVariables,periodUnion}from'./check_static.mjs';
+import {numericParts,assignment,evaluate,groupingVariables,periodUnion,otherPeriodStatements}from'./check_static.mjs';
 const read=p=>fs.readFileSync(new URL('../'+p,import.meta.url),'utf8').replace(/SET (\w+)=/g,'SET $1 =');
 const nb=read('teradata/modules/10_numeric_basic.sql'),ob=read('teradata/modules/15_other_basic.sql');
 const ns=read('teradata/modules/03_numeric_statistics.sql');
@@ -59,16 +59,25 @@ for(const empty of [false,true]){
    const {source,v}=variables(type,levels);let at;
    if(type==='NUMERIC')at=source.indexOf('/* GROUPING distinguishes');
    else {at=source.indexOf("SET V_SQL ='CREATE VOLATILE TABLE DQ_OB_AGG");if(type!=='DATE'){at=source.indexOf('ELSE',at);periodUnion(source,v,...levels);}}
-   const query=evaluate(assignment('V_SQL',at,source),v);
-   const select=query.slice(query.indexOf(' AS (')+5,query.lastIndexOf(') WITH DATA'));
+   const requests=(type==='CATEGORICAL'||type==='IDENTIFIER')?otherPeriodStatements(source,v,...levels):null;
+   const query=requests?null:evaluate(assignment('V_SQL',at,source),v);
+   if(requests)periodUnion(source,v,...levels);
+   const reference=requests?v.V_PERIOD_QUERY:null;
+   const select=requests?reference:query.slice(query.indexOf(' AS (')+5,query.lastIndexOf(') WITH DATA'));
    const actual=normal(db.prepare(sqliteGroups(select)).all());
    if(mask===7)baseline=actual;
    assert.deepEqual(actual,baseline.filter(r=>selected.includes(key(r).split('/')[0])),type+' mask='+mask+' empty='+empty);
    assert.equal(actual.length,empty?(levels[0]==='Y'?1:0):(levels[0]==='Y'?1:0)+(levels[1]==='Y'?3:0)+(levels[2]==='Y'?4:0));
-   if(type==='CATEGORICAL'||type==='IDENTIFIER')assert.equal((query.match(/FROM "SOURCE"\."FIXTURE"/g)||[]).length,selected.length,'Disabled periods must not retain a source SELECT');
+   if(requests)assert.equal(requests.length,selected.length,'Disabled periods must not retain a source SELECT');
    // Availability remains coverage metadata even without an OVERALL metric.
    const table=type==='NUMERIC'?'DQ_NB_AGG':'DQ_OB_AGG';
-   db.exec('CREATE TABLE '+table+' AS '+sqliteGroups(select));
+   if(requests){
+    for(const [i,request]of requests.entries()){
+     const part=i===0?request.slice(request.indexOf(' AS (')+5,request.lastIndexOf(') WITH DATA')):request.slice('INSERT INTO DQ_OB_AGG '.length);
+     db.exec((i===0?'CREATE TABLE '+table+' AS ':'INSERT INTO '+table+' ')+adapt(part));
+    }
+    assert.deepEqual(normal(db.prepare('SELECT * FROM '+table).all()),actual,'Separate period requests must equal the former UNION plan');
+   }else db.exec('CREATE TABLE '+table+' AS '+sqliteGroups(select));
    const avStart=source.lastIndexOf("SET V_SQL",source.indexOf("'INSERT INTO DQ_DB.DQ_FIELD_AVAILABILITY"));
    const av=evaluate(assignment('V_SQL',avStart,source),{P_RUN_ID:'run-test',P_PROJECT_ID:'project-test','R.FIELD_NAME':'field',V_SUFFIX:'1'});
    const coverage=db.prepare(av.slice(av.indexOf(' SELECT ')+1)).get();
@@ -111,4 +120,61 @@ for(const f of ['OVERALL','MONTHLY','YEARLY']){
  assert.ok(run.includes('PROFILE_'+f+'=V_PROFILE_'+f));
  for(const q of [nb,ob,ns,read('teradata/modules/12_numeric_outliers.sql')])assert.match(q,/SELECT PROFILE_OVERALL,PROFILE_MONTHLY,PROFILE_YEARLY[\s\S]*?FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID/);
 }
+// Execute the production categorical width expression and period requests across
+// all 125 configured fields. Compare with the former eight-field batch boundary.
+const configured=fs.readFileSync(new URL('../config/rds_fields.csv',import.meta.url),'utf8').trim().split('\n').slice(1).map(l=>l.split(','));
+const standardList="('UNKNOWN','N/A','NA','NULL','NONE','-','?','#N/A','.','MISSING','NOT APPLICABLE')";
+db.function('LEAST',{varargs:true},(...args)=>Math.min(...args));
+const catSizeAt=ob.indexOf("IF P_TYPE='CATEGORICAL' THEN");
+const widthSQL=assignment('V_SIZE',catSizeAt,ob).replace(/\b(V_SIZE|V_MAX_FIELD_LENGTH|V_SPECIAL_LIST)\b/g,':$1');
+function width(setting,names,list){return db.prepare('SELECT '+widthSQL+' AS N').get({V_SIZE:Math.min(setting,20),V_MAX_FIELD_LENGTH:Math.max(...names.map(n=>n.length)),V_SPECIAL_LIST:list}).N;}
+function batchVariables(names,first,list,levels){
+ const v={...groupingVariables(ob,...levels),V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT',V_PROJECTION:'',V_DB:'SOURCE',V_SOURCE:'WIDE',V_DATE:'FACT_DT',V_SPECIAL_LIST:list};
+ const cursor=ob.indexOf('FOR F AS'),cat=ob.indexOf("IF P_TYPE='CATEGORICAL' THEN",cursor);
+ for(const [j,name]of names.entries()){
+  v.V_SUFFIX=String(first+j);v['F.FIELD_NAME']=name;v.V_FIELD='S.DQ_F'+v.V_SUFFIX;v.V_DISTINCT='S.DQ_C'+v.V_SUFFIX;
+  v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cursor,ob),v);
+  assert(v.V_SOURCE_PROJECTION.length+list.length+2*name.length+150<=12000,'Pre-assignment source guard');
+  v.V_SOURCE_PROJECTION=evaluate(assignment('V_SOURCE_PROJECTION',cat,ob),v);
+  v.V_PROJECTION=evaluate(assignment('V_PROJECTION',cat,ob),v);
+  v.V_PROJECTION=evaluate(assignment('V_PROJECTION',ob.indexOf('            ELSE\n',cursor),ob),v);
+ }
+ assert(v.V_SOURCE_PROJECTION.length<=12000);assert(v.V_PROJECTION.length<=18000);
+ assert(v.V_SOURCE_PROJECTION.length+v.V_PROJECTION.length+v.V_DB.length+v.V_SOURCE.length+600<=30000);
+ return v;
+}
+let widthCases=0;
+const catNames=configured.filter(r=>r[1]==='CATEGORICAL').map(r=>r[0]).sort();
+for(const names of [catNames,Array.from({length:20},(_,i)=>'F'+String(i).padStart(127,'X'))]){
+ db.exec('CREATE TABLE SOURCE.WIDE (FACT_DT TEXT,'+names.map(n=>'"'+n+'" TEXT').join(',')+')');
+ const put=db.prepare('INSERT INTO SOURCE.WIDE VALUES ('+Array(names.length+1).fill('?').join(',')+')');
+ for(let i=0;i<12;i++)put.run(['2005-01-15','2005-01-31','2005-02-28','2006-01-31',null][i%5],...names.map((_,j)=>j%7===0?null:['A','B','UNKNOWN','',null,' unknown '][(i+j)%6]));
+ for(const list of [standardList,"('UNKNOWN','"+'X'.repeat(7900)+"')"]){
+  for(const levels of [['Y','Y','Y'],['Y','N','Y'],['N','N','Y']]){
+   function saved(setting,legacy=false){
+    const out=[];const size=legacy?Math.min(8,width(setting,names,list)):width(setting,names,list);
+    for(let first=1;first<=names.length;first+=size){
+     const batch=names.slice(first-1,first+size-1),v=batchVariables(batch,first,list,levels);
+     const statements=otherPeriodStatements(ob,v,...levels);
+     for(const [i,query]of statements.entries()){
+      assert(query.length<32000);assert(!query.includes('UNION ALL'));
+      const part=i===0?query.slice(query.indexOf(' AS (')+5,query.lastIndexOf(') WITH DATA')):query.slice('INSERT INTO DQ_OB_AGG '.length);
+      db.exec((i===0?'CREATE TABLE DQ_OB_AGG AS ':'INSERT INTO DQ_OB_AGG ')+adapt(part));
+     }
+     for(const row of db.prepare('SELECT * FROM DQ_OB_AGG').all())for(const [j,name]of batch.entries()){
+      const n=first+j;out.push([name,key(row),row.POU_DT,row.TOTAL_N,row['N'+n],row['V'+n],row['D'+n],row['FA'+n],row['LA'+n]]);
+     }
+     db.exec('DROP TABLE DQ_OB_AGG');
+    }
+    return out.sort((a,b)=>(a[0]+'/'+a[1]).localeCompare(b[0]+'/'+b[1]));
+   }
+   const expected=saved(25,true);
+   for(const setting of [1,8,20,25,30]){assert.deepEqual(saved(setting),expected,'Wider categorical counts/distinct/coverage must equal eight-field grouping');widthCases++;}
+  }
+ }
+ db.exec('DROP TABLE SOURCE.WIDE');
+}
+assert.equal(width(25,catNames,standardList),20);
+assert.equal(Math.ceil(catNames.length/width(25,catNames,standardList)),7);
+console.log('Categorical width checks passed: '+widthCases+' cases across all 125 RDS category fields, 128-character identifiers, 7900-character lists, NULL/blank/special groups and six batch settings including the baseline. Default category batches: 16 -> 7.');
 db.close();console.log('Reporting levels passed: all seven combinations for four Basic types and standalone statistics; empty/UNKNOWN periods, unchanged values and availability. SAS/Teradata NOT executed.');
