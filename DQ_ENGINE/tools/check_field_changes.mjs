@@ -88,7 +88,11 @@ const query=roundDecimal(ddl.slice(0,ddl.indexOf('GRANT SELECT'))
  .replaceAll('EXTRACT(MONTH FROM R.POU_DT)',"CAST(strftime('%m',R.POU_DT) AS INTEGER)"));
 const snapshot=JSON.stringify(db.prepare('SELECT * FROM DQ_METRIC_RESULT ORDER BY RUN_ID,FIELD_NAME,METRIC_NAME,PERIOD_VALUE').all());
 db.exec(query);
-const rows=db.prepare('SELECT * FROM DQ_FIELD_CHANGE_REVIEW').all();
+// Inspect the internal comparison CTE in tests only; production exposes one
+// wide view and creates no separate detail view.
+const reference=query.slice(query.indexOf('WITH comparison_seed'),query.indexOf('\nSELECT C.RUN_ID'));
+db.exec('CREATE TEMP VIEW DQ_CHANGE_DETAIL_FIXTURE AS '+reference+' SELECT * FROM changes');
+const rows=db.prepare('SELECT * FROM DQ_CHANGE_DETAIL_FIXTURE').all();
 const get=(field,name,date,comparison='MOM',run='main')=>rows.find(r=>r.RUN_ID===run&&r.FIELD_NAME===field&&r.METRIC_NAME===name&&r.POU_DT===date&&r.COMPARISON_TYPE===comparison);
 const near=(a,b)=>assert.ok(Math.abs(a-b)<0.0000006,`${a} != ${b}`);
 assert.equal(get('AMOUNT','MEAN_VALUE','2020-01-30').PREVIOUS_POU_DT,'2019-12-27');
@@ -126,8 +130,8 @@ assert.equal(get('AMOUNT','MEAN_VALUE','2020-01-30').CURRENT_VALUE,125,'other pr
 assert.ok(rows.every(r=>r.POU_DT!==null&&r.METRIC_NAME!=='OUTLIER_LOWER_BOUND'));
 assert.equal(new Set(rows.map(r=>[r.RUN_ID,r.PROJECT_ID,r.FIELD_NAME,r.MODULE_NAME,r.COMPARISON_TYPE,r.POU_DT,r.METRIC_NAME].join('/'))).size,rows.length);
 assert.equal(JSON.stringify(db.prepare('SELECT * FROM DQ_METRIC_RESULT ORDER BY RUN_ID,FIELD_NAME,METRIC_NAME,PERIOD_VALUE').all()),snapshot,'comparison is read-only');
-assert.deepEqual(db.prepare("SELECT * FROM DQ_FIELD_CHANGE_REVIEW WHERE PROJECT_ID='P1' AND RUN_NUMBER=701 AND COMPARISON_TYPE='MOM'").all(),rows.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701&&r.COMPARISON_TYPE==='MOM'));
-assert.doesNotMatch(ddl,/\b(?:INSERT|UPDATE|DELETE|CREATE TABLE|LAG)\b/i);
+assert.deepEqual(db.prepare("SELECT * FROM DQ_CHANGE_DETAIL_FIXTURE WHERE PROJECT_ID='P1' AND RUN_NUMBER=701 AND COMPARISON_TYPE='MOM'").all(),rows.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701&&r.COMPARISON_TYPE==='MOM'));
+assert.doesNotMatch(ddl.replace(/\/\*[\s\S]*?\*\//g,''),/\b(?:INSERT|UPDATE|DELETE|CREATE TABLE|LAG)\b/i);
 assert.doesNotMatch(ddl,/DQ_PROJECT_CONFIG|DQ_FIELD_CONFIG|VW_RDS|DBC\./i);
 
 // Run the supplied isolated server fixture too. Adapt client/DDL syntax and
@@ -154,19 +158,20 @@ assert.ok(sas.indexOf('%run_dq_changes(project=')>sas.indexOf('DQ run number &dq
 assert.match(macro,/%if &_n ne 1/);
 assert.match(macro,/%if %superq\(_source_status\) ne SUCCEEDED/);
 assert.match(macro,/%if &mom=N and &yoy=N/);
-assert.match(macro,/COMPARISON_TYPE in \(&_types\)/);
+assert.match(macro,/coalesce\(sum\(FIELD_MONTHS\),0\)/);
+assert.match(macro,/MOM_STATUS='PARTIALLY_EVALUATED'/);
+assert.match(macro,/YOY_STATUS='PARTIALLY_EVALUATED'/);
+assert.match(macro,/%if &mom=Y[\s\S]*?COMPARISON_TYPE='MOM'/);
+assert.match(macro,/%if &yoy=Y[\s\S]*?COMPARISON_TYPE='YOY'/);
+assert.match(sas,/20261016_WIDE_CHANGES/);
 assert.doesNotMatch(macro,/execute\s*\(|SQL_TEXT|%let dq_status=/i);
 assert.match(read('sas/06_run_dq_changes.sas'),/%let comparison_run_number = ;/);
 
 // The wide review pivots the detailed view without combining runs or changing
 // values. Compare every metric cell, not just a few layout examples.
-const wideDDL=read('teradata/results/95_dq_change_review.sql');
-assert.doesNotMatch(wideDDL,/DQ_METRIC_RESULT|VW_RDS|DQ_FIELD_CONFIG|DQ_RUN_LOG/i);
-const wideQuery=roundDecimal(wideDDL.slice(0,wideDDL.indexOf('GRANT SELECT'))
- .replace('REPLACE VIEW DQ_DB.','CREATE VIEW ').replaceAll('DQ_DB.',''));
-db.exec(wideQuery);
-const wide=db.prepare('SELECT * FROM DQ_CHANGE_REVIEW').all();
-const detail=db.prepare('SELECT * FROM DQ_FIELD_CHANGE_REVIEW').all();
+assert.equal(fs.existsSync(new URL('../teradata/results/95_dq_change_review.sql',import.meta.url)),false);
+const wide=db.prepare('SELECT * FROM DQ_FIELD_CHANGE_REVIEW').all();
+const detail=db.prepare('SELECT * FROM DQ_CHANGE_DETAIL_FIXTURE').all();
 const wideKey=r=>[r.RUN_ID,r.PROJECT_ID,r.FIELD_NAME,r.FIELD_TYPE,r.POU_DT].join('/');
 const grouped=Map.groupBy(detail,wideKey);
 assert.equal(wide.length,grouped.size);assert.equal(new Set(wide.map(wideKey)).size,wide.length);
@@ -195,7 +200,24 @@ const widePartial=wide.find(r=>r.RUN_ID==='main'&&r.FIELD_NAME==='AMOUNT'&&r.POU
 assert.equal(widePartial.YOY_STATUS,'PARTIALLY_EVALUATED');
 assert(wide.filter(r=>r.FIELD_TYPE==='DATE').every(r=>r.MEAN_VALUE===null&&r.ZERO_RATE_MOM_CHANGE===null));
 assert.equal(wide.some(r=>['failed','running','legacy'].includes(r.RUN_ID)),false);
-assert.deepEqual(db.prepare("SELECT * FROM DQ_CHANGE_REVIEW WHERE PROJECT_ID='P1' AND RUN_NUMBER=701").all(),wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701));
+assert.deepEqual(db.prepare("SELECT * FROM DQ_FIELD_CHANGE_REVIEW WHERE PROJECT_ID='P1' AND RUN_NUMBER=701").all(),wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701));
 console.log(`Wide review passed: ${wide.length} field/month rows, all 48 metric columns match detailed values; statuses, dates, module merging and isolation verified locally.`);
+// SAS reads one aggregate row, then emits the requested type summaries.
+const summarySQL=macro.slice(macro.indexOf('(select CAST(COUNT(*) AS FLOAT) AS FIELD_MONTHS,')+1,
+ macro.indexOf(');',macro.indexOf('(select CAST(COUNT(*) AS FLOAT) AS FIELD_MONTHS,')))
+ .replaceAll('&dq_database..','').replaceAll('&_project_sql',"'P1'").replaceAll('&run_number','701');
+assert.equal((summarySQL.match(/from DQ_FIELD_CHANGE_REVIEW/g)||[]).length,1);
+const aggregate=db.prepare(summarySQL).get(),selectedWide=wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701);
+assert.equal(aggregate.FIELD_MONTHS,selectedWide.length);
+assert.equal(aggregate.FIELDS_COMPARED,new Set(selectedWide.map(r=>r.FIELD_NAME)).size);
+for(const type of ['MOM','YOY']){
+ assert.equal(aggregate[type+'_EVALUATED'],selectedWide.filter(r=>r[type+'_STATUS']==='EVALUATED').length);
+ assert.equal(aggregate[type+'_PARTIAL'],selectedWide.filter(r=>r[type+'_STATUS']==='PARTIALLY_EVALUATED').length);
+ assert.equal(aggregate[type+'_UNAVAILABLE'],selectedWide.filter(r=>r[type+'_STATUS']==='NOT_EVALUATED').length);
+}
+const emptyAggregate=db.prepare(summarySQL.replace("PROJECT_ID='P1'","PROJECT_ID='ABSENT'")).get();
+assert.equal(emptyAggregate.FIELD_MONTHS,0);assert.equal(emptyAggregate.MOM_EVALUATED,0);assert.equal(emptyAggregate.YOY_UNAVAILABLE,0);
+assert.doesNotMatch(macro,/METRIC_COMPARISONS|COMPARISON_TYPE in/);
+assert.match(macro,/keep COMPARISON_TYPE FIELD_MONTHS EVALUATED_COUNT PARTIAL_COUNT/);
 db.close();
 console.log(`Field change checks passed: ${rows.length} MoM/YoY rows and ${assertions} supplied fixture assertions; exact calendar gaps, all Basic types, outliers, rate units, NULLs/zero baselines, large values, isolation and read-only history. SAS/Teradata NOT executed.`);

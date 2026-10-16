@@ -136,7 +136,7 @@ RDS source-view DDL. In a Teradata-mode session, deploy in this order:
 16. `teradata/results/90_colour_classification.sql`
 17. `teradata/results/91_dq_summary_views.sql`
 18. `teradata/results/93_dq_basic_review.sql`
-19. `teradata/results/94_dq_field_change_review.sql`, then `teradata/results/95_dq_change_review.sql` (each view followed by its grant)
+19. `teradata/results/94_dq_field_change_review.sql` (wide review and its grant)
 20. `teradata/modules/01_assign_run_number.sql`
 21. `teradata/modules/02_special_value_list.sql`
 22. `teradata/modules/03_numeric_statistics.sql` (BATCH helper/grant, SOURCE wrapper/grant, then STATISTICS wrapper/grant)

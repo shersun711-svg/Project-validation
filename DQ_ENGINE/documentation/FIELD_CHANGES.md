@@ -1,135 +1,57 @@
 # Field-level MoM and YoY
 
-Use **DQ_CHANGE_REVIEW** for a wide final review, like DQ_BASIC_REVIEW. Use
-DQ_FIELD_CHANGE_REVIEW for the detailed rows behind it and the existing SAS
-summary. Both are read-only views; neither stores extra result data.
+**DQ_FIELD_CHANGE_REVIEW**, defined in file **94**, is the final wide comparison
+view, like DQ_BASIC_REVIEW. One row represents a successful run, field and actual
+monthly POU_DT. Each metric has its current value, MoM change and YoY change in
+adjacent columns. Numeric Basic and Outliers combine into one field/month row.
+There is one deployed comparison view; file 95 has been removed.
 
-DQ_FIELD_CHANGE_REVIEW compares saved monthly profiling metrics within one
-successful run and project. It reads existing result/log/number tables; no RDS
-scan, configuration reload, new result table, stored procedure or rule evaluator
-is added. Querying it computes the requested comparisons. No comparison history
-needs separate cleanup: deleting the source results removes their comparisons.
+It reads saved monthly results only. No RDS scan, configuration reload, result
+table, stored procedure, rule evaluation or profiling rerun is needed. Querying
+the view calculates changes on demand. SAS file 06 reads a summary, not all details.
+Account-level jumps/reversions, categorical PSI and rule colours are separate work.
 
-This is population-level field analysis. Account-level jumps/reversions and
-categorical PSI remain separate future modules. No red/amber/green thresholds
-are applied to changes: such thresholds have not been agreed.
+## Upgrade the previous comparison layout
 
-## Comparisons and metrics
+1. If you deployed the former file 95, drop its dependent review view first:
 
-MoM pairs the same field/module/metric with the previous calendar month. YoY
-pairs it with the same calendar month one year earlier. Compare year/month keys
-from actual POU_DT; different snapshot days and leap years do not break matching.
+   ```sql
+   DROP VIEW LAB_T_ORION_MVT.DQ_CHANGE_REVIEW;
+   ```
+
+   Skip this statement if that view was never created. It removes only a view,
+   not saved profiling results. No other view/table needs dropping.
+2. Replace DQ_DB with LAB_T_ORION_MVT in
+   `teradata/results/94_dq_field_change_review.sql`. Run the complete REPLACE VIEW
+   statement in SQL Assistant, followed by its SELECT grant separately.
+   Existing view owners still need grantable SELECT on its dependencies.
+3. Run the updated `sas/01_dq_controller.sas` in the SAS session. Require version
+   **20261016_WIDE_CHANGES**. The old controller expects the former detailed
+   layout and must be reloaded after replacing the view.
+4. Run `sas/06_run_dq_changes.sas` for your successful short run number with
+   mom=Y and/or yoy=Y. Require dq_change_status=SUCCEEDED.
+
+File 06's settings, Excel files and profiling procedures do not need changes.
+No rerun of file 00 or configuration load is required. Fresh installations
+create only the current file-94 view and its grant; they skip the obsolete-view
+cleanup. The table-backed MOM/YOY catalogue also fixes the Teradata error
+`A SELECT for a UNION,INTERSECT or MINUS must reference a table`.
+
+## Comparison scope
+
+MoM compares the same field/module/metric with the previous calendar month.
+YoY compares with the same calendar month one year earlier. Actual POU_DT gives
+the month key, so different snapshot days and leap years do not break matching.
 Missing February never makes March compare with January as MoM. YoY does not
 require all intervening months or depend on twelve preceding rows.
 
-Supported metrics, when present in the successful profiling run:
+Only successful monthly results with captured POU_DT are eligible. Overall,
+yearly, unknown dates and older results without captured dates are excluded.
+Fields/modules come from the saved run, not today's ACTIVE_IND settings. Runs
+and projects never borrow comparison values from one another. If numeric and
+other types were profiled in separate runs, review their run numbers separately.
 
-| Metrics | Types/modules |
-|---|---|
-| Total, non-missing and missing counts; missing rate | All Basic types |
-| Special count/rate | Numeric and categorical Basic |
-| Zero count/rate; MIN_VALUE, MAX_VALUE, MEAN_VALUE, STDDEV_VALUE | Numeric Basic |
-| Distinct count | Categorical and identifier Basic |
-| Outlier count, valid count and rate | Numeric Outliers, including outliers-only runs |
-
-Categorical/identifier total and non-missing counts reuse their saved missing-rate
-denominator/numerator, as in DQ_BASIC_REVIEW. Unsupported statistics and outlier
-bounds produce no comparison rows. Only the fields/modules actually profiled in
-the selected run are compared; today's Excel ACTIVE_IND settings do not alter
-historical scope. OVERALL, YEARLY and unknown-date groups are excluded. The run
-must have monthly results with captured POU_DT from the current date upgrade.
-Older metrics without POU_DT remain unchanged and are excluded from comparisons.
-
-## Result values
-
-One row represents a field/module/metric/month and comparison type (MOM or YOY).
-RUN_ID, short RUN_NUMBER and PROJECT_ID provide traceability. POU_DT and
-PREVIOUS_POU_DT retain actual source reporting dates, rather than invented month
-ends. METRIC_NAME uses the review names such as MISSING_RATE and MEAN_VALUE.
-
-| Column | Meaning |
-|---|---|
-| CURRENT_VALUE / PREVIOUS_VALUE | Normalized metric values at six-decimal review precision |
-| ABSOLUTE_CHANGE | Signed current minus previous, in the metric's units; it is not ABS() |
-| RELATIVE_CHANGE | (current - previous) / previous, as a decimal fraction |
-| RATE_CHANGE_PP | Rate difference times 100, in percentage points; NULL for counts/statistics |
-| IS_RATE | Y for fractional rates; N for counts/statistics |
-| COMPARISON_STATUS | EVALUATED or NOT_EVALUATED, without a rule classification |
-| REASON | Missing comparison/value, or why relative change is unavailable |
-
-For a rate moving from 0.02 to 0.08, ABSOLUTE_CHANGE=0.060000,
-RATE_CHANGE_PP=6.000000 and RELATIVE_CHANGE=3.000000 (a 300% relative increase).
-For mean 100 to 125, ABSOLUTE_CHANGE=25.000000 and RELATIVE_CHANGE=0.250000.
-Generic value columns have six fractional places even for count metrics.
-
-Comparisons intentionally use six-decimal normalized values, matching the final
-review display. Changes below that precision can disappear. When the previous
-value is zero, signed difference remains evaluable but relative change is NULL
-with a reason. Negative baselines retain the signed denominator, so assess the
-signed difference alongside the relative change. An unrepresentable relative
-change (magnitude >= 1E32) is NULL with a reason. Rate change in percentage points
-is a difference, rather than a percentage change.
-
-The first month, missing reference months and unavailable values remain visible
-as NOT_EVALUATED with a reason. NULL statistics never become zero. An evaluable
-zero-baseline row can have a reason despite COMPARISON_STATUS=EVALUATED because
-only its relative change is undefined. These statuses are separate from
-DQ_RULE_RESULT; no existing rule assessments or profiling results are changed.
-
-## Deploy on an existing engine
-
-If SAS reports `A SELECT for a UNION,INTERSECT or MINUS must reference a table`,
-replace the deployed view with the current file 94. Its MOM/YOY catalogue now
-references a one-row aggregate of existing run-number metadata rather than
-table-free UNION branches. No new database object or profiling rerun is needed.
-Run the included SELECT grant, then rerun file 06 for the same successful run;
-the SAS controller and configuration do not need changing for this fix.
-
-1. Replace DQ_DB with the approved schema, currently LAB_T_ORION_MVT, in
-   `teradata/results/94_dq_field_change_review.sql`. Run the complete REPLACE VIEW
-   as one statement in SQL Assistant, then its SELECT grant separately.
-   The view owner needs grantable SELECT on its existing dependencies, as with
-   other engine views. There is no EXECUTE PROCEDURE grant for this view.
-2. Run the latest `sas/01_dq_controller.sas` in your SAS session. Require controller
-   version `20261015_FIELD_CHANGES`.
-3. Open `sas/06_run_dq_changes.sas`, enter the short number of an existing
-   successful RDS run, and select mom=Y/N and yoy=Y/N. Run the whole file.
-   No Excel reload or profiling rerun is needed when dated monthly results exist.
-4. Require dq_change_status=SUCCEEDED and inspect WORK.DQ_CHANGE_SUMMARY.
-   It reports fields, metric comparisons and evaluated/not-evaluated counts for
-   each selected comparison type. It imports summaries only, not all details.
-
-This upgrade does not require setup scripts or changes to profiling procedures.
-Existing table grants remain as deployed. For a new installation, deploy view 94
-after the current metric/run/number schema and POU_DT column migration.
-
-For future profiling runs, set mom=Y and/or yoy=Y in file 00 to request comparison
-summaries after profiling succeeds. They default to N for existing workflows.
-Use file 06 for comparisons alone; file 00 still requires a profiling module.
-SAS macro callers may use:
-
-```sas
-%run_dq_changes(project=RDS,run_number=8,mom=Y,yoy=Y);
-```
-
-Use your actual run number. Both switches N returns SKIPPED with no database
-read. Invalid switches, unknown/wrong-project or unsuccessful runs are rejected.
-No dated monthly results also fails clearly. A comparison read failure leaves
-the original profiling run and dq_status unchanged; inspect dq_change_status
-and dq_change_error separately. Comparison queries do not write module/run logs.
-
-## Wide final review
-
-Deploy `teradata/results/95_dq_change_review.sql` after the current file 94.
-Replace DQ_DB with LAB_T_ORION_MVT in your deployment copy, run its complete
-REPLACE VIEW statement in SQL Assistant, then run its SELECT grant separately.
-The view owner needs grantable SELECT on view 94, as with the other review views.
-No SAS/Excel change, new storage table or profiling rerun is needed. Existing
-file 06 continues to use the detailed view for its summary.
-
-One row represents a successful run, field and actual monthly POU_DT. Numeric
-Basic and Outliers merge into that row. For each of the 16 supported metrics,
-the three adjacent columns are:
+## Columns and units
 
 | Example column | Meaning |
 |---|---|
@@ -137,34 +59,66 @@ the three adjacent columns are:
 | MISSING_RATE_MOM_CHANGE | Current minus previous calendar month's rate |
 | MISSING_RATE_YOY_CHANGE | Current minus the same calendar month's rate last year |
 
-Counts and their changes display as integers; rates, value statistics and their
-changes display with six decimals. A rate moving from 0.02 to 0.08 gives a change
-of **0.060000**. These columns are signed differences, not percentage-point or
-relative changes. Previous metric values, relative changes and detailed reasons
-remain in DQ_FIELD_CHANGE_REVIEW.
-
-The layout includes total/non-missing/missing counts and missing rate, special
+This pattern covers total/non-missing/missing counts and missing rate, special
 count/rate, outlier valid count/count/rate, distinct count, zero count/rate,
-MIN_VALUE, MAX_VALUE, MEAN_VALUE and STDDEV_VALUE. Unsupported columns remain NULL,
-as in DQ_BASIC_REVIEW. First/missing reference months and undefined statistics
-also produce NULL changes; they never become zero.
+MIN_VALUE, MAX_VALUE, MEAN_VALUE and STDDEV_VALUE. Counts and their changes are
+integers. Rates, numeric statistics and their changes have six decimals.
+Categorical/identifier populations reuse saved missing-rate counts as in
+DQ_BASIC_REVIEW. Unsupported columns stay NULL for the field type.
 
-MOM_STATUS and YOY_STATUS summarise only metrics present for that field:
-EVALUATED means all their signed differences can be evaluated;
-PARTIALLY_EVALUATED means some can; NOT_EVALUATED means none can. A zero baseline
-still permits a signed difference, even though the detailed relative change is
-undefined. MOM_PREVIOUS_POU_DT and YOY_PREVIOUS_POU_DT show available reference
-dates. Use the detailed view to investigate individual unavailable metrics.
-These are calculation statuses, not green/amber/red rule assessments.
+Changes are **signed differences**, not relative percentage changes. For a rate
+moving from 0.02 to 0.08, the change is **0.060000**. For mean 100 to 125, the
+change is **25.000000**. Six-decimal review precision is used throughout;
+changes below that precision can disappear. First/missing reference months and
+undefined metrics give NULL changes, never zero. A zero baseline still allows
+a signed difference. Negative values keep their normal subtraction semantics.
+
+MOM_PREVIOUS_POU_DT and YOY_PREVIOUS_POU_DT retain available actual reference dates.
+MOM_STATUS and YOY_STATUS summarise only the metrics present for that field:
+
+- EVALUATED: all present metrics have an evaluable signed difference.
+- PARTIALLY_EVALUATED: some present metrics can be compared, while others have
+  unavailable current/reference values or reference metric rows.
+- NOT_EVALUATED: none of the present metrics can be compared.
+
+Unsupported metrics do not contribute to these statuses. A NULL change with a
+missing reference date means no usable reference month/metric was found. A NULL
+change with a reference date can mean an unavailable metric value. The wide
+layout exposes current values and signed changes; the former per-metric
+previous-value/relative-change/reason columns are no longer public columns.
+Statuses are separate from DQ_RULE_RESULT and introduce no classifications.
+
+## Run and review
+
+Run the current controller once per SAS session. File 06 accepts a successful
+short run number and independent mom/yoy Y/N switches. No Excel reload is needed.
+For example:
+
+```sas
+%run_dq_changes(project=RDS,run_number=17,mom=Y,yoy=Y);
+```
+
+Both switches N returns SKIPPED without a database read. Invalid inputs,
+unsuccessful/wrong-project runs and absent dated monthly results fail clearly.
+Errors leave the original profiling run and dq_status unchanged; inspect
+separate dq_change_status and dq_change_error. No module/run logs are written.
+Optional switches in file 00 still request the summary after profiling succeeds.
+The view always derives both types; SAS switches select which summaries to show.
+
+WORK.DQ_CHANGE_SUMMARY now counts **field/month rows**, not individual metric
+comparisons. It shows COMPARISON_TYPE, FIELD_MONTHS, EVALUATED_COUNT, PARTIAL_COUNT,
+NOT_EVALUATED_COUNT, FIELDS_COMPARED and the first/last POU_DT. The three status
+counts sum to FIELD_MONTHS for each selected type. The SAS controller reads one
+aggregate of the wide view and formats the requested summaries locally.
 
 ```sql
 SELECT *
-FROM LAB_T_ORION_MVT.DQ_CHANGE_REVIEW
+FROM LAB_T_ORION_MVT.DQ_FIELD_CHANGE_REVIEW
 WHERE PROJECT_ID='RDS' AND RUN_NUMBER=17
 ORDER BY FIELD_NAME,POU_DT;
 ```
 
-To start with fewer columns:
+For a focused review:
 
 ```sql
 SELECT FIELD_NAME,POU_DT,
@@ -173,54 +127,29 @@ SELECT FIELD_NAME,POU_DT,
        OUTLIER_RATE,OUTLIER_RATE_MOM_CHANGE,OUTLIER_RATE_YOY_CHANGE,
        MEAN_VALUE,MEAN_VALUE_MOM_CHANGE,MEAN_VALUE_YOY_CHANGE,
        MOM_STATUS,YOY_STATUS
-FROM LAB_T_ORION_MVT.DQ_CHANGE_REVIEW
+FROM LAB_T_ORION_MVT.DQ_FIELD_CHANGE_REVIEW
 WHERE PROJECT_ID='RDS' AND RUN_NUMBER=17
 ORDER BY FIELD_NAME,POU_DT;
 ```
 
-Use the other-types run number separately for categorical/date/identifier
-results; the view never borrows comparison months from another run. It derives
-both change types on demand, regardless of which summary switches were selected
-in file 06. Filter project/run and optionally field to limit saved-result work.
+Always filter project/run, optionally field. Comparisons are computed from saved
+results on demand, so runtime depends on result volume, filter pushdown and the
+Teradata workload/plan. DQ_BASIC_REVIEW remains the profiling-only review.
 
-## Review details in Teradata
+## Verification and independence
 
-Always filter project, run number and comparison type. Avoid querying all history
-at once: the view derives comparisons on demand, so runtime depends on saved
-result volume, filter pushdown and the Teradata plan/workload.
+The development team's behavior was reviewed as a reference only. This engine's
+comparison SQL was written independently; no implementation was copied. No
+source/customer data, account IDs or credentials were added.
 
-```sql
-SELECT FIELD_NAME,MODULE_NAME,POU_DT,PREVIOUS_POU_DT,METRIC_NAME,
-       CURRENT_VALUE,PREVIOUS_VALUE,ABSOLUTE_CHANGE,RELATIVE_CHANGE,
-       RATE_CHANGE_PP,COMPARISON_STATUS,REASON
-FROM LAB_T_ORION_MVT.DQ_FIELD_CHANGE_REVIEW
-WHERE PROJECT_ID='RDS' AND RUN_NUMBER=8 AND COMPARISON_TYPE='MOM'
-ORDER BY FIELD_NAME,POU_DT,METRIC_NAME;
-```
+`node DQ_ENGINE/tools/check_field_changes.mjs` executes the SQL with SQLite date
+and decimal adaptations. It checks exact calendar gaps, all types, specials and
+outliers, missing/zero/negative values, large values, source retention and run/
+project isolation. It verifies every wide metric/change cell against internal
+comparison rows, plus dates, statuses, module merging and the actual SAS summary
+SELECT (including empty results). The isolated optional Teradata fixture
+`tests/test_field_changes.sql` uses the new wide layout; each assertion must
+return zero rows. No fixture is required to review completed production results.
 
-Change MOM to YOY for annual comparisons over monthly snapshots. Filter METRIC_NAME
-to MISSING_RATE, SPECIAL_RATE or OUTLIER_RATE for an initial quality review.
-DQ_BASIC_REVIEW remains the profiling review; it is not widened with comparison
-columns. No Excel export or category-frequency reporting is introduced.
-
-## Validation and independence
-
-The development team's files were inspected for behavior only. Their numeric
-comparisons reuse monthly profiles, enforce calendar gaps and keep changes
-separate from profiling. Their categorical comparisons also use saved frequencies
-for PSI and other distribution measures. This implementation was written
-independently for this engine's existing result schema and does not copy their
-code or include those additional distribution measures.
-
-Run `node DQ_ENGINE/tools/check_field_changes.mjs` locally. It executes the actual
-view SELECTs after narrow SQLite date/decimal adaptations, checking month/year
-gaps, year boundaries, all field types, specials/outliers, zero/NULL baselines,
-rate units, large values, and project/run isolation. SAS checks verify source
-structure only. It also checks all 48 wide metric/value-change columns against
-the detailed view, with field/month uniqueness, module merging, statuses and
-reference dates. Use `tests/test_field_changes.sql` optionally in an isolated
-Teradata test engine; every assertion must return zero rows.
-
-There is no SAS/Teradata connection in this workspace. View compilation, grants,
-numeric rounding/ranges, macro execution and full RDS query runtime require
-server validation. No source data, account IDs or credentials were added.
+SAS DATA-step/macro execution, Teradata compilation/grants, numeric edge cases,
+query plans and full RDS runtime remain unverified in this workspace.

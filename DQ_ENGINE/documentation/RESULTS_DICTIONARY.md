@@ -145,15 +145,13 @@ threshold/reason semantics, historical compatibility and deployment steps.
 
 ## Field-level monthly changes
 
-DQ_CHANGE_REVIEW provides a wide final review: one row per run/field/month with
+DQ_FIELD_CHANGE_REVIEW provides a wide final review: one row per run/field/month with
 current values, signed MOM_CHANGE and YOY_CHANGE columns for each supported
 metric. Counts are integers and other values use six decimals; rates and rate
 changes are fractions. Unsupported/unavailable values stay NULL. MOM_STATUS and
 YOY_STATUS summarise evaluation of the metrics present. No extra result storage
 or profiling run is required.
 
-DQ_FIELD_CHANGE_REVIEW is the detailed read-only comparison view over successful monthly
-metrics with captured POU_DT. It exposes MOM/YOY, current/prior values, signed
-differences, relative changes and rate differences in percentage points, plus
-evaluation status/reason. It does not add rule decisions or change profiling
-results. No new result table is created. See [definitions and examples](FIELD_CHANGES.md).
+The SAS summary counts field/month rows by evaluation status. File 94 defines
+the only comparison view; no extra result table or separate detail view is needed.
+See [definitions, deployment and examples](FIELD_CHANGES.md).

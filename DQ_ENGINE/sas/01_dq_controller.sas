@@ -3,7 +3,7 @@
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
 %global dq_controller_version;
-%let dq_controller_version=20261015_FIELD_CHANGES;
+%let dq_controller_version=20261016_WIDE_CHANGES;
 %put NOTE: DQ controller loaded: &dq_controller_version;
 %put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
 
@@ -248,7 +248,7 @@
    Only compact summaries are imported into SAS. Detailed rows stay in the
    Teradata view. No new UUID, log writes, source scans or Excel loads. */
 %macro run_dq_changes(project=RDS,run_number=,mom=Y,yoy=Y);
-    %local _name _i _value _types _project_sql _rc _n _source_status _rows;
+    %local _name _i _value _project_sql _rc _n _source_status _rows;
     %global dq_change_status dq_change_error dq_change_run_number;
     %let dq_change_status=FAILED;
     %let dq_change_error=;
@@ -295,12 +295,6 @@
         %goto change_failed;
     %end;
     %let _project_sql=%sysfunc(quote(%superq(project),%str(%')));
-    %let _types=;
-    %if &mom=Y %then %let _types=%sysfunc(quote(MOM,%str(%')));
-    %if &yoy=Y %then %do;
-        %if &mom=Y %then %let _types=&_types,%sysfunc(quote(YOY,%str(%')));
-        %else %let _types=%sysfunc(quote(YOY,%str(%')));
-    %end;
     proc sql noprint;
         %dq_connect;
         %dq_check_sql(dbms=N);
@@ -345,16 +339,17 @@
         %end;
         %put NOTE: DQ CHANGE READ: project=&project run_number=&run_number;
         create table work.dq_change_summary as select * from connection to dq
-            (select COMPARISON_TYPE,
-                    CAST(COUNT(*) AS FLOAT) AS METRIC_COMPARISONS,
-                    CAST(SUM(CASE WHEN COMPARISON_STATUS='EVALUATED' THEN 1 ELSE 0 END) AS FLOAT) AS EVALUATED_COUNT,
-                    CAST(SUM(CASE WHEN COMPARISON_STATUS='NOT_EVALUATED' THEN 1 ELSE 0 END) AS FLOAT) AS NOT_EVALUATED_COUNT,
+            (select CAST(COUNT(*) AS FLOAT) AS FIELD_MONTHS,
+                    CAST(COALESCE(SUM(CASE WHEN MOM_STATUS='EVALUATED' THEN 1 ELSE 0 END),0) AS FLOAT) AS MOM_EVALUATED,
+                    CAST(COALESCE(SUM(CASE WHEN MOM_STATUS='PARTIALLY_EVALUATED' THEN 1 ELSE 0 END),0) AS FLOAT) AS MOM_PARTIAL,
+                    CAST(COALESCE(SUM(CASE WHEN MOM_STATUS='NOT_EVALUATED' THEN 1 ELSE 0 END),0) AS FLOAT) AS MOM_UNAVAILABLE,
+                    CAST(COALESCE(SUM(CASE WHEN YOY_STATUS='EVALUATED' THEN 1 ELSE 0 END),0) AS FLOAT) AS YOY_EVALUATED,
+                    CAST(COALESCE(SUM(CASE WHEN YOY_STATUS='PARTIALLY_EVALUATED' THEN 1 ELSE 0 END),0) AS FLOAT) AS YOY_PARTIAL,
+                    CAST(COALESCE(SUM(CASE WHEN YOY_STATUS='NOT_EVALUATED' THEN 1 ELSE 0 END),0) AS FLOAT) AS YOY_UNAVAILABLE,
                     CAST(COUNT(DISTINCT FIELD_NAME) AS FLOAT) AS FIELDS_COMPARED,
                     MIN(POU_DT) AS FIRST_POU_DT,MAX(POU_DT) AS LAST_POU_DT
              from &dq_database..DQ_FIELD_CHANGE_REVIEW
-             where PROJECT_ID=&_project_sql and RUN_NUMBER=&run_number
-               and COMPARISON_TYPE in (&_types)
-             group by COMPARISON_TYPE);
+             where PROJECT_ID=&_project_sql and RUN_NUMBER=&run_number);
         %dq_check_sql;
         %let _rc=&dq_sql_failed;
         disconnect from dq;
@@ -363,8 +358,34 @@
         %let dq_change_error=Cannot read comparisons. Check deployment of results/94 and the SAS log.;
         %goto change_failed;
     %end;
+    /* Read the wide view once, then format only the requested summaries.
+       Counts now represent field/month rows, not individual metric rows. */
+    data work.dq_change_summary;
+        length COMPARISON_TYPE $3;
+        set work.dq_change_summary;
+        %if &mom=Y %then %do;
+            COMPARISON_TYPE='MOM';
+            EVALUATED_COUNT=MOM_EVALUATED;
+            PARTIAL_COUNT=MOM_PARTIAL;
+            NOT_EVALUATED_COUNT=MOM_UNAVAILABLE;
+            output;
+        %end;
+        %if &yoy=Y %then %do;
+            COMPARISON_TYPE='YOY';
+            EVALUATED_COUNT=YOY_EVALUATED;
+            PARTIAL_COUNT=YOY_PARTIAL;
+            NOT_EVALUATED_COUNT=YOY_UNAVAILABLE;
+            output;
+        %end;
+        keep COMPARISON_TYPE FIELD_MONTHS EVALUATED_COUNT PARTIAL_COUNT
+             NOT_EVALUATED_COUNT FIELDS_COMPARED FIRST_POU_DT LAST_POU_DT;
+    run;
+    %if &syserr>4 %then %do;
+        %let dq_change_error=Cannot format the comparison summary.;
+        %goto change_failed;
+    %end;
     proc sql noprint;
-        select count(*) into :_rows trimmed from work.dq_change_summary;
+        select coalesce(sum(FIELD_MONTHS),0) into :_rows trimmed from work.dq_change_summary;
         %dq_check_sql(dbms=N);
         %let _rc=&dq_sql_failed;
     quit;

@@ -1,4 +1,6 @@
-/* Run 01_dq_controller.sas once in this SAS session before this program.
+/* Run the current 01_dq_controller.sas once in this SAS session before this program.
+   The wide file-94 layout requires controller 20261016_WIDE_CHANGES or newer.
+   WORK.DQ_CHANGE_SUMMARY counts field/month rows, including partial evaluation.
    This reads saved profiling results only. No source scan or Excel reload.
    Supply the SHORT number of an existing successful run for this project. */
 %let td_server = dwhprod;

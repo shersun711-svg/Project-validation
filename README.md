@@ -24,7 +24,7 @@ Profiling results are persisted using bounded bulk writes; see the
 Categorical Basic supports up to 20 fields per batch with separate enabled-period
 requests; see the [categorical deployment update](DQ_ENGINE/documentation/PERFORMANCE_NOTES.md#categorical-and-identifier-batch-update).
 Field-level MoM/YoY compares saved monthly results without another RDS scan.
-DQ_CHANGE_REVIEW shows current values and MoM/YoY changes side by side per field/month.
+DQ_FIELD_CHANGE_REVIEW shows current values and MoM/YoY changes side by side per field/month.
 See [comparison deployment and operation](DQ_ENGINE/documentation/FIELD_CHANGES.md).
 PSI and Excel report export remain deferred.
 See [outlier deployment and validation](DQ_ENGINE/documentation/NUMERIC_OUTLIERS.md).
