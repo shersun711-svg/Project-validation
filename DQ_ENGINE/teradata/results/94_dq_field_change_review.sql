@@ -9,7 +9,20 @@
    RELATIVE_CHANGE is a fraction, not a percentage. RATE_CHANGE_PP is in
    percentage points. No green/amber/red change thresholds have been agreed. */
 REPLACE VIEW DQ_DB.DQ_FIELD_CHANGE_REVIEW AS
-WITH saved AS
+WITH comparison_seed AS
+(
+    /* Teradata requires each UNION branch to reference a table. Aggregate an
+       existing metadata table to exactly one row, even when it is empty. */
+    SELECT COUNT(*) AS SEED_COUNT FROM DQ_DB.DQ_RUN_NUMBER
+),
+comparison_types AS
+(
+    SELECT CAST('MOM' AS VARCHAR(3)) AS COMPARISON_TYPE,1 AS MONTH_GAP
+    FROM comparison_seed
+    UNION ALL
+    SELECT CAST('YOY' AS VARCHAR(3)),12 FROM comparison_seed
+),
+saved AS
 (
     SELECT R.RUN_ID,N.RUN_NUMBER,R.PROJECT_ID,R.FIELD_NAME,R.FIELD_TYPE,
            R.MODULE_NAME,R.PERIOD_VALUE,R.POU_DT,R.METRIC_NAME,R.METRIC_VALUE,
@@ -78,9 +91,7 @@ paired AS
                      WHEN P.OBSERVED_VALUE=0 THEN 'Relative change is undefined because previous value is zero'
                      ELSE NULL END AS VARCHAR(128)) AS BASE_REASON
     FROM metrics C
-    CROSS JOIN
-      (SELECT CAST('MOM' AS VARCHAR(3)) AS COMPARISON_TYPE,1 AS MONTH_GAP
-       UNION ALL SELECT CAST('YOY' AS VARCHAR(3)),12) T
+    CROSS JOIN comparison_types T
     LEFT JOIN metrics P
       ON C.RUN_ID=P.RUN_ID AND C.PROJECT_ID=P.PROJECT_ID
      AND C.FIELD_NAME=P.FIELD_NAME AND C.FIELD_TYPE=P.FIELD_TYPE

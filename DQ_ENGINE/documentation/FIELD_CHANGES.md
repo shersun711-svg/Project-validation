@@ -74,6 +74,13 @@ DQ_RULE_RESULT; no existing rule assessments or profiling results are changed.
 
 ## Deploy on an existing engine
 
+If SAS reports `A SELECT for a UNION,INTERSECT or MINUS must reference a table`,
+replace the deployed view with the current file 94. Its MOM/YOY catalogue now
+references a one-row aggregate of existing run-number metadata rather than
+table-free UNION branches. No new database object or profiling rerun is needed.
+Run the included SELECT grant, then rerun file 06 for the same successful run;
+the SAS controller and configuration do not need changing for this fix.
+
 1. Replace DQ_DB with the approved schema, currently LAB_T_ORION_MVT, in
    `teradata/results/94_dq_field_change_review.sql`. Run the complete REPLACE VIEW
    as one statement in SQL Assistant, then its SELECT grant separately.

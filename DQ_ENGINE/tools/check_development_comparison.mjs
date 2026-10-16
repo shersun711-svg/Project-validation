@@ -8,6 +8,8 @@ const executable=source.replace(/\/\*[\s\S]*?\*\//g,'');
 assert(!/\b(CREATE|INSERT|UPDATE|DELETE|DROP|CALL|REPLACE)\b/i.test(executable));
 assert(!/VW_RDS_PHASE2_FACT|DQ_METRIC_RESULT|DQ_NUMERIC_STATISTICS/.test(executable));
 assert(!/\/\s*100/.test(executable),'Review rates must not be divided again');
+assert.match(source,/FROM \(SELECT COUNT\(\*\) AS SEED_COUNT FROM DQ_DB\.DQ_RUN_NUMBER\) SEED/);
+assert.equal((source.slice(source.indexOf('METRIC_MAP AS'),source.indexOf('ENABLED_METRICS AS')).match(/FROM PARAMS/g)||[]).length,17,'Every UNION metric branch must reference a table-backed seed');
 const sql=source.replaceAll('DQ_DB.','')
  .replace(/EXTRACT\(YEAR FROM ([DR])\.POU_DT\)/g,(_,alias)=>`CAST(strftime('%Y',${alias}.POU_DT) AS INTEGER)`)
  .replace(/EXTRACT\(MONTH FROM ([DR])\.POU_DT\)/g,(_,alias)=>`CAST(strftime('%m',${alias}.POU_DT) AS INTEGER)`);
@@ -95,6 +97,8 @@ const catSource=fs.readFileSync(new URL('../tests/compare_categorical_developmen
 const catExecutable=catSource.replace(/\/\*[\s\S]*?\*\//g,'');
 assert(!/\b(CREATE|INSERT|UPDATE|DELETE|DROP|CALL|REPLACE)\b/i.test(catExecutable));
 assert(!/VW_RDS_PHASE2_FACT|DQ_METRIC_RESULT|\/\s*100/.test(catExecutable));
+assert.match(catSource,/FROM \(SELECT COUNT\(\*\) AS SEED_COUNT FROM DQ_DB\.DQ_RUN_NUMBER\) SEED/);
+assert.equal((catSource.slice(catSource.indexOf('METRIC_MAP AS'),catSource.indexOf('ENABLED_METRICS AS')).match(/FROM PARAMS/g)||[]).length,7);
 const catSQL=catSource.replaceAll('DQ_DB.','')
  .replace(/EXTRACT\(YEAR FROM ([DR])\.POU_DT\)/g,(_,alias)=>`CAST(strftime('%Y',${alias}.POU_DT) AS INTEGER)`)
  .replace(/EXTRACT\(MONTH FROM ([DR])\.POU_DT\)/g,(_,alias)=>`CAST(strftime('%m',${alias}.POU_DT) AS INTEGER)`);

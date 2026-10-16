@@ -6,6 +6,11 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 const read=p=>fs.readFileSync(new URL('../'+p,import.meta.url),'utf8');
 const ddl=read('teradata/results/94_dq_field_change_review.sql');
+// SQLite allows table-free UNION branches; Teradata rejects them. Check that
+// the type catalogue references a table-backed, exactly-one-row anchor.
+const typeCatalogue=ddl.slice(ddl.indexOf('comparison_types AS'),ddl.indexOf('saved AS'));
+assert.equal((typeCatalogue.match(/FROM comparison_seed/g)||[]).length,2);
+assert.match(ddl,/SELECT COUNT\(\*\) AS SEED_COUNT FROM DQ_DB\.DQ_RUN_NUMBER/);
 const db=new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,PROJECT_ID TEXT,STATUS TEXT);
 CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT PRIMARY KEY,RUN_NUMBER INTEGER);
@@ -20,6 +25,13 @@ for(const [id,project,status,n]of runs){
  db.prepare('INSERT INTO DQ_RUN_LOG VALUES (?,?,?)').run(id,project,status);
  db.prepare('INSERT INTO DQ_RUN_NUMBER VALUES (?,?)').run(id,n);
 }
+const seedSQL=ddl.slice(ddl.indexOf('WITH comparison_seed'),ddl.indexOf('saved AS'))
+ .trim().replace(/,$/,'').replaceAll('DQ_DB.','')+' SELECT * FROM comparison_types';
+const expectedTypes=[{COMPARISON_TYPE:'MOM',MONTH_GAP:1},{COMPARISON_TYPE:'YOY',MONTH_GAP:12}];
+assert.deepEqual(db.prepare(seedSQL).all().map(r=>({...r})),expectedTypes,'Multiple metadata rows must not multiply comparisons');
+db.exec('SAVEPOINT empty_numbers; DELETE FROM DQ_RUN_NUMBER');
+assert.deepEqual(db.prepare(seedSQL).all().map(r=>({...r})),expectedTypes,'Empty metadata must still generate exactly two types');
+db.exec('ROLLBACK TO empty_numbers; RELEASE empty_numbers');
 const put=db.prepare('INSERT INTO DQ_METRIC_RESULT VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
 function metric({run='main',project='P1',field='AMOUNT',type='NUMERIC',module=type+'_BASIC',
  date,period=date?.slice(0,7),level='MONTHLY',name,value,pct='N',num=null,den=null}){
