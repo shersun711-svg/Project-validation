@@ -107,21 +107,20 @@ The user then supplied successful RDS run-7 logs: Basic 3.58 minutes, Outliers
 21.96 minutes including 21.07 minutes in field batch 1. The saved CTAS confirms
 that run used the partitioned stage. This verifies user-reported completion and
 the synthetic access path, not the full counting query's plan or performance
-acceptance for 589 fields. The run-7 no-DBQL diagnostic uses the current generated
-stage/bounds/count SQL, with local checks that mismatched saved metadata is
-reported before materialization. It does not execute RDS counting; the actual
-Teradata EXPLAIN and physical bottleneck remain to be reviewed.
+acceptance for 589 fields. A temporary run-specific diagnostic was used during
+that investigation and is now retired. Its reusable populated/empty-join and
+result-equivalence checks remain as synthetic developer regressions.
 
 The user subsequently supplied the full 2018 counting EXPLAIN. It confirms a
 single-partition stage read and shows detail redistribution by constant overall
 bounds, followed by an outer-preservation merge join. The plan estimates about
 1.565 million rows at that redistribution and a later detail spool near 539 MB;
 these are estimates, not measured peak spool or proof of elapsed-time cause.
-Diagnostic section D2 now tests a CROSS JOIN for the nonempty source chunk.
+The temporary diagnostic compared a CROSS JOIN for the nonempty source chunk.
 Local query comparisons preserve measurements for ordinary and NULL-date chunks
 and explicitly demonstrate why the empty-source path cannot be changed the
-same way. Production SQL remains unchanged pending the comparison plan and a
-controlled timing/result check on Teradata.
+same way. These checks informed the current conditional join, which retains
+the outer join for empty-source chunks.
 
 The supplied D2 plan removes detail redistribution by constant bounds and the
 outer-preservation merge join; the detail spool is now built locally on AMPs.
@@ -130,7 +129,9 @@ chunk's observed timing, not a full-engine benchmark. Diagnostic section D3
 now materializes both 2018 outputs and checks all columns using bidirectional
 MINUS, row counts and duplicate keys. Local mutation tests reject changed
 values, NULL differences, missing rows, duplicates and both-empty outputs.
-Teradata comparison results remain pending; the production procedure is unchanged.
+The user subsequently reported matching outputs and the production procedure
+adopted the populated-chunk join. The historical diagnostic itself is no longer
+a current deployment or validation requirement.
 
 The user then confirmed the Teradata D3 result: 12 old rows, 12 new rows, zero
 differences, zero duplicate keys on both sides, MATCH. The procedure now uses

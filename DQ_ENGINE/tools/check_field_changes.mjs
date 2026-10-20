@@ -175,7 +175,7 @@ assert.match(macro,/%if &mom=Y[\s\S]*?COMPARISON_TYPE='MOM'/);
 assert.match(macro,/%if &yoy=Y[\s\S]*?COMPARISON_TYPE='YOY'/);
 assert.match(sas,/20261016_WIDE_CHANGES/);
 assert.doesNotMatch(macro,/execute\s*\(|SQL_TEXT|%let dq_status=/i);
-assert.match(read('sas/06_run_dq_changes.sas'),/%let comparison_run_number = ;/);
+assert.equal(fs.existsSync(new URL('../sas/06_run_dq_changes.sas',import.meta.url)),false,'Standalone summary runner is retired; file 00 still uses the controller macro');
 
 // The wide review pivots the detailed view without combining runs or changing
 // values. Compare every metric cell, not just a few layout examples.

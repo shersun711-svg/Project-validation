@@ -462,28 +462,20 @@ if(process.env.DQ_WRITE_PARTITION_SMOKE==='1')fs.writeFileSync(partitionPath,par
 else assert.equal(fs.readFileSync(partitionPath,'utf8'),partitionSmoke,'Regenerate partition server preflight after template changes');
 console.log('Partition key checks passed: collisions, NULL dates, year limits, timestamps and duplicate preservation. Physical partition elimination/RANDOM/statistics syntax require the supplied Teradata preflight.');
 
-// Reproduce the actual count-query shape for the user's completed five-field
-// RDS run, without DBQL access or a full engine rerun. Source data stays in TD.
-const diagnosticRun='3b807c69-1596-7a40-b091-17f815617580';
-const diagnosticFields=['ARREARS_AMT','ARREARS_AVG_L6M_AMT','ARREARS_AVG_L7_12M_AMT','BALANCE_AMT','MAX_ARREARS_AMT_L6M'];
-const dv={V_PROFILE_OVERALL:'Y',V_PROFILE_YEARLY:'N',V_PROFILE_MONTHLY:'Y',
- P_RUN_ID:diagnosticRun,P_PROJECT_ID:'RDS',V_DB:'DQ_DB',V_SOURCE:'DQ_DIAG_OUT_R7',V_DATE:'FACT_DT',
+// Compare populated-chunk and outer-join semantics on synthetic values only.
+// Retain this regression without the retired run-specific SQL generator.
+const joinFields=fields.slice(0,5);
+const joinVars={V_PROFILE_OVERALL:'Y',V_PROFILE_YEARLY:'N',V_PROFILE_MONTHLY:'Y',
+ P_RUN_ID:id,P_PROJECT_ID:'SYNTHETIC',V_DB:'DQ_DB',V_SOURCE:'TEST_OUT_JOIN_SOURCE',V_DATE:'FACT_DT',
  V_FIRST:1,V_LAST:5,V_LIST:list,V_SOURCE_PROJECTION:'"FACT_DT" AS DQ_DT,1 AS DQ_PRESENT',
  V_BOUND_PROJECTION:'',V_OVERALL_BOUND_PROJECTION:'',V_PROJECTION:'',V_ROLLUP_OVERALL:'',V_ROLLUP_YEARLY:'',V_ROLLUP_MONTHLY:'',V_CHECK:'A.ACTUAL_TOTAL<>A.TOTAL_N',
- V_STAGE:'DQ_DIAG_OUT_R7',V_STAGE_BUCKET:'DQ_OS_BUCKET_0',V_STAGE_YEAR:'DQ_OS_YEAR_0',
- V_STAGE_PROJECTION:'"FACT_DT",'+diagnosticFields.map(f=>'"'+f+'"').join(','),
  'C.CHUNK_VALUE':'2018',V_CHUNK_YEAR:'2018',V_SOURCE_FILTER:'"DQ_OS_YEAR_0"=2018'};
-for(const [i,name]of diagnosticFields.entries()){
- dv['F.FIELD_NAME']=name;dv.V_SUFFIX=String(i+1);dv.V_FIELD='S.DQ_C'+(i+1);yearField(dv);
- assert.ok(appendOutlierField(dv,sql));
+for(const [i,name]of joinFields.entries()){
+ joinVars['F.FIELD_NAME']=name;joinVars.V_SUFFIX=String(i+1);joinVars.V_FIELD='S.DQ_C'+(i+1);yearField(joinVars);
+ assert.ok(appendOutlierField(joinVars,sql));
 }
-yearJoin(dv);sourceJoin(dv);
-const diagnosticVars={...dv,V_SOURCE:'VW_RDS_PHASE2_FACT'};
-const diagnosticStage=stageCreate(diagnosticVars);
-const diagnosticLoad=stageLoad(diagnosticVars);
-const diagnosticStats=evaluate(assignment('V_SQL',sql.indexOf('/* Collect partition statistics'),sql),dv);
-const diagnosticBounds=evaluate(assignment('V_SQL',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
-const diagnosticCandidate=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),dv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+yearJoin(joinVars);sourceJoin(joinVars);
+const populatedCount=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),joinVars).replaceAll('DQ_NO_BOUNDS','TEST_OUT_JOIN_BOUNDS');
 // Preserve the historical outer-join query for a reproducible comparison with
 // the current populated-chunk query. Production retains LEFT JOIN for ALL only.
 function legacyPopulatedChunkQuery(q){
@@ -492,215 +484,78 @@ function legacyPopulatedChunkQuery(q){
  return q.replace(' B0 CROSS JOIN (SELECT ',' B0 LEFT JOIN (SELECT ')
   .replace(') S LEFT JOIN ',') S ON 1=1 LEFT JOIN ');
 }
-const diagnosticCount=legacyPopulatedChunkQuery(diagnosticCandidate);
+const outerJoinCount=legacyPopulatedChunkQuery(populatedCount);
 // Compare every projected column, including NULLs and copied FLOAT bounds.
 // MINUS is distinct, so also check row counts and duplicate period keys.
-const diagnosticDifferences=`SELECT 'OLD_ONLY' AS DIFFERENCE_SIDE,D.* FROM
- (SELECT * FROM DQ_DIAG_OUT_OLD MINUS SELECT * FROM DQ_DIAG_OUT_NEW) D
+const differencesSQL=`SELECT 'OLD_ONLY' AS DIFFERENCE_SIDE,D.* FROM
+ (SELECT * FROM TEST_OUT_JOIN_OLD MINUS SELECT * FROM TEST_OUT_JOIN_NEW) D
 UNION ALL
 SELECT 'NEW_ONLY' AS DIFFERENCE_SIDE,D.* FROM
- (SELECT * FROM DQ_DIAG_OUT_NEW MINUS SELECT * FROM DQ_DIAG_OUT_OLD) D`;
-const diagnosticComparison=`SELECT O.OLD_ROWS,N.NEW_ROWS,D.DIFFERENT_ROWS,
+ (SELECT * FROM TEST_OUT_JOIN_NEW MINUS SELECT * FROM TEST_OUT_JOIN_OLD) D`;
+const comparisonSQL=`SELECT O.OLD_ROWS,N.NEW_ROWS,D.DIFFERENT_ROWS,
        K.OLD_DUPLICATE_KEYS,L.NEW_DUPLICATE_KEYS,
        CASE WHEN O.OLD_ROWS>0 AND O.OLD_ROWS=N.NEW_ROWS
                   AND D.DIFFERENT_ROWS=0 AND K.OLD_DUPLICATE_KEYS=0 AND L.NEW_DUPLICATE_KEYS=0
             THEN 'MATCH' ELSE 'MISMATCH' END AS COMPARISON_STATUS
-FROM (SELECT COUNT(*) AS OLD_ROWS FROM DQ_DIAG_OUT_OLD) O
-CROSS JOIN (SELECT COUNT(*) AS NEW_ROWS FROM DQ_DIAG_OUT_NEW) N
-CROSS JOIN (SELECT COUNT(*) AS DIFFERENT_ROWS FROM (${diagnosticDifferences}) X) D
+FROM (SELECT COUNT(*) AS OLD_ROWS FROM TEST_OUT_JOIN_OLD) O
+CROSS JOIN (SELECT COUNT(*) AS NEW_ROWS FROM TEST_OUT_JOIN_NEW) N
+CROSS JOIN (SELECT COUNT(*) AS DIFFERENT_ROWS FROM (${differencesSQL}) X) D
 CROSS JOIN (SELECT COUNT(*) AS OLD_DUPLICATE_KEYS FROM
-    (SELECT CHUNK_YEAR,CHUNK_VALUE FROM DQ_DIAG_OUT_OLD GROUP BY CHUNK_YEAR,CHUNK_VALUE HAVING COUNT(*)>1) X) K
+    (SELECT CHUNK_YEAR,CHUNK_VALUE FROM TEST_OUT_JOIN_OLD GROUP BY CHUNK_YEAR,CHUNK_VALUE HAVING COUNT(*)>1) X) K
 CROSS JOIN (SELECT COUNT(*) AS NEW_DUPLICATE_KEYS FROM
-    (SELECT CHUNK_YEAR,CHUNK_VALUE FROM DQ_DIAG_OUT_NEW GROUP BY CHUNK_YEAR,CHUNK_VALUE HAVING COUNT(*)>1) X) L;`;
-const diagnosticPreflight=`SELECT 'Run 7 source, status or reporting scope differs' AS ISSUE
-FROM DQ_DB.DQ_RUN_LOG L JOIN DQ_DB.DQ_RUN_NUMBER N ON L.RUN_ID=N.RUN_ID
-WHERE L.RUN_ID='${diagnosticRun}' AND N.RUN_NUMBER=7 AND L.PROJECT_ID='RDS'
-  AND L.STATUS='SUCCEEDED' AND UPPER(L.SOURCE_DATABASE)='DQ_DB'
-  AND UPPER(L.SOURCE_TABLE)='VW_RDS_PHASE2_FACT' AND UPPER(L.REPORTING_DATE_FIELD)='FACT_DT'
-  AND L.PROFILE_OVERALL='Y' AND L.PROFILE_MONTHLY='Y' AND L.PROFILE_YEARLY='N'
-HAVING COUNT(*)<>1
-UNION ALL
-SELECT 'Numeric field names or ordinals differ' AS ISSUE
-FROM DQ_DB.DQ_RUN_FIELD_CONFIG
-WHERE RUN_ID='${diagnosticRun}' AND FIELD_TYPE='NUMERIC'
-HAVING COUNT(*)<>5 OR SUM(CASE WHEN ${diagnosticFields.map((f,i)=>`(FIELD_ORDINAL=${i+1} AND FIELD_NAME='${f}')`).join(' OR ')} THEN 0 ELSE 1 END)<>0
-UNION ALL
-SELECT 'Captured numeric specials differ' AS ISSUE
-FROM DQ_DB.DQ_RUN_SPECIAL_VALUE
-WHERE RUN_ID='${diagnosticRun}' AND FIELD_TYPE='NUMERIC'
-HAVING COUNT(DISTINCT NUMERIC_VALUE)<>21
-    OR SUM(CASE WHEN NUMERIC_VALUE IN ${list} THEN 0 ELSE 1 END)<>0
-UNION ALL
-SELECT 'Saved overall or 2018 monthly statistics are missing' AS ISSUE
-FROM DQ_DB.DQ_RUN_FIELD_CONFIG F
-WHERE F.RUN_ID='${diagnosticRun}' AND F.FIELD_TYPE='NUMERIC'
-  AND (NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_NUMERIC_STATISTICS S
-        WHERE S.RUN_ID=F.RUN_ID AND S.FIELD_NAME=F.FIELD_NAME AND S.PERIOD_LEVEL='OVERALL' AND S.PERIOD_VALUE='ALL')
-    OR NOT EXISTS (SELECT 1 FROM DQ_DB.DQ_NUMERIC_STATISTICS S
-        WHERE S.RUN_ID=F.RUN_ID AND S.FIELD_NAME=F.FIELD_NAME AND S.PERIOD_LEVEL='MONTHLY' AND S.PERIOD_VALUE LIKE '2018-%'));`;
-const diagnostic=`/* Run 7 / RDS / five numeric fields / year 2018: plan and result comparison.
-   Generated from modules/12_numeric_outliers.sql by check_outliers.mjs.
-   Replace ALL DQ_DB tokens (including quoted strings) with LAB_T_ORION_MVT.
-   Use one fresh SQL Assistant session and submit sections separately.
-   No DBQL, catalog SELECT, new procedure, configuration load or engine CALL.
-   A is read-only: it MUST return zero rows. Stop on any mismatch or error.
-   B copies the current full source population for five fields ONCE into a
-   partitioned permanent diagnostic table. It consumes permanent space and
-   source-view spool; it does not recreate the historical source snapshot.
-   C reads saved aggregate statistics only. D EXPLAIN does NOT execute counting.
-   D3 optionally executes old/new counting for 2018 into small volatile tables;
-   it compares all result columns without a full profiling run.
-   Existing configuration, run logs, rules and results are never modified.
-   Verify DQ_DIAG_OUT_R7 is unused. If CREATE fails, stop; do not proceed to DROP.
-   If disconnected after B, only the permanent DQ_DIAG_OUT_R7 remains.
-   Keep it isolated from normal runs and remove it with E after saving the plan. */
-
-/* A: Check saved run metadata. Expected: ZERO rows. Do this first. */
-${diagnosticPreflight}
-
-/* B: Recreate the same physical stage, with a diagnostic-only name.
-   This scans RDS once; record its elapsed minutes from SQL Assistant. */
-${diagnosticStage};
-${diagnosticLoad};
-${diagnosticStats};
-
-/* C: Recreate this batch's saved bounds in this session. No source scan. */
-${diagnosticBounds};
-
-/* D: Paste the complete EXPLAIN output for review. Keep EXPLAIN in place;
-   this investigates one real count-query shape without executing it. */
-EXPLAIN
-${diagnosticCount};
-
-/* D2: NONEMPTY 2018 chunk only. Run ONLY this EXPLAIN if A-D already succeeded
-   in this session. Reuses the same stage and bounds: no table recreation and
-   no engine changes. Compare with D: does the detail redistribution on constant
-   overall bounds and its restoration merge join disappear? The one-row bounds
-   product join itself is expected. This is not a replacement for the empty-
-   source path, which must still emit its zero-population summary.
-   Keep EXPLAIN; save the complete output before any timed counting test. */
-EXPLAIN
-${diagnosticCandidate};
-
-/* D3: AUTOMATIC RESULT COMPARISON. If B/C already succeeded in this session,
-   run D3 only; do not rebuild the stage or change the source/bounds between
-   these statements. This executes the ORIGINAL and NEW 2018 counts once each.
-   Submit each CREATE separately and record its elapsed time. Stop on any error.
-   Only small session-local result tables are written, not engine results.
-   If these names already exist, reuse them only when both were created by this
-   comparison against the same unchanged stage/bounds; otherwise drop those two
-   known diagnostic tables before repeating D3. Never reuse partial results. */
-CREATE MULTISET VOLATILE TABLE DQ_DIAG_OUT_OLD AS (
-${diagnosticCount}
-) WITH DATA PRIMARY INDEX (CHUNK_YEAR,CHUNK_VALUE) ON COMMIT PRESERVE ROWS;
-
-CREATE MULTISET VOLATILE TABLE DQ_DIAG_OUT_NEW AS (
-${diagnosticCandidate}
-) WITH DATA PRIMARY INDEX (CHUNK_YEAR,CHUNK_VALUE) ON COMMIT PRESERVE ROWS;
-
-/* Expected: MATCH, OLD_ROWS=NEW_ROWS (12 for the supplied 2018 plan),
-   DIFFERENT_ROWS=0, OLD_DUPLICATE_KEYS=NEW_DUPLICATE_KEYS=0.
-   Both empty is NOT a pass. Exact comparison includes NULL and all columns;
-   bounds are copied from the same saved values, not independently recomputed. */
-${diagnosticComparison}
-
-/* Optional detail: zero rows means no distinct value differences.
-   The summary's row/duplicate checks must also pass. */
-${diagnosticDifferences};
-
-/* E: Run separately AFTER saving EXPLAIN, and only for tables this diagnostic
-   created successfully. No broad cleanup and no changes to run 7.
-   Skip the first two DROP statements if D3 was not run. */
-DROP TABLE DQ_DIAG_OUT_OLD;
-DROP TABLE DQ_DIAG_OUT_NEW;
-DROP TABLE DQ_DIAG_OUT_BOUNDS;
-DROP TABLE DQ_DB.DQ_DIAG_OUT_R7;
-`;
-lex(diagnostic,'RDS outlier plan diagnostic');
-assert.ok(diagnosticCount.includes('"DQ_OS_YEAR_0"=2018'));
-assert.ok(!diagnosticCount.includes('B1.'));
-assert.ok(diagnosticStage.includes('PARTITION BY RANGE_N'));
-const diagnosticDb=new DatabaseSync(':memory:');
-diagnosticDb.exec(`CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT,PROJECT_ID TEXT,STATUS TEXT,SOURCE_DATABASE TEXT,SOURCE_TABLE TEXT,REPORTING_DATE_FIELD TEXT,PROFILE_OVERALL TEXT,PROFILE_MONTHLY TEXT,PROFILE_YEARLY TEXT);
- CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT,RUN_NUMBER INTEGER);
- CREATE TABLE DQ_RUN_FIELD_CONFIG (RUN_ID TEXT,FIELD_TYPE TEXT,FIELD_ORDINAL INTEGER,FIELD_NAME TEXT);
- CREATE TABLE DQ_RUN_SPECIAL_VALUE (RUN_ID TEXT,FIELD_TYPE TEXT,NUMERIC_VALUE NUMERIC);
- CREATE TABLE DQ_NUMERIC_STATISTICS (RUN_ID TEXT,FIELD_NAME TEXT,PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT);`);
-diagnosticDb.prepare('INSERT INTO DQ_RUN_LOG VALUES (?,?,?,?,?,?,?,?,?)').run(diagnosticRun,'RDS','SUCCEEDED','DQ_DB','VW_RDS_PHASE2_FACT','FACT_DT','Y','Y','N');
-diagnosticDb.prepare('INSERT INTO DQ_RUN_NUMBER VALUES (?,7)').run(diagnosticRun);
-for(const [i,f]of diagnosticFields.entries()){
- diagnosticDb.prepare('INSERT INTO DQ_RUN_FIELD_CONFIG VALUES (?,?,?,?)').run(diagnosticRun,'NUMERIC',i+1,f);
- for(const [l,p]of [['OVERALL','ALL'],['MONTHLY','2018-01']])diagnosticDb.prepare('INSERT INTO DQ_NUMERIC_STATISTICS VALUES (?,?,?,?)').run(diagnosticRun,f,l,p);
-}
-for(const n of list.slice(1,-1).split(','))diagnosticDb.prepare('INSERT INTO DQ_RUN_SPECIAL_VALUE VALUES (?,?,?)').run(diagnosticRun,'NUMERIC',Number(n));
-// SQLite needs an explicit aggregate in the SELECT of a HAVING-only query.
-// Use a uniform extra aggregate/count column only on the first three branches.
-const preflightParts=diagnosticPreflight.replaceAll('DQ_DB.','').split('\nUNION ALL\n');
-const getIssues=()=>preflightParts.flatMap((q,i)=>diagnosticDb.prepare(i<3?q.replace(' AS ISSUE',' AS ISSUE,COUNT(*) AS N'):q).all());
-assert.equal(getIssues().length,0);
-for(const mutation of ["UPDATE DQ_RUN_LOG SET PROJECT_ID='OTHER'","UPDATE DQ_RUN_NUMBER SET RUN_NUMBER=8",
- "UPDATE DQ_RUN_LOG SET PROFILE_YEARLY='Y'","UPDATE DQ_RUN_FIELD_CONFIG SET FIELD_NAME='WRONG' WHERE FIELD_ORDINAL=1",
- 'DELETE FROM DQ_RUN_SPECIAL_VALUE','DELETE FROM DQ_NUMERIC_STATISTICS']){
- diagnosticDb.exec('SAVEPOINT bad_metadata');diagnosticDb.exec(mutation);
- assert.ok(getIssues().length>0,mutation);diagnosticDb.exec('ROLLBACK TO bad_metadata; RELEASE bad_metadata');
-}
-diagnosticDb.close();
+    (SELECT CHUNK_YEAR,CHUNK_VALUE FROM TEST_OUT_JOIN_NEW GROUP BY CHUNK_YEAR,CHUNK_VALUE HAVING COUNT(*)>1) X) L;`;
 // Confirm that the join-only candidate preserves measurements for populated
 // chunks, including NULL reporting dates, duplicates and special exclusions.
 const joinDb=new DatabaseSync(':memory:');
 joinDb.function('CHARACTER_LENGTH',x=>x?.length??null);
-joinDb.exec('CREATE TABLE DQ_DIAG_OUT_R7 (FACT_DT TEXT,'+diagnosticFields.map(f=>'"'+f+'" NUMERIC').join(',')+',DQ_OS_YEAR_0 INTEGER)');
-joinDb.exec('CREATE TABLE DQ_DIAG_OUT_BOUNDS (PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,TOTAL_N INTEGER,'+
- diagnosticFields.flatMap((_,i)=>['N'+(i+1)+' INTEGER','L'+(i+1)+' NUMERIC','U'+(i+1)+' NUMERIC']).join(',')+')');
+joinDb.exec('CREATE TABLE TEST_OUT_JOIN_SOURCE (FACT_DT TEXT,'+joinFields.map(f=>'"'+f+'" NUMERIC').join(',')+',DQ_OS_YEAR_0 INTEGER)');
+joinDb.exec('CREATE TABLE TEST_OUT_JOIN_BOUNDS (PERIOD_LEVEL TEXT,PERIOD_VALUE TEXT,TOTAL_N INTEGER,'+
+ joinFields.flatMap((_,i)=>['N'+(i+1)+' INTEGER','L'+(i+1)+' NUMERIC','U'+(i+1)+' NUMERIC']).join(',')+')');
 const joinPopulation=raw.map(r=>[r[0]===null?null:'2018'+r[0].slice(4).replace('-02-29','-02-28'),...r.slice(1,6)]);
-const joinPut=joinDb.prepare('INSERT INTO DQ_DIAG_OUT_R7 VALUES (?,?,?,?,?,?,?)');
+const joinPut=joinDb.prepare('INSERT INTO TEST_OUT_JOIN_SOURCE VALUES (?,?,?,?,?,?,?)');
 joinPopulation.forEach(r=>joinPut.run(...r,r[0]===null?0:2018));
 const joinGroups=new Map([['OVERALL/ALL',joinPopulation]]);
 for(const row of joinPopulation){const key='MONTHLY/'+(row[0]?.slice(0,7)??'UNKNOWN');if(!joinGroups.has(key))joinGroups.set(key,[]);joinGroups.get(key).push(row);}
 for(const [key,pop]of joinGroups){
  const [level,value]=key.split('/');
- const bounds=diagnosticFields.flatMap((_,i)=>{const s=stats(pop.map(r=>r[i+1]).filter(x=>x!==null&&x!==-9999));
+ const bounds=joinFields.flatMap((_,i)=>{const s=stats(pop.map(r=>r[i+1]).filter(x=>x!==null&&x!==-9999));
   return [s.n,s.sd===null?null:s.mean-3*s.sd,s.sd===null?null:s.mean+3*s.sd];});
- joinDb.prepare('INSERT INTO DQ_DIAG_OUT_BOUNDS VALUES ('+Array(18).fill('?').join(',')+')').run(level,value,pop.length,...bounds);
+ joinDb.prepare('INSERT INTO TEST_OUT_JOIN_BOUNDS VALUES ('+Array(18).fill('?').join(',')+')').run(level,value,pop.length,...bounds);
 }
 const joinAdapt=q=>adapt(q).replaceAll('"DQ_DB".','');
 for(const chunk of ['2018','UNKNOWN']){
- const jv={...dv,'C.CHUNK_VALUE':chunk,V_CHUNK_YEAR:chunk,V_SOURCE_FILTER:'"DQ_OS_YEAR_0"='+(chunk==='UNKNOWN'?0:2018)};
+ const jv={...joinVars,'C.CHUNK_VALUE':chunk,V_CHUNK_YEAR:chunk,V_SOURCE_FILTER:'"DQ_OS_YEAR_0"='+(chunk==='UNKNOWN'?0:2018)};
  sourceJoin(jv);
- const optimized=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),jv).replaceAll('DQ_NO_BOUNDS','DQ_DIAG_OUT_BOUNDS');
+ const optimized=evaluate(assignment('V_PERIOD_QUERY',cursor,sql),jv).replaceAll('DQ_NO_BOUNDS','TEST_OUT_JOIN_BOUNDS');
  const baseline=legacyPopulatedChunkQuery(optimized);
  const expected=joinDb.prepare(joinAdapt(baseline)).all();
  const actual=joinDb.prepare(joinAdapt(optimized)).all();
  const sort=rs=>rs.sort((a,b)=>String(a.CHUNK_VALUE).localeCompare(String(b.CHUNK_VALUE)));
  assert.ok(expected.length>0);assert.deepEqual(sort(actual),sort(expected));
 }
-joinDb.exec('CREATE TABLE DQ_DIAG_OUT_OLD AS '+joinAdapt(diagnosticCount));
-joinDb.exec('CREATE TABLE DQ_DIAG_OUT_NEW AS '+joinAdapt(diagnosticCandidate));
-const compareQuery=diagnosticComparison.replaceAll(' MINUS ',' EXCEPT ');
+joinDb.exec('CREATE TABLE TEST_OUT_JOIN_OLD AS '+joinAdapt(outerJoinCount));
+joinDb.exec('CREATE TABLE TEST_OUT_JOIN_NEW AS '+joinAdapt(populatedCount));
+const compareQuery=comparisonSQL.replaceAll(' MINUS ',' EXCEPT ');
 const comparison=()=>({...joinDb.prepare(compareQuery).get()});
 assert.deepEqual(comparison(),{OLD_ROWS:2,NEW_ROWS:2,DIFFERENT_ROWS:0,OLD_DUPLICATE_KEYS:0,NEW_DUPLICATE_KEYS:0,COMPARISON_STATUS:'MATCH'});
 for(const mutation of [
- "DELETE FROM DQ_DIAG_OUT_NEW WHERE CHUNK_VALUE='2018-01'",
- "UPDATE DQ_DIAG_OUT_NEW SET MO1=MO1+1 WHERE CHUNK_VALUE='2018-01'",
- "UPDATE DQ_DIAG_OUT_NEW SET YL1=0 WHERE CHUNK_VALUE='2018-01'",
- 'INSERT INTO DQ_DIAG_OUT_NEW SELECT * FROM DQ_DIAG_OUT_NEW',
- 'DELETE FROM DQ_DIAG_OUT_OLD; DELETE FROM DQ_DIAG_OUT_NEW'
+ "DELETE FROM TEST_OUT_JOIN_NEW WHERE CHUNK_VALUE='2018-01'",
+ "UPDATE TEST_OUT_JOIN_NEW SET MO1=MO1+1 WHERE CHUNK_VALUE='2018-01'",
+ "UPDATE TEST_OUT_JOIN_NEW SET YL1=0 WHERE CHUNK_VALUE='2018-01'",
+ 'INSERT INTO TEST_OUT_JOIN_NEW SELECT * FROM TEST_OUT_JOIN_NEW',
+ 'DELETE FROM TEST_OUT_JOIN_OLD; DELETE FROM TEST_OUT_JOIN_NEW'
 ]){
  joinDb.exec('SAVEPOINT mismatch');joinDb.exec(mutation);
  assert.equal(comparison().COMPARISON_STATUS,'MISMATCH',mutation);
  joinDb.exec('ROLLBACK TO mismatch; RELEASE mismatch');
 }
-joinDb.exec('DROP TABLE DQ_DIAG_OUT_OLD; DROP TABLE DQ_DIAG_OUT_NEW');
-joinDb.exec('DELETE FROM DQ_DIAG_OUT_R7');
-assert.equal(joinDb.prepare(joinAdapt(diagnosticCandidate)).all().length,0,'candidate intentionally not used for empty-source chunks');
-assert.equal(joinDb.prepare(joinAdapt(diagnosticCount)).all().length,1,'original outer join retains empty-source summary');
+joinDb.exec('DROP TABLE TEST_OUT_JOIN_OLD; DROP TABLE TEST_OUT_JOIN_NEW');
+joinDb.exec('DELETE FROM TEST_OUT_JOIN_SOURCE');
+assert.equal(joinDb.prepare(joinAdapt(populatedCount)).all().length,0,'candidate intentionally not used for empty-source chunks');
+assert.equal(joinDb.prepare(joinAdapt(outerJoinCount)).all().length,1,'original outer join retains empty-source summary');
 joinDb.close();
-const diagnosticPath=new URL('../tests/diagnose_outlier_rds_run7.sql',import.meta.url);
-if(process.env.DQ_WRITE_RDS_DIAGNOSTIC==='1')fs.writeFileSync(diagnosticPath,diagnostic);
-else assert.equal(fs.readFileSync(diagnosticPath,'utf8'),diagnostic,'Regenerate the RDS plan diagnostic after template changes');
-console.log('RDS plan diagnostic checked: actual stage/bounds/count templates, metadata mismatch checks, EXPLAIN and optional result comparison. No RDS data or Teradata plan accessed locally.');
 console.log('Nonempty chunk join candidate passed: identical measurements for populated and NULL-date chunks; empty-source distinction retained. Production uses the tested conditional join.');
-console.log('Automatic diagnostic comparison passed: all-column equality, NULL changes, missing rows, duplicate keys and both-empty rejection. Teradata execution pending.');
+console.log('Synthetic comparison passed: all-column equality, NULL changes, missing rows, duplicate keys and both-empty rejection. Teradata execution pending.');
 
 // Lifecycle/API structure: materialize a bounded group before its statistics, use the
 // stage for subsequent reads, never overwrite another run's table, drop only

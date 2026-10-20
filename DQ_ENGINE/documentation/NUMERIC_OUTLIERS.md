@@ -1,4 +1,4 @@
-For the current bounded-copy upgrade, use [working storage](OUTLIER_STORAGE_UPDATE.md).
+For the current bounded-copy upgrade, use [working storage](PERFORMANCE_NOTES.md#working-storage).
 For configurable overall/monthly/yearly output, follow the current
 [reporting-level upgrade](REPORTING_LEVELS.md) before using these procedures.
 
@@ -135,8 +135,8 @@ before loading. Batch 0 is the overall summary and retains copy identity for
 recovery. Empty-table creation precedes loading so handled load failures can drop
 an owned table. Hard session termination can bypass cleanup. No unowned or active
 work table may be removed automatically. See [deployment, recovery, exact limits
-and validation](OUTLIER_STORAGE_UPDATE.md). For the wider calculation update,
-see [20-field deployment](OUTLIER_WIDTH_UPDATE.md).
+and validation](PERFORMANCE_NOTES.md#working-storage). For the wider calculation update,
+see [20-field deployment](PERFORMANCE_NOTES.md#batch-sizes-and-spool).
 
 This reduces peak copy width but adds source reads; it does not guarantee a
 full-run runtime or that one copy fits the remaining database quota. Existing
@@ -145,7 +145,7 @@ transaction/cleanup behavior, permanent and spool space still need verification.
 
 ## Upgrade an existing outlier deployment after error 2646
 
-Use the current [bounded-storage deployment](OUTLIER_STORAGE_UPDATE.md): file 03
+Use the current [bounded-storage deployment](PERFORMANCE_NOTES.md#working-storage): file 03
 now has three helper/wrapper procedures, and file 12 uses bounded copies. Do not
 follow an older instruction to compile file 12 alone. No table migration is
 needed. Submit each procedure and its included grant separately.

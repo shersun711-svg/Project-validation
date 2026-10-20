@@ -16,7 +16,7 @@ overall Y, monthly Y, yearly N); percentages use
 the shared green/amber/red rules. Configurable special-value checks are implemented.
 Numeric Outliers uses mean +/- 3 times population standard deviation. Working
 copies and counting batches are capped at 20 fields, with SQL-length splitting; see the
-[permanent-space update](DQ_ENGINE/documentation/OUTLIER_STORAGE_UPDATE.md).
+[permanent-space update](DQ_ENGINE/documentation/PERFORMANCE_NOTES.md#working-storage).
 Combined Numeric Basic + Outliers now share each bounded working copy; see
 [deployment and phase timings](DQ_ENGINE/documentation/SHARED_NUMERIC_COPY.md).
 Profiling results are persisted using bounded bulk writes; see the
@@ -49,7 +49,6 @@ access both the workbook and Teradata; SASApp is the user's working connection.
 | Once per session when loading Excel | [05_dq_excel_config.sas](DQ_ENGINE/sas/05_dq_excel_config.sas) | Defines the Excel loader |
 | First configuration load or after an Excel edit | [04_load_dq_config.sas](DQ_ENGINE/sas/04_load_dq_config.sas) | Loads Excel; require APPLIED |
 | Each profiling run | [00_run_dq_engine.sas](DQ_ENGINE/sas/00_run_dq_engine.sas) | Runs selected profiling and optional mom/yoy summaries |
-| Compare an existing successful run | [06_run_dq_changes.sas](DQ_ENGINE/sas/06_run_dq_changes.sas) | Read-only MoM/YoY; enter its short run number |
 
 Edit the workbook path and approved connection settings before first use.
 The workbook path and optional engine_root must be SAS server paths.
@@ -83,7 +82,7 @@ installations need the [small rule-storage upgrade](DQ_ENGINE/documentation/RULE
 | `DQ_RULE_RESULT` | Percentage rule decisions with threshold snapshots and reasons |
 | `DQ_COMPLETED_RESULT` | Successful results, one row per metric |
 | `DQ_BASIC_REVIEW` | Final review across all four field types |
-| `DQ_FIELD_CHANGE_REVIEW` | Field-level MoM/YoY values, differences and reasons |
+| `DQ_FIELD_CHANGE_REVIEW` | Wide field-level MoM/YoY values, absolute/relative changes and movement flags |
 | `DQ_RUN_NUMBER` | Short number mapped to each internal run UUID |
 
 ## Repository map

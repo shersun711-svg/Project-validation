@@ -98,8 +98,8 @@ special_values.csv is a sheet-copy convenience, not a separate runtime loader.
 
 In file 00, mom=Y and/or yoy=Y requests comparison summaries after profiling
 succeeds. Both default to N. They use the selected run's saved monthly metrics;
-they add no Excel settings or field flags. Use file 06 to compare an existing
-successful run by short run number without starting profiling. See
+they add no Excel settings or field flags. Query DQ_FIELD_CHANGE_REVIEW in
+Teradata to review an existing run without starting profiling. See
 [field comparisons](FIELD_CHANGES.md) for scope, units and deployment.
 
 For Numeric Outliers, SQL_BATCH_SIZE now controls working-copy width up to 20
@@ -108,7 +108,7 @@ splitting. Start at 10 when checking
 permanent storage, then benchmark 15/20. Numeric Basic now caps at 20 and automatically splits shorter batches if
 generated SQL would exceed its safe length. Smaller settings remain supported
 if spool is limited. See
-[bounded outlier storage](OUTLIER_STORAGE_UPDATE.md).
+[bounded outlier storage](PERFORMANCE_NOTES.md#working-storage).
 
 When Numeric Basic and Outliers are both Y in SAS 00, they share each bounded
 numeric working copy automatically. Basic-only and Outliers-only remain valid;

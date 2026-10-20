@@ -9,7 +9,6 @@ SAS tests require the current controller loaded in the same server session.
 |---|---|
 | `validate_rds.sql` | Read-only source/configuration/population checks |
 | `benchmark_numeric.sql` | Read-only EXPLAIN and recorded timing queries |
-| `diagnose_outlier_rds_run7.sql` | Run-7 fallback without DBQL: one stage copy, saved bounds, EXPLAIN and optional automatic comparison of old/new 2018 counting; no engine rerun |
 | `00_create_numeric_fixture.sql` | Creates synthetic sources and project configuration |
 | `test_numeric.sql` | Runs Numeric Basic and reconciles all periods |
 | `test_colour.sql` | Checks percentage boundary classifications |
@@ -37,16 +36,6 @@ test engine: these scripts create and modify synthetic objects/configuration,
 and their fixed UUIDs require a fresh fixture deployment. CALL/DDL errors fail
 the test; each assertion SELECT must return zero rows. An aborted, skipped or
 zero-test execution is not a pass.
-
-The run-7 diagnostic is separate from synthetic fixtures: it reads the actual
-RDS source once and creates a permanent diagnostic copy in the approved engine
-schema. Run section A first and require zero rows. It is specific to the saved
-run ID, five fields, specials and reporting scope; do not repoint it at another
-run by changing only its run number. Keep EXPLAIN in sections D/D2. Section D3
-executes both 2018 counts into small volatile tables and compares all columns,
-row counts and duplicate keys; require MATCH and zero differences. Then use
-section E to remove only the diagnostic tables successfully created.
-See [the no-DBQL workflow](../documentation/PERFORMANCE_NOTES.md#investigate-run-7-without-dbql-access).
 
 After the basic upgrade, run fixture 01, test_other_basic.sql and
  test_other_basic.sas in that order. Independently rerun the existing tests for
@@ -99,8 +88,9 @@ Deploy results/94_dq_field_change_review.sql. Run optional test_field_changes.sq
 in an isolated engine, with fresh fixture UUIDs; every assertion must return zero
 rows. It creates synthetic saved metrics and one small volatile fixture only.
 No RDS/configuration reads or profiling calls are required. Run numbers remain
-allocated. To exercise SAS, load the current 01 controller and use file 06 with
-the successful fixture run's short number and mom/yoy switches. Require
+allocated. To exercise the optional summary macro, load the current 01 controller
+and call %run_dq_changes with the successful fixture run's short number and
+mom/yoy switches. Require
 dq_change_status=SUCCEEDED and inspect WORK.DQ_CHANGE_SUMMARY. Also try a missing
 number, a wrong project, the failed fixture run, invalid switches and both N.
 The first four must fail; both N must return SKIPPED without a database read.
@@ -116,7 +106,7 @@ Run `node DQ_ENGINE/tools/check_outlier_storage.mjs` locally. It executes actual
 copy/cursor/statistics templates against 415 synthetic fields at settings
 1/5/10/15/20/25/30, verifies max-20 copies/max-5 counting and same-copy statistics,
 and simulates a rejected load followed by cleanup. Quota/SPL/transaction behavior
-is not executed. Follow [the server pilot](../documentation/OUTLIER_STORAGE_UPDATE.md)
+is not executed. Follow [the server pilot](../documentation/PERFORMANCE_NOTES.md#working-storage)
 for compilation/grants, database-space recovery and controlled 10-field testing.
 The current file 03 contains BATCH, SOURCE and STATISTICS, each with its grant.
 

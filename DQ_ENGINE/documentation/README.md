@@ -11,7 +11,7 @@ Field-level MoM/YoY comparisons of saved monthly results are available through
 [the comparison view and SAS controls](FIELD_CHANGES.md), with no new tables.
 PSI and Excel report generation remain deferred.
 For the 415-field permanent-space fix, follow
-[bounded outlier storage](OUTLIER_STORAGE_UPDATE.md).
+[bounded outlier storage](PERFORMANCE_NOTES.md#working-storage).
 See [outlier deployment for an existing engine](NUMERIC_OUTLIERS.md).
 For separate rule-decision storage, see [shared rule evaluation](RULE_RESULTS.md).
 For this extension, follow [deployment and test instructions](SPECIAL_VALUES.md).
@@ -33,8 +33,8 @@ Use a SASApp server session that can access the workbook and Teradata.
 3. Confirm project and switches in `sas/00_run_dq_engine.sas`, then run it.
    Its default project is RDS. Numeric Basic defaults Y; other basics default N.
 4. Optional mom/yoy switches in file 00 request comparisons after profiling.
-   To compare an existing run alone, use `sas/06_run_dq_changes.sas`; see
-   [field comparisons](FIELD_CHANGES.md).
+   To review existing results, query DQ_FIELD_CHANGE_REVIEW directly in
+   Teradata; see [field comparisons](FIELD_CHANGES.md).
 5. Require dq_status=SUCCEEDED and retain dq_run_number for reviewing results.
    The internal dq_run_id remains available for failed-run retries.
 
@@ -231,9 +231,9 @@ and [original input review](INPUT_REVIEW.md).
 See [field selection and module switches](CONFIGURATION_GUIDE.md) to choose
 which fields and tests to run.
 
-For the Numeric Basic scan reduction, see [deployment and benchmark](NUMERIC_BASIC_UPDATE.md).
+For the Numeric Basic scan reduction, see [deployment and benchmark](PERFORMANCE_NOTES.md#batch-sizes-and-spool).
 
-For up-to-20-field outlier calculations, see [deployment and benchmark](OUTLIER_WIDTH_UPDATE.md).
+For up-to-20-field outlier calculations, see [deployment and benchmark](PERFORMANCE_NOTES.md#batch-sizes-and-spool).
 
 For combined numeric runs sharing one bounded copy, see [deployment](SHARED_NUMERIC_COPY.md).
 

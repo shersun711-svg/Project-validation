@@ -20,7 +20,7 @@
 %let identifier_basic = N;
 %let export_excel = N;
 /* Optional field-level comparisons AFTER this profiling run succeeds.
-   Use 06_run_dq_changes.sas to compare an already completed run instead. */
+   Query DQ_FIELD_CHANGE_REVIEW in Teradata for an already completed run. */
 %let mom = N;
 %let yoy = N;
 /* Blank creates a UUID. Set only to a FAILED run UUID to replay that run. */

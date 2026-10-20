@@ -10,7 +10,7 @@ There is one deployed comparison view; file 95 has been removed.
 
 It reads saved monthly results only. No RDS scan, configuration reload, result
 table, stored procedure, shared rule-evaluation call or profiling rerun is needed. Querying
-the view calculates changes on demand. SAS file 06 reads a summary, not all details.
+the view calculates changes on demand. No separate SAS comparison runner is needed.
 Account-level jumps/reversions, categorical PSI and rule colours are separate work.
 
 ## Upgrade the previous comparison layout
@@ -27,14 +27,12 @@ Account-level jumps/reversions, categorical PSI and rule colours are separate wo
    `teradata/results/94_dq_field_change_review.sql`. Run the complete REPLACE VIEW
    statement in SQL Assistant, followed by its SELECT grant separately.
    Existing view owners still need grantable SELECT on its dependencies.
-3. Run the updated `sas/01_dq_controller.sas` in the SAS session. Require version
-   **20261016_WIDE_CHANGES**. The old controller expects the former detailed
-   layout and must be reloaded after replacing the view.
-4. Query the view directly in Teradata. **File 06 is optional**: run it only if
-   you want WORK.DQ_CHANGE_SUMMARY in SAS, choosing your successful short run
-   number with mom=Y and/or yoy=Y. Require dq_change_status=SUCCEEDED if used.
+3. Query the view directly in Teradata. No SAS execution is required.
+4. Only if using optional comparison summaries in file 00, load the current
+   `sas/01_dq_controller.sas` first (version **20261016_WIDE_CHANGES**). The
+   controller summary macro supports the wide layout.
 
-File 06's settings, Excel files and profiling procedures do not need changes.
+Excel files and profiling procedures do not need changes.
 No rerun of file 00 or configuration load is required. Fresh installations
 create only the current file-94 view and its grant; they skip the obsolete-view
 cleanup. The table-backed MOM/YOY catalogue also fixes the Teradata error
@@ -120,10 +118,10 @@ flags: ZERO_BASE_MOVEMENT can coexist with EVALUATED.
 
 ## Run and review
 
-Direct Teradata review does not require SAS or file 06. For an optional SAS
-summary, run the current controller once per SAS session. File 06 accepts a successful
-short run number and independent mom/yoy Y/N switches. No Excel reload is needed.
-For example:
+Direct Teradata review does not require SAS. The separate comparison runner
+has been removed. File 00 can still request optional summaries after profiling;
+its controller macro remains available for an existing successful short run
+number. For an optional manual SAS summary, load the current controller and call:
 
 ```sas
 %run_dq_changes(project=RDS,run_number=17,mom=Y,yoy=Y);
