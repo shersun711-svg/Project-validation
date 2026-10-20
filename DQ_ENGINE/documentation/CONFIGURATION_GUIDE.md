@@ -96,10 +96,9 @@ special_values.csv is a sheet-copy convenience, not a separate runtime loader.
 
 ## Field-level comparisons
 
-In file 00, mom=Y and/or yoy=Y requests comparison summaries after profiling
-succeeds. Both default to N. They use the selected run's saved monthly metrics;
-they add no Excel settings or field flags. Query DQ_FIELD_CHANGE_REVIEW in
-Teradata to review an existing run without starting profiling. See
+Query DQ_FIELD_CHANGE_REVIEW in Teradata by project and successful run number.
+It computes MoM/YoY from saved monthly results when queried. No Excel settings,
+SAS switches or profiling rerun are needed. File 00 runs profiling only. See
 [field comparisons](FIELD_CHANGES.md) for scope, units and deployment.
 
 For Numeric Outliers, SQL_BATCH_SIZE now controls working-copy width up to 20

@@ -88,13 +88,8 @@ Deploy results/94_dq_field_change_review.sql. Run optional test_field_changes.sq
 in an isolated engine, with fresh fixture UUIDs; every assertion must return zero
 rows. It creates synthetic saved metrics and one small volatile fixture only.
 No RDS/configuration reads or profiling calls are required. Run numbers remain
-allocated. To exercise the optional summary macro, load the current 01 controller
-and call %run_dq_changes with the successful fixture run's short number and
-mom/yoy switches. Require
-dq_change_status=SUCCEEDED and inspect WORK.DQ_CHANGE_SUMMARY. Also try a missing
-number, a wrong project, the failed fixture run, invalid switches and both N.
-The first four must fail; both N must return SKIPPED without a database read.
-These SAS/server checks have not been executed here.
+allocated. Review the fixture directly in DQ_FIELD_CHANGE_REVIEW; no SAS
+comparison step is required. Server checks have not been executed here.
 
 Local check: `node DQ_ENGINE/tools/check_field_changes.mjs`. This executes the
 actual view SQL with narrow SQLite syntax adaptations and checks calendar gaps,
@@ -163,7 +158,7 @@ See [deployment and scope](../documentation/PERFORMANCE_NOTES.md#categorical-and
 
 Wide change review: `node DQ_ENGINE/tools/check_field_changes.mjs` executes file
 94 and checks all 112 current/absolute/relative/flag metric columns against internal comparison
-rows, dates, statuses, module merging and run/project isolation. It also executes
-the actual SAS summary SELECT against the wide view, including empty inputs,
-both-zero/zero-baseline movements and the supplied 10%/20% flag boundaries.
+rows, dates, statuses, module merging and run/project isolation. It covers
+both-zero/zero-baseline movements and the supplied 10%/20% flag boundaries,
+and checks that the retired SAS comparison API/switches remain absent.
 File 95 is removed; deployment is [documented here](../documentation/FIELD_CHANGES.md).

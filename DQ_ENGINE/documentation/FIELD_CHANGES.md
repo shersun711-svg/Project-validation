@@ -28,9 +28,10 @@ Account-level jumps/reversions, categorical PSI and rule colours are separate wo
    statement in SQL Assistant, followed by its SELECT grant separately.
    Existing view owners still need grantable SELECT on its dependencies.
 3. Query the view directly in Teradata. No SAS execution is required.
-4. Only if using optional comparison summaries in file 00, load the current
-   `sas/01_dq_controller.sas` first (version **20261016_WIDE_CHANGES**). The
-   controller summary macro supports the wide layout.
+4. For subsequent profiling runs, use the current SAS files 00 and 01. The
+   controller version is **20261020_PROFILE_ONLY**; MoM/YoY switches and the
+   summary macro have been removed. This SAS cleanup does not require
+   redeploying an already current view 94.
 
 Excel files and profiling procedures do not need changes.
 No rerun of file 00 or configuration load is required. Fresh installations
@@ -118,27 +119,10 @@ flags: ZERO_BASE_MOVEMENT can coexist with EVALUATED.
 
 ## Run and review
 
-Direct Teradata review does not require SAS. The separate comparison runner
-has been removed. File 00 can still request optional summaries after profiling;
-its controller macro remains available for an existing successful short run
-number. For an optional manual SAS summary, load the current controller and call:
-
-```sas
-%run_dq_changes(project=RDS,run_number=17,mom=Y,yoy=Y);
-```
-
-Both switches N returns SKIPPED without a database read. Invalid inputs,
-unsuccessful/wrong-project runs and absent dated monthly results fail clearly.
-Errors leave the original profiling run and dq_status unchanged; inspect
-separate dq_change_status and dq_change_error. No module/run logs are written.
-Optional switches in file 00 still request the summary after profiling succeeds.
-The view always derives both types; SAS switches select which summaries to show.
-
-WORK.DQ_CHANGE_SUMMARY now counts **field/month rows**, not individual metric
-comparisons. It shows COMPARISON_TYPE, FIELD_MONTHS, EVALUATED_COUNT, PARTIAL_COUNT,
-NOT_EVALUATED_COUNT, FIELDS_COMPARED and the first/last POU_DT. The three status
-counts sum to FIELD_MONTHS for each selected type. The SAS controller reads one
-aggregate of the wide view and formats the requested summaries locally.
+MoM/YoY is reviewed directly in Teradata. It has no SAS switch, macro or
+separate runner. File 00 runs profiling only; querying view 94 computes both
+comparison types from the selected successful run. No profiling rerun is needed
+to review completed results.
 
 ```sql
 SELECT *
@@ -176,11 +160,11 @@ source/customer data, account IDs or credentials were added.
 and decimal adaptations. It checks exact calendar gaps, all types, specials and
 outliers, missing/zero/negative values, large values, source retention and run/
 project isolation. It verifies every wide current/absolute/relative/flag cell against internal
-comparison rows, plus dates, statuses, module merging and the actual SAS summary
-SELECT (including empty results). Cases include both-zero values, zero-to-nonzero
+comparison rows, plus dates, statuses, module merging and checks that the
+retired SAS comparison API is absent. Cases include both-zero values, zero-to-nonzero
 movements, exact 10%/20% boundaries and negative movements. The isolated optional Teradata fixture
 `tests/test_field_changes.sql` uses the new wide layout; each assertion must
 return zero rows. No fixture is required to review completed production results.
 
-SAS DATA-step/macro execution, Teradata compilation/grants, numeric edge cases,
+SAS profiling macro execution, Teradata compilation/grants, numeric edge cases,
 query plans and full RDS runtime remain unverified in this workspace.

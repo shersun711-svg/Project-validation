@@ -150,13 +150,16 @@ outlier date persistence and reporting-level combinations, non-month-end dates,
 legacy NULL dates and rate units. SQLite does not verify Teradata DECIMAL rounding, SPL, DDL or grants.
 Server fixture expectations and SAS reconciliation were updated but not run here.
 
-Field-level MoM/YoY was added as one read-only view and independent SAS controls.
+Field-level MoM/YoY was initially added as one read-only view and independent
+SAS controls. The SAS comparison controls/summary were subsequently removed;
+current comparisons use the Teradata view only.
 Local checks execute the actual view on synthetic data with SQLite date/decimal
 adaptations: 396 comparison rows cover exact month/year gaps, non-month-end
 snapshots, all Basic types and outliers, rate units, zero/NULL baselines, large
 values and display-range guards. Failed/running/undated results are excluded;
-project/run isolation and unchanged source metrics are checked. SAS switch,
-status and read-only structure checks do not execute macro expansion.
+project/run isolation and unchanged source metrics are checked. The former SAS
+comparison checks were structural only; current checks guard against restoring
+that retired API. SAS profiling macros are not executed by local checks.
 The development team's comparison behavior was reviewed as reference; their
 implementation was not copied. PSI/account-level checks remain deferred.
 Teradata view compilation/optimizer behavior, grants, DECIMAL rounding and SAS

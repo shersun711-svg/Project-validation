@@ -48,7 +48,7 @@ access both the workbook and Teradata; SASApp is the user's working connection.
 | Once per new session | [01_dq_controller.sas](DQ_ENGINE/sas/01_dq_controller.sas) | Defines the engine macros |
 | Once per session when loading Excel | [05_dq_excel_config.sas](DQ_ENGINE/sas/05_dq_excel_config.sas) | Defines the Excel loader |
 | First configuration load or after an Excel edit | [04_load_dq_config.sas](DQ_ENGINE/sas/04_load_dq_config.sas) | Loads Excel; require APPLIED |
-| Each profiling run | [00_run_dq_engine.sas](DQ_ENGINE/sas/00_run_dq_engine.sas) | Runs selected profiling and optional mom/yoy summaries |
+| Each profiling run | [00_run_dq_engine.sas](DQ_ENGINE/sas/00_run_dq_engine.sas) | Runs selected profiling modules |
 
 Edit the workbook path and approved connection settings before first use.
 The workbook path and optional engine_root must be SAS server paths.

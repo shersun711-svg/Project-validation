@@ -32,9 +32,9 @@ Use a SASApp server session that can access the workbook and Teradata.
    Require STATUS=APPLIED in DQ_CONFIG_LOAD_LOG for the generated LOAD_ID.
 3. Confirm project and switches in `sas/00_run_dq_engine.sas`, then run it.
    Its default project is RDS. Numeric Basic defaults Y; other basics default N.
-4. Optional mom/yoy switches in file 00 request comparisons after profiling.
-   To review existing results, query DQ_FIELD_CHANGE_REVIEW directly in
-   Teradata; see [field comparisons](FIELD_CHANGES.md).
+4. Query DQ_FIELD_CHANGE_REVIEW directly in Teradata for MoM/YoY analysis
+   of existing results; see [field comparisons](FIELD_CHANGES.md). There are
+   no comparison switches or summary macro in SAS.
 5. Require dq_status=SUCCEEDED and retain dq_run_number for reviewing results.
    The internal dq_run_id remains available for failed-run retries.
 

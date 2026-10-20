@@ -19,10 +19,6 @@
 %let date_basic = N;
 %let identifier_basic = N;
 %let export_excel = N;
-/* Optional field-level comparisons AFTER this profiling run succeeds.
-   Query DQ_FIELD_CHANGE_REVIEW in Teradata for an already completed run. */
-%let mom = N;
-%let yoy = N;
 /* Blank creates a UUID. Set only to a FAILED run UUID to replay that run. */
 %let retry_run_id = ;
 
@@ -53,8 +49,6 @@ options nomprint nomlogic nosymbolgen; /* Authentication is resolved by SAS. */
     date_basic=&date_basic,
     identifier_basic=&identifier_basic,
     export_excel=&export_excel,
-    mom=&mom,
-    yoy=&yoy,
     retry_run_id=&retry_run_id
 );
 

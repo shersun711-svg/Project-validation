@@ -161,21 +161,15 @@ for(const statement of fixture.split(';').map(s=>s.trim()).filter(Boolean)){
 }
 assert.equal(assertions,8);
 
-// SAS contract checks complement (and do not substitute for) server testing.
-const sas=read('sas/01_dq_controller.sas'),macro=sas.slice(sas.indexOf('%macro run_dq_changes'));
-assert.match(sas,/%macro run_dq_engine\([\s\S]*?mom=N,yoy=N\)/);
-assert.ok(sas.indexOf('%run_dq_changes(project=')>sas.indexOf('DQ run number &dq_run_number completed successfully'));
-assert.match(macro,/%if &_n ne 1/);
-assert.match(macro,/%if %superq\(_source_status\) ne SUCCEEDED/);
-assert.match(macro,/%if &mom=N and &yoy=N/);
-assert.match(macro,/coalesce\(sum\(FIELD_MONTHS\),0\)/);
-assert.match(macro,/MOM_STATUS='PARTIALLY_EVALUATED'/);
-assert.match(macro,/YOY_STATUS='PARTIALLY_EVALUATED'/);
-assert.match(macro,/%if &mom=Y[\s\S]*?COMPARISON_TYPE='MOM'/);
-assert.match(macro,/%if &yoy=Y[\s\S]*?COMPARISON_TYPE='YOY'/);
-assert.match(sas,/20261016_WIDE_CHANGES/);
-assert.doesNotMatch(macro,/execute\s*\(|SQL_TEXT|%let dq_status=/i);
-assert.equal(fs.existsSync(new URL('../sas/06_run_dq_changes.sas',import.meta.url)),false,'Standalone summary runner is retired; file 00 still uses the controller macro');
+// Profiling SAS no longer selects, reads or summarizes view-94 comparisons.
+// These checks do not execute SAS, but prevent the retired API from returning.
+const sas=read('sas/01_dq_controller.sas'),runner=read('sas/00_run_dq_engine.sas');
+assert.doesNotMatch(sas,/run_dq_changes|dq_change_|DQ_FIELD_CHANGE_REVIEW|\bmom=|\byoy=/i);
+assert.doesNotMatch(runner,/run_dq_changes|\bmom\s*=|\byoy\s*=/i);
+assert.match(sas,/20261020_PROFILE_ONLY/);
+assert.match(sas,/%macro run_dq_engine\([\s\S]*?retry_run_id=\);/);
+assert.match(sas,/SP_DQ_RUN_EXTENDED/);
+assert.equal(fs.existsSync(new URL('../sas/06_run_dq_changes.sas',import.meta.url)),false);
 
 // The wide review pivots the detailed view without combining runs or changing
 // values. Compare every metric cell, not just a few layout examples.
@@ -217,22 +211,5 @@ assert(wide.filter(r=>r.FIELD_TYPE==='DATE').every(r=>r.MEAN_VALUE===null&&r.ZER
 assert.equal(wide.some(r=>['failed','running','legacy'].includes(r.RUN_ID)),false);
 assert.deepEqual(db.prepare("SELECT * FROM DQ_FIELD_CHANGE_REVIEW WHERE PROJECT_ID='P1' AND RUN_NUMBER=701").all(),wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701));
 console.log(`Wide review passed: ${wide.length} field/month rows, all 112 current/change/relative/flag columns match internal values; statuses, dates, module merging and isolation verified locally.`);
-// SAS reads one aggregate row, then emits the requested type summaries.
-const summarySQL=macro.slice(macro.indexOf('(select CAST(COUNT(*) AS FLOAT) AS FIELD_MONTHS,')+1,
- macro.indexOf(');',macro.indexOf('(select CAST(COUNT(*) AS FLOAT) AS FIELD_MONTHS,')))
- .replaceAll('&dq_database..','').replaceAll('&_project_sql',"'P1'").replaceAll('&run_number','701');
-assert.equal((summarySQL.match(/from DQ_FIELD_CHANGE_REVIEW/g)||[]).length,1);
-const aggregate=db.prepare(summarySQL).get(),selectedWide=wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701);
-assert.equal(aggregate.FIELD_MONTHS,selectedWide.length);
-assert.equal(aggregate.FIELDS_COMPARED,new Set(selectedWide.map(r=>r.FIELD_NAME)).size);
-for(const type of ['MOM','YOY']){
- assert.equal(aggregate[type+'_EVALUATED'],selectedWide.filter(r=>r[type+'_STATUS']==='EVALUATED').length);
- assert.equal(aggregate[type+'_PARTIAL'],selectedWide.filter(r=>r[type+'_STATUS']==='PARTIALLY_EVALUATED').length);
- assert.equal(aggregate[type+'_UNAVAILABLE'],selectedWide.filter(r=>r[type+'_STATUS']==='NOT_EVALUATED').length);
-}
-const emptyAggregate=db.prepare(summarySQL.replace("PROJECT_ID='P1'","PROJECT_ID='ABSENT'")).get();
-assert.equal(emptyAggregate.FIELD_MONTHS,0);assert.equal(emptyAggregate.MOM_EVALUATED,0);assert.equal(emptyAggregate.YOY_UNAVAILABLE,0);
-assert.doesNotMatch(macro,/METRIC_COMPARISONS|COMPARISON_TYPE in/);
-assert.match(macro,/keep COMPARISON_TYPE FIELD_MONTHS EVALUATED_COUNT PARTIAL_COUNT/);
 db.close();
 console.log(`Field change checks passed: ${rows.length} MoM/YoY rows and ${assertions} supplied fixture assertions; exact calendar gaps, all Basic types, outliers, rate units, NULLs/zero baselines, large values, isolation and read-only history. SAS/Teradata NOT executed.`);

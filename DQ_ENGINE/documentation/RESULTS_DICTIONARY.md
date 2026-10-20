@@ -155,7 +155,7 @@ relative change is zero; missing values remain NULL. MOM_STATUS and
 YOY_STATUS summarise evaluation of the metrics present. No extra result storage
 or profiling run is required.
 
-The optional file-00 SAS summary counts field/month rows by evaluation status.
-Direct Teradata queries do not require SAS. File 94 defines
+MoM/YoY is calculated by direct Teradata queries only; no SAS comparison
+switches or summary macro are used. File 94 defines
 the only comparison view; no extra result table or separate detail view is needed.
 See [definitions, deployment and examples](FIELD_CHANGES.md).
