@@ -26,6 +26,8 @@ requests; see the [categorical deployment update](DQ_ENGINE/documentation/PERFOR
 Field-level MoM/YoY compares saved monthly results without another RDS scan.
 DQ_FIELD_CHANGE_REVIEW shows current values and MoM/YoY changes side by side per field/month.
 See [comparison deployment and operation](DQ_ENGINE/documentation/FIELD_CHANGES.md).
+For reviewing flagged MoM movements in Excel, use the
+[per-metric SQL and manual-review instructions](DQ_ENGINE/documentation/MOM_MANUAL_REVIEW.md).
 PSI and Excel report export remain deferred.
 See [outlier deployment and validation](DQ_ENGINE/documentation/NUMERIC_OUTLIERS.md).
 See [special-value configuration and validation](DQ_ENGINE/documentation/SPECIAL_VALUES.md) before using this extension.
@@ -95,6 +97,7 @@ DQ_ENGINE/
     setup/         Current one-time database deployment
     modules/       Profiling modules and run orchestration
     results/       Classification and result views
+    review/        Read-only queries for manual result review
   documentation/   Deployment, settings, metrics and validation evidence
   tests/           Optional regression and performance checks
   tools/           Developer-only static and workbook checks

@@ -162,3 +162,9 @@ rows, dates, statuses, module merging and run/project isolation. It covers
 both-zero/zero-baseline movements and the supplied 10%/20% flag boundaries,
 and checks that the retired SAS comparison API/switches remain absent.
 File 95 is removed; deployment is [documented here](../documentation/FIELD_CHANGES.md).
+
+The same checker executes all 16 SELECTs in
+`teradata/review/mom_review_by_metric.sql`, checking flag coverage, metric values,
+rate/count context and row-count markers. These user review queries are separate
+from isolated fixtures and do not write database objects. See
+[manual review/export instructions](../documentation/MOM_MANUAL_REVIEW.md).

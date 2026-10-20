@@ -211,5 +211,39 @@ assert(wide.filter(r=>r.FIELD_TYPE==='DATE').every(r=>r.MEAN_VALUE===null&&r.ZER
 assert.equal(wide.some(r=>['failed','running','legacy'].includes(r.RUN_ID)),false);
 assert.deepEqual(db.prepare("SELECT * FROM DQ_FIELD_CHANGE_REVIEW WHERE PROJECT_ID='P1' AND RUN_NUMBER=701").all(),wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701));
 console.log(`Wide review passed: ${wide.length} field/month rows, all 112 current/change/relative/flag columns match internal values; statuses, dates, module merging and isolation verified locally.`);
+// Manual Excel-review SELECTs must preserve values/flags and population context,
+// filter both confirmed run IDs, and never read raw customer/source records.
+const review=read('teradata/review/mom_review_by_metric.sql').replace(/\/\*[\s\S]*?\*\//g,'');
+assert.doesNotMatch(review,/\b(?:CREATE|REPLACE|INSERT|UPDATE|DELETE|DROP|CALL)\b/i);
+assert.doesNotMatch(review,/DQ_METRIC_RESULT|VW_RDS|AGMT_ID|CUSTOMER_ID/i);
+const statements=review.split(';').map(s=>s.trim()).filter(Boolean);
+assert.equal(statements.length,16);
+const reviewFlags=new Set(['MODERATE_RELATIVE_MOVEMENT','HIGH_RELATIVE_MOVEMENT','ZERO_BASE_MOVEMENT']);
+for(const statement of statements){
+ assert.match(statement,/C\.RUN_NUMBER IN \(17,18\)/);
+ const name=statement.match(/CAST\('([^']+)' AS VARCHAR\(32\)\) AS METRIC_NAME/)[1];
+ const q=roundDecimal(statement.replaceAll('DQ_DB.','').replace("C.PROJECT_ID='RDS'","C.PROJECT_ID='P1'").replace('C.RUN_NUMBER IN (17,18)','C.RUN_NUMBER IN (701)'));
+ const actual=db.prepare(q).all();
+ const expected=wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701&&reviewFlags.has(r[name+'_MOM_FLAG']));
+ assert.equal(actual.length,expected.length,name+' flagged row coverage');
+ assert.equal(new Set(actual.map(r=>r.FIELD_NAME+'/'+r.POU_DT)).size,actual.length);
+ for(const row of actual){
+  const source=expected.find(r=>r.FIELD_NAME===row.FIELD_NAME&&r.POU_DT===row.POU_DT);
+  assert.equal(row.EXPECTED_ROWS_IN_EXPORT,actual.length,'Excel export completeness marker');
+  assert(source);assert.equal(row.METRIC_NAME,name);assert.equal(row.MOVEMENT_FLAG,source[name+'_MOM_FLAG']);
+  assert.equal(row.CURRENT_VALUE,source[name]);assert.equal(row.ABSOLUTE_CHANGE,source[name+'_MOM_CHANGE']);
+  assert.equal(row.RELATIVE_CHANGE,source[name+'_MOM_REL_CHANGE']);
+  near(row.PREVIOUS_VALUE,source[name]-source[name+'_MOM_CHANGE']);
+  if(name.endsWith('_RATE')){
+   near(row.CHANGE_PP,source[name+'_MOM_CHANGE']*100);
+   const numerator={MISSING_RATE:'MISSING_COUNT',SPECIAL_RATE:'SPECIAL_COUNT',ZERO_RATE:'ZERO_COUNT',OUTLIER_RATE:'OUTLIER_COUNT'}[name];
+   const denominator=name==='OUTLIER_RATE'?'OUTLIER_VALID_COUNT':'TOTAL_COUNT';
+   assert.equal(row.CURRENT_EVENT_COUNT,source[numerator]);assert.equal(row.CURRENT_DENOMINATOR,source[denominator]);
+   assert.equal(row.PREVIOUS_EVENT_COUNT,source[numerator]===null||source[numerator+'_MOM_CHANGE']===null?null:source[numerator]-source[numerator+'_MOM_CHANGE']);
+   assert.equal(row.PREVIOUS_DENOMINATOR,source[denominator]===null||source[denominator+'_MOM_CHANGE']===null?null:source[denominator]-source[denominator+'_MOM_CHANGE']);
+  }else assert.equal(row.CHANGE_PP,null);
+ }
+}
+console.log('Manual review queries passed: 16 read-only metric SELECTs, exact flag selection, previous/current values, fractional rates, percentage points and rate populations.');
 db.close();
 console.log(`Field change checks passed: ${rows.length} MoM/YoY rows and ${assertions} supplied fixture assertions; exact calendar gaps, all Basic types, outliers, rate units, NULLs/zero baselines, large values, isolation and read-only history. SAS/Teradata NOT executed.`);

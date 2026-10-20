@@ -150,6 +150,12 @@ Always filter project/run, optionally field. Comparisons are computed from saved
 results on demand, so runtime depends on result volume, filter pushdown and the
 Teradata workload/plan. DQ_BASIC_REVIEW remains the profiling-only review.
 
+For metric-by-metric investigation of MODERATE/HIGH/ZERO_BASE movements, use
+[the manual MoM review queries](MOM_MANUAL_REVIEW.md). They include previous/
+current values, rate denominators and Excel export completeness counts, using
+confirmed RDS numeric run 17 and other-type run 18 by default. Export is manual;
+no engine Excel-reporting module or extra result table is introduced.
+
 ## Verification and independence
 
 The development team's behavior was reviewed as a reference only. This engine's
