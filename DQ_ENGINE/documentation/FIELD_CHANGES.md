@@ -2,12 +2,14 @@
 
 **DQ_FIELD_CHANGE_REVIEW**, defined in file **94**, is the final wide comparison
 view, like DQ_BASIC_REVIEW. One row represents a successful run, field and actual
-monthly POU_DT. Each metric has its current value, MoM change and YoY change in
-adjacent columns. Numeric Basic and Outliers combine into one field/month row.
+monthly POU_DT. Each metric has its current value, absolute and relative MoM/YoY
+changes and movement flags in adjacent columns. Numeric Basic and Outliers
+combine into one field/month row. File 94 matches the user-supplied deployed
+definition received on 2026-10-20, with the reusable DQ_DB schema placeholder.
 There is one deployed comparison view; file 95 has been removed.
 
 It reads saved monthly results only. No RDS scan, configuration reload, result
-table, stored procedure, rule evaluation or profiling rerun is needed. Querying
+table, stored procedure, shared rule-evaluation call or profiling rerun is needed. Querying
 the view calculates changes on demand. SAS file 06 reads a summary, not all details.
 Account-level jumps/reversions, categorical PSI and rule colours are separate work.
 
@@ -28,8 +30,9 @@ Account-level jumps/reversions, categorical PSI and rule colours are separate wo
 3. Run the updated `sas/01_dq_controller.sas` in the SAS session. Require version
    **20261016_WIDE_CHANGES**. The old controller expects the former detailed
    layout and must be reloaded after replacing the view.
-4. Run `sas/06_run_dq_changes.sas` for your successful short run number with
-   mom=Y and/or yoy=Y. Require dq_change_status=SUCCEEDED.
+4. Query the view directly in Teradata. **File 06 is optional**: run it only if
+   you want WORK.DQ_CHANGE_SUMMARY in SAS, choosing your successful short run
+   number with mom=Y and/or yoy=Y. Require dq_change_status=SUCCEEDED if used.
 
 File 06's settings, Excel files and profiling procedures do not need changes.
 No rerun of file 00 or configuration load is required. Fresh installations
@@ -57,7 +60,10 @@ other types were profiled in separate runs, review their run numbers separately.
 |---|---|
 | MISSING_RATE | Current fractional rate, such as 0.080000 |
 | MISSING_RATE_MOM_CHANGE | Current minus previous calendar month's rate |
+| MISSING_RATE_MOM_REL_CHANGE | (current - previous) / previous, as a fraction |
+| MISSING_RATE_MOM_FLAG | Movement flag from the supplied 10%/20% thresholds |
 | MISSING_RATE_YOY_CHANGE | Current minus the same calendar month's rate last year |
+| MISSING_RATE_YOY_REL_CHANGE / MISSING_RATE_YOY_FLAG | Equivalent annual comparison |
 
 This pattern covers total/non-missing/missing counts and missing rate, special
 count/rate, outlier valid count/count/rate, distinct count, zero count/rate,
@@ -66,12 +72,35 @@ integers. Rates, numeric statistics and their changes have six decimals.
 Categorical/identifier populations reuse saved missing-rate counts as in
 DQ_BASIC_REVIEW. Unsupported columns stay NULL for the field type.
 
-Changes are **signed differences**, not relative percentage changes. For a rate
+Columns ending **_CHANGE** are signed differences. For a rate
 moving from 0.02 to 0.08, the change is **0.060000**. For mean 100 to 125, the
-change is **25.000000**. Six-decimal review precision is used throughout;
+change is **25.000000**. Columns ending **_REL_CHANGE** divide that difference
+by the previous value: the examples give **3.000000** and **0.250000**.
+Both are decimal fractions, not values multiplied by 100.
+Six-decimal review precision is used throughout;
 changes below that precision can disappear. First/missing reference months and
 undefined metrics give NULL changes, never zero. A zero baseline still allows
-a signed difference. Negative values keep their normal subtraction semantics.
+a signed difference. For relative changes, two zero values give zero; a zero
+previous value with nonzero current gives NULL. Missing values remain NULL.
+Negative values retain the signed previous-value denominator.
+
+The supplied definition adds these flags, using the magnitude of the unrounded
+relative calculation (before the six-decimal display cast):
+
+| Flag | Condition |
+|---|---|
+| NOT_EVALUATED | Reference/current value unavailable or relative calculation NULL |
+| ZERO_BASE_MOVEMENT | Previous is zero and current is nonzero |
+| HIGH_RELATIVE_MOVEMENT | Absolute relative movement >= 0.20 |
+| MODERATE_RELATIVE_MOVEMENT | Absolute relative movement >= 0.10 and < 0.20 |
+| LOW_RELATIVE_MOVEMENT | Absolute relative movement < 0.10, including both values zero |
+
+Thresholds apply to every supported metric in this supplied view and are
+currently fixed in file 94. They do not update DQ_RULE_RESULT or represent
+green/amber/red classifications. Relative values with magnitude >= 1E32 display
+NULL because of the decimal range; their flag can still be HIGH_RELATIVE_MOVEMENT.
+Rounding may make a displayed relative value look exactly on a threshold even
+when its flag uses a value just below it.
 
 MOM_PREVIOUS_POU_DT and YOY_PREVIOUS_POU_DT retain available actual reference dates.
 MOM_STATUS and YOY_STATUS summarise only the metrics present for that field:
@@ -84,13 +113,15 @@ MOM_STATUS and YOY_STATUS summarise only the metrics present for that field:
 Unsupported metrics do not contribute to these statuses. A NULL change with a
 missing reference date means no usable reference month/metric was found. A NULL
 change with a reference date can mean an unavailable metric value. The wide
-layout exposes current values and signed changes; the former per-metric
-previous-value/relative-change/reason columns are no longer public columns.
-Statuses are separate from DQ_RULE_RESULT and introduce no classifications.
+layout exposes current values, signed/relative changes and movement flags;
+per-metric previous values and reason columns are not public columns.
+Statuses describe absolute-difference availability, independently of movement
+flags: ZERO_BASE_MOVEMENT can coexist with EVALUATED.
 
 ## Run and review
 
-Run the current controller once per SAS session. File 06 accepts a successful
+Direct Teradata review does not require SAS or file 06. For an optional SAS
+summary, run the current controller once per SAS session. File 06 accepts a successful
 short run number and independent mom/yoy Y/N switches. No Excel reload is needed.
 For example:
 
@@ -122,7 +153,8 @@ For a focused review:
 
 ```sql
 SELECT FIELD_NAME,POU_DT,
-       MISSING_RATE,MISSING_RATE_MOM_CHANGE,MISSING_RATE_YOY_CHANGE,
+       MISSING_RATE,MISSING_RATE_MOM_CHANGE,MISSING_RATE_MOM_REL_CHANGE,MISSING_RATE_MOM_FLAG,
+       MISSING_RATE_YOY_CHANGE,MISSING_RATE_YOY_REL_CHANGE,MISSING_RATE_YOY_FLAG,
        SPECIAL_RATE,SPECIAL_RATE_MOM_CHANGE,SPECIAL_RATE_YOY_CHANGE,
        OUTLIER_RATE,OUTLIER_RATE_MOM_CHANGE,OUTLIER_RATE_YOY_CHANGE,
        MEAN_VALUE,MEAN_VALUE_MOM_CHANGE,MEAN_VALUE_YOY_CHANGE,
@@ -145,9 +177,10 @@ source/customer data, account IDs or credentials were added.
 `node DQ_ENGINE/tools/check_field_changes.mjs` executes the SQL with SQLite date
 and decimal adaptations. It checks exact calendar gaps, all types, specials and
 outliers, missing/zero/negative values, large values, source retention and run/
-project isolation. It verifies every wide metric/change cell against internal
+project isolation. It verifies every wide current/absolute/relative/flag cell against internal
 comparison rows, plus dates, statuses, module merging and the actual SAS summary
-SELECT (including empty results). The isolated optional Teradata fixture
+SELECT (including empty results). Cases include both-zero values, zero-to-nonzero
+movements, exact 10%/20% boundaries and negative movements. The isolated optional Teradata fixture
 `tests/test_field_changes.sql` uses the new wide layout; each assertion must
 return zero rows. No fixture is required to review completed production results.
 

@@ -10,7 +10,7 @@ const ddl=read('teradata/results/94_dq_field_change_review.sql');
 // the type catalogue references a table-backed, exactly-one-row anchor.
 const typeCatalogue=ddl.slice(ddl.indexOf('comparison_types AS'),ddl.indexOf('saved AS'));
 assert.equal((typeCatalogue.match(/FROM comparison_seed/g)||[]).length,2);
-assert.match(ddl,/SELECT COUNT\(\*\) AS SEED_COUNT FROM DQ_DB\.DQ_RUN_NUMBER/);
+assert.match(ddl,/SELECT COUNT\(\*\) AS SEED_COUNT\s+FROM DQ_DB\.DQ_RUN_NUMBER/);
 const db=new DatabaseSync(':memory:');
 db.exec(`CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,PROJECT_ID TEXT,STATUS TEXT);
 CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT PRIMARY KEY,RUN_NUMBER INTEGER);
@@ -62,7 +62,9 @@ for(const period of ['2020-01','2020-02'])metric({run:'legacy',date:null,period,
 metric({date:null,period:'UNKNOWN',name:'MEAN',value:999});
 metric({date:null,period:'ALL',level:'OVERALL',name:'MEAN',value:999});
 metric({date:'2020-12-31',period:'2020',level:'YEARLY',name:'MEAN',value:999});
-for(const [field,values]of [['NEGATIVE',[-10,-5]],['ZERO_BASE',[0,5]],['NULL_PREVIOUS',[null,5]],['EXTREME',[-9e27,9e27]],['OVERFLOW_RATIO',[0.000001,1e28]]])
+for(const [field,values]of [['NEGATIVE',[-10,-5]],['ZERO_BASE',[0,5]],['ZERO_BOTH',[0,0]],
+ ['TENTH',[100,110]],['FIFTH',[100,120]],['BELOW_TENTH',[100,109.9999]],['DOWN_FIFTH',[100,80]],
+ ['NULL_PREVIOUS',[null,5]],['EXTREME',[-9e27,9e27]],['OVERFLOW_RATIO',[0.000001,1e28]]])
  for(const [i,value]of values.entries())metric({field,date:['2020-01-30','2020-02-28'][i],name:'MEAN',value});
 
 /* SQLite does not implement DECIMAL scales. Apply round() only for the
@@ -77,7 +79,7 @@ function roundDecimal(sql){
    if(c==="'"||c==='"'){quote=c;continue;}
    if(c==='(')depth++;if(c===')'&&--depth===0)break;
   }
-  const inner=sql.slice(i+5,j),m=inner.match(/^([\s\S]*) AS DECIMAL\(38,6\)$/i);
+  const inner=sql.slice(i+5,j),m=inner.match(/^([\s\S]*?)\s+AS DECIMAL\(38,6\)\s*$/i);
   out+=m?'round('+roundDecimal(m[1])+',6)':'CAST('+roundDecimal(inner)+')';i=j+1;
  }
  return out;
@@ -90,7 +92,7 @@ const snapshot=JSON.stringify(db.prepare('SELECT * FROM DQ_METRIC_RESULT ORDER B
 db.exec(query);
 // Inspect the internal comparison CTE in tests only; production exposes one
 // wide view and creates no separate detail view.
-const reference=query.slice(query.indexOf('WITH comparison_seed'),query.indexOf('\nSELECT C.RUN_ID'));
+const reference=query.slice(query.indexOf('WITH comparison_seed'),query.search(/\nSELECT\s+C\.RUN_ID/));
 db.exec('CREATE TEMP VIEW DQ_CHANGE_DETAIL_FIXTURE AS '+reference+' SELECT * FROM changes');
 const rows=db.prepare('SELECT * FROM DQ_CHANGE_DETAIL_FIXTURE').all();
 const get=(field,name,date,comparison='MOM',run='main')=>rows.find(r=>r.RUN_ID===run&&r.FIELD_NAME===field&&r.METRIC_NAME===name&&r.POU_DT===date&&r.COMPARISON_TYPE===comparison);
@@ -100,15 +102,15 @@ assert.equal(get('AMOUNT','MEAN_VALUE','2020-01-30').ABSOLUTE_CHANGE,25);
 assert.equal(get('AMOUNT','MEAN_VALUE','2020-01-30').RELATIVE_CHANGE,0.25);
 assert.equal(get('AMOUNT','MISSING_RATE','2020-01-30').CURRENT_VALUE,0.08);
 near(get('AMOUNT','MISSING_RATE','2020-01-30').ABSOLUTE_CHANGE,0.06);
-near(get('AMOUNT','MISSING_RATE','2020-01-30').RATE_CHANGE_PP,6);
-assert.equal(get('AMOUNT','MEAN_VALUE','2020-01-30').RATE_CHANGE_PP,null);
+assert.equal(get('AMOUNT','MISSING_RATE','2020-01-30').RELATIVE_CHANGE,3);
+assert.equal(get('AMOUNT','MEAN_VALUE','2020-01-30').CHANGE_FLAG,'HIGH_RELATIVE_MOVEMENT');
 assert.equal(get('AMOUNT','MEAN_VALUE','2020-03-31').COMPARISON_STATUS,'NOT_EVALUATED','missing February must not pair January with March');
 assert.equal(get('AMOUNT','MEAN_VALUE','2020-12-29','YOY').PREVIOUS_POU_DT,'2019-12-27','YoY is a calendar join, not lag 12 rows');
 assert.equal(get('AMOUNT','MEAN_VALUE','2021-01-29','YOY').ABSOLUTE_CHANGE,125);
 assert.equal(get('AMOUNT','MEAN_VALUE','2021-03-30','YOY').COMPARISON_STATUS,'NOT_EVALUATED');
-assert.match(get('AMOUNT','MEAN_VALUE','2021-03-30','YOY').REASON,/Current metric/);
-assert.equal(get('AMOUNT','MEAN_VALUE','2019-12-27').PREVIOUS_VALUE,null);
-assert.match(get('AMOUNT','MEAN_VALUE','2019-12-27').REASON,/Comparison month/);
+assert.equal(get('AMOUNT','MEAN_VALUE','2021-03-30','YOY').CHANGE_FLAG,'NOT_EVALUATED');
+assert.equal(get('AMOUNT','MEAN_VALUE','2019-12-27').PREVIOUS_POU_DT,null);
+assert.equal(get('AMOUNT','MEAN_VALUE','2019-12-27').CHANGE_FLAG,'NOT_EVALUATED');
 for(const field of ['CATEGORY','ID']){
  assert.equal(get(field,'TOTAL_COUNT','2020-01-30').CURRENT_VALUE,100);
  assert.equal(get(field,'NON_MISSING_COUNT','2020-01-30').CURRENT_VALUE,99);
@@ -119,11 +121,19 @@ assert.equal(get('AMOUNT','OUTLIER_COUNT','2020-01-30').MODULE_NAME,'NUMERIC_OUT
 assert.equal(get('NEGATIVE','MEAN_VALUE','2020-02-28').RELATIVE_CHANGE,-0.5);
 const zero=get('ZERO_BASE','MEAN_VALUE','2020-02-28');
 assert.equal(zero.COMPARISON_STATUS,'EVALUATED');assert.equal(zero.ABSOLUTE_CHANGE,5);
-assert.equal(zero.RELATIVE_CHANGE,null);assert.match(zero.REASON,/previous value is zero/);
-assert.match(get('NULL_PREVIOUS','MEAN_VALUE','2020-02-28').REASON,/Previous metric/);
+assert.equal(zero.RELATIVE_CHANGE,null);assert.equal(zero.CHANGE_FLAG,'ZERO_BASE_MOVEMENT');
+assert.equal(get('NULL_PREVIOUS','MEAN_VALUE','2020-02-28').CHANGE_FLAG,'NOT_EVALUATED');
 assert.equal(get('EXTREME','MEAN_VALUE','2020-02-28').RELATIVE_CHANGE,-2);
 assert.equal(get('OVERFLOW_RATIO','MEAN_VALUE','2020-02-28').RELATIVE_CHANGE,null);
-assert.match(get('OVERFLOW_RATIO','MEAN_VALUE','2020-02-28').REASON,/display range/);
+assert.equal(get('OVERFLOW_RATIO','MEAN_VALUE','2020-02-28').CHANGE_FLAG,'HIGH_RELATIVE_MOVEMENT');
+for(const [field,relative,flag]of [
+ ['ZERO_BOTH',0,'LOW_RELATIVE_MOVEMENT'],['TENTH',.1,'MODERATE_RELATIVE_MOVEMENT'],
+ ['FIFTH',.2,'HIGH_RELATIVE_MOVEMENT'],['BELOW_TENTH',.099999,'LOW_RELATIVE_MOVEMENT'],
+ ['DOWN_FIFTH',-.2,'HIGH_RELATIVE_MOVEMENT']]){
+ const cell=get(field,'MEAN_VALUE','2020-02-28');
+ assert.equal(cell.RELATIVE_CHANGE,relative);assert.equal(cell.CHANGE_FLAG,flag);
+ assert.equal(cell.COMPARISON_STATUS,'EVALUATED');
+}
 assert.equal(rows.some(r=>['failed','running','legacy'].includes(r.RUN_ID)),false);
 assert.equal(get('AMOUNT','MEAN_VALUE','2020-01-15','MOM','second').COMPARISON_STATUS,'NOT_EVALUATED','never borrow previous month from another run');
 assert.equal(get('AMOUNT','MEAN_VALUE','2020-01-30').CURRENT_VALUE,125,'other project cannot contaminate values');
@@ -183,7 +193,12 @@ for(const row of wide){
  for(const name of metricNames){
   const cells=parts.filter(p=>p.METRIC_NAME===name);
   assert.equal(row[name],cells[0]?.CURRENT_VALUE??null,'Current value '+name);
-  for(const type of ['MOM','YOY'])assert.equal(row[name+'_'+type+'_CHANGE'],cells.find(p=>p.COMPARISON_TYPE===type)?.ABSOLUTE_CHANGE??null,'Signed change '+name+'/'+type);
+  for(const type of ['MOM','YOY']){
+   const cell=cells.find(p=>p.COMPARISON_TYPE===type);
+   assert.equal(row[name+'_'+type+'_CHANGE'],cell?.ABSOLUTE_CHANGE??null,'Signed change '+name+'/'+type);
+   assert.equal(row[name+'_'+type+'_REL_CHANGE'],cell?.RELATIVE_CHANGE??null,'Relative change '+name+'/'+type);
+   assert.equal(row[name+'_'+type+'_FLAG'],cell?.CHANGE_FLAG??null,'Movement flag '+name+'/'+type);
+  }
  }
  for(const type of ['MOM','YOY']){
   const cells=parts.filter(p=>p.COMPARISON_TYPE===type),evaluated=cells.filter(p=>p.COMPARISON_STATUS==='EVALUATED').length;
@@ -201,7 +216,7 @@ assert.equal(widePartial.YOY_STATUS,'PARTIALLY_EVALUATED');
 assert(wide.filter(r=>r.FIELD_TYPE==='DATE').every(r=>r.MEAN_VALUE===null&&r.ZERO_RATE_MOM_CHANGE===null));
 assert.equal(wide.some(r=>['failed','running','legacy'].includes(r.RUN_ID)),false);
 assert.deepEqual(db.prepare("SELECT * FROM DQ_FIELD_CHANGE_REVIEW WHERE PROJECT_ID='P1' AND RUN_NUMBER=701").all(),wide.filter(r=>r.PROJECT_ID==='P1'&&r.RUN_NUMBER===701));
-console.log(`Wide review passed: ${wide.length} field/month rows, all 48 metric columns match detailed values; statuses, dates, module merging and isolation verified locally.`);
+console.log(`Wide review passed: ${wide.length} field/month rows, all 112 current/change/relative/flag columns match internal values; statuses, dates, module merging and isolation verified locally.`);
 // SAS reads one aggregate row, then emits the requested type summaries.
 const summarySQL=macro.slice(macro.indexOf('(select CAST(COUNT(*) AS FLOAT) AS FIELD_MONTHS,')+1,
  macro.indexOf(');',macro.indexOf('(select CAST(COUNT(*) AS FLOAT) AS FIELD_MONTHS,')))

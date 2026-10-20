@@ -172,7 +172,8 @@ width expression and checks all reporting-level combinations. The updated
 See [deployment and scope](../documentation/PERFORMANCE_NOTES.md#categorical-and-identifier-batch-update).
 
 Wide change review: `node DQ_ENGINE/tools/check_field_changes.mjs` executes file
-94 and checks all 48 current/MoM/YoY metric columns against internal comparison
+94 and checks all 112 current/absolute/relative/flag metric columns against internal comparison
 rows, dates, statuses, module merging and run/project isolation. It also executes
-the actual SAS summary SELECT against the wide view, including empty inputs.
+the actual SAS summary SELECT against the wide view, including empty inputs,
+both-zero/zero-baseline movements and the supplied 10%/20% flag boundaries.
 File 95 is removed; deployment is [documented here](../documentation/FIELD_CHANGES.md).

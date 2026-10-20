@@ -146,12 +146,16 @@ threshold/reason semantics, historical compatibility and deployment steps.
 ## Field-level monthly changes
 
 DQ_FIELD_CHANGE_REVIEW provides a wide final review: one row per run/field/month with
-current values, signed MOM_CHANGE and YOY_CHANGE columns for each supported
+current values, signed MOM_CHANGE/YOY_CHANGE, MOM_REL_CHANGE/YOY_REL_CHANGE
+and MOM_FLAG/YOY_FLAG columns for each supported
 metric. Counts are integers and other values use six decimals; rates and rate
-changes are fractions. Unsupported/unavailable values stay NULL. MOM_STATUS and
+changes are fractions. Movement flags follow the user-supplied 10%/20%
+relative-magnitude thresholds, with a separate zero-baseline flag. Both-zero
+relative change is zero; missing values remain NULL. MOM_STATUS and
 YOY_STATUS summarise evaluation of the metrics present. No extra result storage
 or profiling run is required.
 
-The SAS summary counts field/month rows by evaluation status. File 94 defines
+The optional SAS summary counts field/month rows by evaluation status; file 06
+is not required to query the view directly in Teradata. File 94 defines
 the only comparison view; no extra result table or separate detail view is needed.
 See [definitions, deployment and examples](FIELD_CHANGES.md).
