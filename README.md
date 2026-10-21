@@ -28,6 +28,10 @@ DQ_FIELD_CHANGE_REVIEW shows current values and MoM/YoY changes side by side per
 See [comparison deployment and operation](DQ_ENGINE/documentation/FIELD_CHANGES.md).
 For reviewing flagged MoM movements in Excel, use the
 [per-metric SQL and manual-review instructions](DQ_ENGINE/documentation/MOM_MANUAL_REVIEW.md).
+For selected important fields, the separate
+[account-level checks](DQ_ENGINE/documentation/ACCOUNT_CHECKS.md) examine
+consecutive-month jumps, reversions and temporary missing/special values.
+They require an explicit field list and thresholds; they are not part of file 00.
 PSI and Excel report export remain deferred.
 See [outlier deployment and validation](DQ_ENGINE/documentation/NUMERIC_OUTLIERS.md).
 See [special-value configuration and validation](DQ_ENGINE/documentation/SPECIAL_VALUES.md) before using this extension.

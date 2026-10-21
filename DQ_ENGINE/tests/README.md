@@ -5,6 +5,12 @@ Excel and run the engine; they do not need to run this folder on every use.
 Replace DQ_DB with the approved test engine database in deployment copies.
 SAS tests require the current controller loaded in the same server session.
 
+Account-level post-RDS prototype: run
+`node DQ_ENGINE/tools/check_account_checks.mjs` for synthetic SQL regression.
+It checks calendar gaps, reversions, missing/special states, summary denominators,
+detail caps and invalid keys. SAS/Teradata execution remains unverified.
+See [operation and field settings](../documentation/ACCOUNT_CHECKS.md).
+
 | File | Purpose |
 |---|---|
 | `validate_rds.sql` | Read-only source/configuration/population checks |
