@@ -8,6 +8,39 @@ Of 55,114 rate movements, 48,640 (88.25%) are below 0.5 percentage points in mag
 
 The main priority investigations are F01–F06. User confirmed the Glenbeigh migration was June 2009. It does not explain the November 2018 or May/June 2019 clusters. No finding has been automatically attributed to migration or closed.
 
+## Recorded explanations - 21 October 2026
+
+The companion [explanation log](RDS_DQ_explanation_log.csv) records the analyst's
+count observation and the development-provided DQ themes. The development
+material was supplied as a chat extract; its original document title/version
+was not provided. These entries record explanations and their scope. They do
+not automatically close the assisted-review findings.
+
+**E01 - Analyst's completed count review:**
+
+> Total count decreased by approximately 10% across all fields in June 2009
+> compared with May 2009. This is consistent with the migration of the
+> Glenbeigh deleveraging portfolio.
+
+This is recorded as the analyst's observation and interpretation. Exact May/June
+totals and an account-level migration reconciliation were not independently
+rechecked in this update. The migration month is June 2009, not June 2019.
+
+| Log entry | Development explanation recorded | Relationship to the findings |
+|---|---|---|
+| E02 | Historical source gaps and unavailable 3/6/12-month lookbacks; incomplete early daily-data coverage | Context for F07; confirm the dates and coverage for each field |
+| E03 | Legacy application/scoring systems and standardisation differences | Check field/system/transition-date mapping; F01 remains open |
+| E04 | ISO Fix balance, arrears and movement remediation during 2007-2012 | Match impacted fields/accounts within that period; does not explain 2013/2019/2024 events |
+| E05 | Portfolio sales and changes around migration | Supports E01 as context; F06 needs evidence for its own 2019 events |
+| E06 | New BER/flood/repossessions fields; limited BER/flood information available to ESG | Context for F08; confirm introduction dates and zero semantics |
+| E07 | Current-account/Visa behavioural attributes apply only to eligible mortgage customers | High baseline missingness may be expected; an abrupt spike still needs reconciliation |
+| E08 | Default/probation attributes apply only to a small process population | Confirm eligible attributes and accounts; does not resolve F09's outlier-method question |
+
+F02's large 2019 amount spikes and F04's 2023 ratio spikes have no specific
+explanation in the supplied development themes. They remain open, as do the
+other findings until their relevant field/date/population match is supported.
+The existing movement flags, profiling values and engine rules are unchanged.
+
 ## F01: Broad missing-data spike: November 2018
 
 **1 - Investigate; 2018-11.**
