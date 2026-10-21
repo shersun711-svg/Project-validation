@@ -114,3 +114,18 @@ and the increase in derived special values.
 - Reconcile affected records to payment transactions, confirm whether payment
   and derived-field values require correction, and update the attestation with
   the explanation and affected scope.
+
+## 5. Treatment of extreme savings-to-balance ratios for very small positive balances
+
+**Observation:** Mean values for `MV_TOT_DEP_SAV_TO_ACC_BAL_RT` and
+`MV_PCKG_SAV_DEP_TO_BALANCE_RT` spike in October 2011, November 2013 and
+June 2023. Source checks show that very small positive account/package balances
+generate extremely large ratios. The calculated values match the documented
+formulas, and a small number of records dominate the means.
+
+**Requested action:**
+
+- Confirm whether the very small positive balances are genuine residual
+  balances and whether the associated savings amounts are correctly mapped.
+- Confirm and document how these records and their ratios should be treated
+  in modelling and validation, including any limitations on use.
