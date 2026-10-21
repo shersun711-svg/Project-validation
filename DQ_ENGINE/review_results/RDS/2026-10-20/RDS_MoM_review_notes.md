@@ -22,7 +22,7 @@ documented causes and availability dates from changes still requiring testing.
 | F01: November 2018 missingness | W503 links late-2018/early-2019 missingness to Glenbeigh; W157 identifies PROBE NULLs between cutover and migration; W147 addresses a different pre-2012 issue for RATE_TYPE | Seek exact event dates and population reconciliation. The source and an explanation are already documented for some fields. RATE_TYPE needs separate confirmation. |
 | F02: PD_SEG_BILL_AMT_PCKG spikes | W592 explains early zero values through August 2006; O592 describes a package/date window sum | The analyst's source check found one repeated large bill amount across all NULL-package records in each spike month. Missing-key aggregation requires CDAO confirmation; see issue 3 in the CDAO report. |
 | F03: CNP zero/special spikes | W49 and W251 explicitly identify a June 2012 PROBE loading error. O423 maps zero PROBE_CNP_AMT to a special value; W423 says special-value DQ needed a rerun | The June 2012 event is a documented data error. The analyst confirmed the June 2024 spike and July reversal in saved results; this is now issue 4 in the CDAO report. Seek its own explanation rather than assuming the 2012 cause applies. The 2008 event remains separate. |
-| F04: 2023 savings/balance ratio spikes | W447 and W444 explain high special rates through savings-account eligibility | This does not explain extreme mean/standard-deviation changes among non-missing, non-special values. Retain for investigation. |
+| F04: Savings/balance ratio spikes in October 2011, November 2013 and June 2023 | W447 and W444 explain high special rates through savings-account eligibility; O447/O444 define savings divided by positive balance, multiplied by 100 | Analyst-provided source examples for all three dates reconcile to the formulas and contain very small positive balances. A small number of extreme records dominate the mean. Confirm balance validity and intended ratio treatment before classifying this as a data defect. |
 | F05: MV_AMORTISATION_RT variability | W412 explains early zero values in January 2005-July 2006 through unavailable last-bill data | This does not explain the April 2013 variability spike. Retain the tail/denominator investigation. |
 | F06: 2019 population/coverage changes | W36 explains expected CLOSED_DT missingness; W381/W479 describe portfolio-sale effects; W463 links May 2019 missingness to Glenbeigh; W473 refers to May 2019 migration | These comments provide relevant context. Do not raise high baseline date-field missingness alone as a new issue. Reconcile the relevant event dates, cohort changes and any residual field-specific movements. |
 | F07: Historical availability/defaults | V58, V60 and V78 give January 2006 availability for PAYMENTS_CR_AMT, PAYMENTS_CR_CNT and TRUE_UP_AMT; V564 gives January 2007 for CALC_CUST_ALL_CHNG_CR_TURNOVER | Several transitions align with documented availability. Confirm early zero/default meanings and NULL-versus-special coding before treating coverage as usable. The CHQ_ANNUAL_CREDIT_TURNOVER date discrepancy is already in the CDAO report. |
@@ -129,13 +129,36 @@ Workbook Evidence contains 81 linked flagged rows across 3 fields for this findi
 
 ## F04: Extreme savings/balance ratio tail movements
 
-**1 - Investigate; 2023; especially June/July.**
+**Clarification of balance validity and ratio treatment; October 2011, November 2013 and June 2023.**
 
 In June 2023 MV_TOT_DEP_SAV_TO_ACC_BAL_RT mean rises from 82.190835 to 52,182.187440 and population standard deviation from 4,569.420745 to 8,995,008.046095. Valid counts are nearly stable (60,306 to 60,461). Mean falls to 134.276024 in July. The related package ratio also rises sharply in June, from 71.236137 to 52,062.014943, then falls to 46.838096.
 
-Large tail influence or ratio scaling is plausible. Confirm the denominator and units; a small denominator is not established from profiling alone. July is a substantial reversal, not proof of an exact return to baseline.
+The analyst's source checks now identify very small positive account/package
+balances in the largest-ratio examples. Ten rows for June 2023 and ten per
+date for October 2011/November 2013 reconcile to the attested formulas at the
+displayed precision. The formulas exclude non-positive balances but divide by
+small positive balances, producing very large ratios.
 
-**Evidence needed:** Check feature lineage, near-zero denominators, source amount units and whether extreme records repeat across the two ratios. Compare January/March/June/September events with processing changes.
+The package-ratio mean also spikes in the two earlier periods:
+
+| Spike month | Previous month mean | Spike mean | Following month mean |
+|---|---:|---:|---:|
+| October 2011 | 7,667.35 | 40,105.90 | 7,569.48 |
+| November 2013 | 3,911.18 | 30,124.30 | 1,728.23 |
+| June 2023 | 71.24 | 52,062.01 | 46.84 |
+
+Using the supplied top-ten package-ratio values and saved valid counts, those
+ten records account for approximately 99.85% of the sum used in the package
+ratio mean for October 2011 and 99.87% for November 2013. This is concentration
+in a small set of records, not evidence of a population-wide change. These
+percentages describe sums of ratio values, not financial exposure or distinct
+account counts. Other records may also have small balances.
+
+**Clarification needed:** Confirm whether the very small positive balances are
+genuine residual balances and whether the associated savings values are
+correctly mapped. Confirm the intended interpretation and treatment of these
+ratios in modelling and validation. The demonstrated arithmetic and extreme
+values alone do not establish incorrect data.
 
 Workbook Evidence contains 68 linked flagged rows across 2 fields for this finding. Companion SQL section 04 retrieves saved-result context; it has not been run against Teradata.
 
