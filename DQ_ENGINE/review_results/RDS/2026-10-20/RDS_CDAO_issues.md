@@ -77,8 +77,10 @@ early zero values through August 2006 but does not address these 2019 amounts.
 
 **Requested action:**
 
-- Confirm how missing package IDs are handled and whether the aggregation
-  combines unrelated records. Assess other dates and related package-level
-  fields for the same issue.
-- Correct the calculation and affected data as required, and update the
-  attestation with the cause, affected periods/population and remediation.
+- Why did the number of records with NULL `PCKG_ID` increase sharply in
+  February and May 2019, and which source/process changes and populations were
+  affected?
+- How should `PD_SEG_BILL_AMT_PCKG` handle NULL package IDs to avoid combining
+  unrelated agreements? Please confirm and make any required corrections to
+  the calculation and affected data, and update the attestation with the cause,
+  affected periods and agreed treatment.
