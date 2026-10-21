@@ -7,7 +7,7 @@ All 85,963 rows were screened; the six export row counts match. No inconsistent 
 Of 55,114 rate movements, 48,640 (88.25%) are below 0.5 percentage points in magnitude. This is a prioritisation observation, not a proposed DQ threshold. Review event counts, denominators and field importance before clearing any row.
 
 The field-level CDAO attestation has now been reviewed alongside these findings.
-The next investigation is F02. The two questions already prepared for CDAO are
+The F02 source check is recorded below. The questions prepared for CDAO are
 in [RDS_CDAO_issues.md](RDS_CDAO_issues.md).
 
 ## Field-level attestation review - 21 October 2026
@@ -20,7 +20,7 @@ documented causes and availability dates from changes still requiring testing.
 | Finding | Relevant attestation | Review conclusion |
 |---|---|---|
 | F01: November 2018 missingness | W503 links late-2018/early-2019 missingness to Glenbeigh; W157 identifies PROBE NULLs between cutover and migration; W147 addresses a different pre-2012 issue for RATE_TYPE | Seek exact event dates and population reconciliation. The source and an explanation are already documented for some fields. RATE_TYPE needs separate confirmation. |
-| F02: PD_SEG_BILL_AMT_PCKG spikes | W592 explains early zero values through August 2006; O592 describes a package/date window sum | The comment does not explain the February/May 2019 amount spikes. Investigate package aggregation and its inputs next. |
+| F02: PD_SEG_BILL_AMT_PCKG spikes | W592 explains early zero values through August 2006; O592 describes a package/date window sum | The analyst's source check found one repeated large bill amount across all NULL-package records in each spike month. Missing-key aggregation requires CDAO confirmation; see issue 3 in the CDAO report. |
 | F03: CNP zero/special spikes | W49 and W251 explicitly identify a June 2012 PROBE loading error. O423 maps zero PROBE_CNP_AMT to a special value; W423 says special-value DQ needed a rerun | The June 2012 event is a documented data error and the ratio derivation supports the linked special-value movement. Confirm remediation and treatment of historical data. The 2008/2024 events require their own explanations. |
 | F04: 2023 savings/balance ratio spikes | W447 and W444 explain high special rates through savings-account eligibility | This does not explain extreme mean/standard-deviation changes among non-missing, non-special values. Retain for investigation. |
 | F05: MV_AMORTISATION_RT variability | W412 explains early zero values in January 2005-July 2006 through unavailable last-bill data | This does not explain the April 2013 variability spike. Retain the tail/denominator investigation. |
@@ -96,6 +96,14 @@ month of account opening. Missing `PCKG_ID` counts in run 18 increase from
 the run-17 amount spikes. Check whether missing package keys cause unrelated
 records to share a window partition. This is a testable hypothesis; the
 calculation-stage keys and live transformation have not yet been verified.
+
+The analyst subsequently checked the source view for NULL package IDs on
+28 February and 31 May 2019. All 9,201 such records in February have bill
+amount 9,664,577.58; all 12,802 in May have bill amount 4,897,476.20. These
+counts match the saved package-ID missing counts. The result supports the
+missing-key aggregation concern and is now recorded as issue 3 in the CDAO
+report. CDAO should confirm the calculation-stage handling, affected scope
+and required correction. No live database query was executed by the assistant.
 
 Workbook Evidence contains 15 linked flagged rows across 1 fields for this finding. Companion SQL section 02 retrieves saved-result context; it has not been run against Teradata.
 

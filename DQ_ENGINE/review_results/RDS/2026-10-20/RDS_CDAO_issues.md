@@ -57,3 +57,28 @@ The observed non-zero values precede the stated availability date.
   values before June 2008.
 - Correct the availability date or historical values as necessary, and document
   any limitations on using the earlier data.
+
+## 3. PD_SEG_BILL_AMT_PCKG amounts for records with missing package IDs
+
+**Observation:** Mean `PD_SEG_BILL_AMT_PCKG` increased from 3,314.66 in January
+2019 to 691,895.50 in February, and from 4,164.17 in April to 525,758.98 in
+May. A source-data check found that every record with a NULL `PCKG_ID` shared
+the same large bill amount within each of the two spike months:
+
+| Fact date | Records with NULL PCKG_ID | Bill amount repeated on every record |
+|---|---:|---:|
+| 28 February 2019 | 9,201 | 9,664,577.58 |
+| 31 May 2019 | 12,802 | 4,897,476.20 |
+
+The attested calculation (O592) sums bill amounts by package ID and reporting
+date. The repeated values are consistent with records having missing package
+IDs being aggregated together. The field's review comment (W592) explains
+early zero values through August 2006 but does not address these 2019 amounts.
+
+**Requested action:**
+
+- Confirm how missing package IDs are handled and whether the aggregation
+  combines unrelated records. Assess other dates and related package-level
+  fields for the same issue.
+- Correct the calculation and affected data as required, and update the
+  attestation with the cause, affected periods/population and remediation.
