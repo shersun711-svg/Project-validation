@@ -35,18 +35,10 @@ tracker-flag remediation rather than the November 2018 change.
 
 **Requested action:**
 
-- Confirm the relevant portfolio sale, data cutover and migration dates, and
-  reconcile the November 2018 missing counts to the affected population and
-  fields.
-- Explain why values became NULL while records remained in the dataset,
-  including any changes from populated, zero or special values. Confirm
-  whether `RATE_TYPE` has the same cause or a separate explanation.
-- Confirm whether the observed changes are expected or require remediation.
-- Update the portfolio-sale documentation within the data attestation, or add
-  a linked event schedule, to record each portfolio's sale/cutover/migration
-  dates, affected source systems/tables and fields, affected population,
-  period of missingness and any limitations on data use. Cross-reference this
-  information from the relevant field-level `DQ_Review_Comment` entries.
+- Confirm the cause and affected population, including whether the examples
+  relate to portfolio sales or changes in data processing.
+- Update the attestation with the relevant portfolio sale, cutover and migration
+  dates, affected sources/fields and period of missingness.
 
 ## 2. CHQ_ANNUAL_CREDIT_TURNOVER historical availability discrepancy
 
@@ -61,15 +53,7 @@ The observed non-zero values precede the stated availability date.
 
 **Requested action:**
 
-- Confirm the first date from which valid data is available.
-- Explain whether earlier zeros represent genuine zero turnover or unavailable
-  data.
-- Confirm whether non-zero values between November 2007 and May 2008 are valid,
-  partially populated or backfilled.
-- Clarify whether June 2008 represents the start of complete or reliable coverage,
-  and which source or coverage change supports that date.
-- Confirm whether the stated availability date or the historical values require
-  correction.
-- Update `Populated_From_Date` and `DQ_Review_Comment`, as appropriate, to
-  document the confirmed availability period, the meaning of early zero
-  values and any limitations on using the earlier data.
+- Confirm the first reliable availability date and explain the zero/non-zero
+  values before June 2008.
+- Correct the availability date or historical values as necessary, and document
+  any limitations on using the earlier data.
