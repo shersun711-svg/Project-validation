@@ -146,7 +146,7 @@ April 2013 examples.
 
 | Finding | Explanation / reference | Conclusion |
 |---|---|---|
-| Total account count: approximately 10% decrease in June 2009 versus May, across all fields | Analyst's completed count review attributes the movement to Glenbeigh portfolio migration. The official event date remains to be confirmed. | Reviewed - portfolio explanation recorded. |
+| Total account count: approximately 10% decrease in June 2009 versus May, across all fields | CDAO explained that the decrease was due to the Glenbeigh portfolio migration in June 2009. | PASS - portfolio movement explained by CDAO. |
 | Flood-score availability improves in December 2023 | Documented introduction date: 1 December 2023 (V579). | PASS - introduction timing explained. |
 | Historical special values in `CALC_CUST_ALL_CHNG_CR_TURNOVER` before January 2007 | Data available from January 2007; earlier 100% special values documented (V564/W564). | PASS - historical coverage explained. |
 | High baseline missingness in `CLOSED_DT` | Closed accounts are not retained in RDS (W36). | PASS - expected missingness. |
