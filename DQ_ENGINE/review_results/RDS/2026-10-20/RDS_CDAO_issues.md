@@ -2,6 +2,9 @@
 
 Prepared: 21 October 2026
 
+Updated against `20260731_CMP2_Data_Attestation_Log_V1_1.xlsx`, sheet
+`Data_Attestation_Log`, using the field-specific `DQ_Review_Comment` column W.
+
 ## 1. November 2018 completeness change
 
 **Observation:** In November 2018, 56 fields each increased from zero missing
@@ -22,15 +25,30 @@ For `CHQ_LMT_UTIL_AVG_BAL_6M`, special counts also decreased from 107,959 to
 89,403 in November. Its combined missing/special rate increased from
 approximately 83.25% to 85.05%, requiring clarification of any change in coding.
 
-The portfolio-sale explanation provided does not specify the relevant event
-dates or affected data sources for the November 2018 change. The connection
-between that explanation and these observations has not been established.
+The attestation already documents a related explanation for some fields:
+
+- `CHQ_ANNUAL_CREDIT_TURNOVER` (W503) states: "Spike in missings for end of
+  2018 and beginning 2019 for Glenbeigh".
+- `CHQ_LMT_UTIL_AVG_BAL_6M` (W157) attributes increased NULLs in 2018/2019 to
+  the Glas and Glenbeigh portfolios and describes "nulls between the cutover
+  and migration date". Its source is explicitly identified as PROBE; the
+  source columns also identify PROBE for `CHQ_ANNUAL_CREDIT_TURNOVER`.
+- `RATE_TYPE` (W147) discusses remediation of the tracker-mortgage flag in
+  pre-2012 PROBE data. It does not explain the November 2018 NULL increase.
+
+The remaining clarification is how the field-specific explanations reconcile
+to the observed November 2018 counts, including exact event dates and affected
+records. The issue should not be described as a complete absence of an
+attestation explanation or source identification. Equal missing counts alone
+do not establish that the same records are affected across fields.
 
 **Requested action:** Please provide a field-specific explanation covering:
 
-- The cause, relevant dates and affected data sources, fields and population.
-- Whether the change relates to a portfolio sale; if so, the portfolio and its
-  sale, data cutover and migration dates.
+- The portfolio sale, data cutover and migration dates underlying the existing
+  comments, and their application to the profiled data.
+- Reconciliation of the November 2018 missing counts to the affected portfolio
+  records and fields, identifying which source feeds or joins were affected.
+- Whether `RATE_TYPE` shares this event or requires a separate explanation.
 - Whether previously populated, zero or special values became NULL, and why
   values became unavailable while records remained in the dataset.
 - Whether the change is expected or requires remediation.
@@ -39,8 +57,9 @@ between that explanation and these observations has not been established.
 
 ## 2. CHQ_ANNUAL_CREDIT_TURNOVER historical availability discrepancy
 
-**Observation:** CDAO comments indicate that data is unavailable until June
-2008. However, profiling shows 100% zero values before November 2007. At the
+**Observation:** The attestation comment for this field (W503) states "No Data
+until June 2008", and its `Populated_From_Date` (V503) is 1 June 2008. However,
+profiling shows 100% zero values before November 2007. At the
 November 2007 change, the zero rate falls to approximately 52%, with the
 remaining 48% containing non-zero values and no NULLs or special values in
 that split.
