@@ -1,13 +1,15 @@
-# RDS data quality validation review
+# RDS step-change test results (MoM)
 
 Prepared: 21 October 2026
 
 Attestation reviewed: `20260731_CMP2_Data_Attestation_Log_V1_1.xlsx`, sheet
 `Data_Attestation_Log`.
 
-The review records both findings requiring clarification and observations
-already explained in the attestation. The five items below remain open;
-documented findings accepted for this review are recorded at the end.
+This report summarises the results of month-on-month (MoM) step-change testing
+of RDS field-level profiling metrics, using numeric run 17 and other-field-type
+run 18. Identified movements were reviewed against the data attestation and
+follow-up data checks. Five findings require CDAO clarification; movements
+explained by existing documentation are summarised at the end.
 
 ## 1. November 2018 completeness change
 
