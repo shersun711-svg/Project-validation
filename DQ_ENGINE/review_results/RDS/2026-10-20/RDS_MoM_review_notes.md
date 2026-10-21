@@ -21,7 +21,7 @@ documented causes and availability dates from changes still requiring testing.
 |---|---|---|
 | F01: November 2018 missingness | W503 links late-2018/early-2019 missingness to Glenbeigh; W157 identifies PROBE NULLs between cutover and migration; W147 addresses a different pre-2012 issue for RATE_TYPE | Seek exact event dates and population reconciliation. The source and an explanation are already documented for some fields. RATE_TYPE needs separate confirmation. |
 | F02: PD_SEG_BILL_AMT_PCKG spikes | W592 explains early zero values through August 2006; O592 describes a package/date window sum | The analyst's source check found one repeated large bill amount across all NULL-package records in each spike month. Missing-key aggregation requires CDAO confirmation; see issue 3 in the CDAO report. |
-| F03: CNP zero/special spikes | W49 and W251 explicitly identify a June 2012 PROBE loading error. O423 maps zero PROBE_CNP_AMT to a special value; W423 says special-value DQ needed a rerun | The June 2012 event is a documented data error and the ratio derivation supports the linked special-value movement. Confirm remediation and treatment of historical data. The 2008/2024 events require their own explanations. |
+| F03: CNP zero/special spikes | W49 and W251 explicitly identify a June 2012 PROBE loading error. O423 maps zero PROBE_CNP_AMT to a special value; W423 says special-value DQ needed a rerun | The June 2012 event is a documented data error. The analyst confirmed the June 2024 spike and July reversal in saved results; this is now issue 4 in the CDAO report. Seek its own explanation rather than assuming the 2012 cause applies. The 2008 event remains separate. |
 | F04: 2023 savings/balance ratio spikes | W447 and W444 explain high special rates through savings-account eligibility | This does not explain extreme mean/standard-deviation changes among non-missing, non-special values. Retain for investigation. |
 | F05: MV_AMORTISATION_RT variability | W412 explains early zero values in January 2005-July 2006 through unavailable last-bill data | This does not explain the April 2013 variability spike. Retain the tail/denominator investigation. |
 | F06: 2019 population/coverage changes | W36 explains expected CLOSED_DT missingness; W381/W479 describe portfolio-sale effects; W463 links May 2019 missingness to Glenbeigh; W473 refers to May 2019 migration | These comments provide relevant context. Do not raise high baseline date-field missingness alone as a new issue. Reconcile the relevant event dates, cohort changes and any residual field-specific movements. |
@@ -116,6 +116,14 @@ In June 2012 PROBE_CNP_AMT zero rate rises from 0.045708 to 0.383846 (6,648 to 5
 CDAO explicitly documents a June 2012 PROBE loading error in W49 and W251. The attested ratio transformation in O423 maps zero PROBE_CNP_AMT to special value -999999, supporting the linked special-value increase.
 
 **Evidence needed:** Confirm whether the June 2012 error was remediated in the supplied RDS or retained as a known historical limitation. Establish its treatment for model use. Review the 2008/2024 events separately; W423's special-value DQ rerun comment also requires clarification.
+
+The analyst's May-July 2024 saved-result check confirmed PROBE_CNP_AMT zero
+counts of 2,566 / 12,916 / 2,691, PCKG_CNP_AMT zero counts of 2,228 / 11,685 /
+2,352, and ratio special counts of 2,731 / 13,089 / 2,972. Total population
+remained broadly stable at 97,173 / 97,129 / 97,147. The June 2024 cause is not
+specified in the corresponding attestation comments. Issue 4 requests an
+explanation and transaction reconciliation, including consideration of payment
+timing or source processing; no June 2024 loading error has been established.
 
 Workbook Evidence contains 81 linked flagged rows across 3 fields for this finding. Companion SQL section 03 retrieves saved-result context; it has not been run against Teradata.
 

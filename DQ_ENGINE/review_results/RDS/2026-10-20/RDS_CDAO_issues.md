@@ -84,3 +84,32 @@ early zero values through August 2006 but does not address these 2019 amounts.
   unrelated agreements? Please confirm and make any required corrections to
   the calculation and affected data, and update the attestation with the cause,
   affected periods and agreed treatment.
+
+## 4. June 2024 increase in zero payments and derived special values
+
+**Observation:** Zero payment counts increased sharply in June 2024 and
+returned close to their previous levels in July:
+
+| Field / metric | May 2024 | June 2024 | July 2024 |
+|---|---:|---:|---:|
+| `PROBE_CNP_AMT` - zero count | 2,566 | 12,916 | 2,691 |
+| `PCKG_CNP_AMT` - zero count | 2,228 | 11,685 | 2,352 |
+| `MV_CAP_PAID_PCT_PYMT_RT` - special count | 2,731 | 13,089 | 2,972 |
+
+Total population remained broadly stable: 97,173 in May, 97,129 in June and
+97,147 in July. The `PROBE_CNP_AMT` zero rate increased from 0.026407 to
+0.132978 before returning to 0.027700.
+
+CDAO's comments for the payment fields (W49 and W251) explain a June 2012
+PROBE loading error and elevated zeros during 2014-2019, but do not address
+June 2024. The attested ratio calculation (O423) assigns special value
+`-999999` when `PROBE_CNP_AMT` is zero, providing a link between zero payments
+and the increase in derived special values.
+
+**Requested action:**
+
+- What caused the temporary increase in zero CNP values in June 2024, including
+  any month-end payment timing or source-processing effects?
+- Please reconcile the affected records to payment transactions, confirm
+  whether the payment and derived ratio data require correction, and update
+  the attestation with the explanation and any limitations on data use.
