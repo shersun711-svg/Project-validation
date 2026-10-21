@@ -34,6 +34,20 @@ WHERE PROJECT_ID='RDS' AND RUN_NUMBER IN (17,18)
   AND FIELD_NAME IN ('PD_SEG_BILL_AMT_PCKG')
 ORDER BY FIELD_NAME,POU_DT,RUN_NUMBER;
 
+/* 02B: F02 first check: package-ID missingness alongside package bill statistics.
+   Attestation W592 covers early zeros, not the February/May 2019 spikes.
+   O592 describes a package/date window sum. Check missing-key grouping as a
+   hypothesis; saved monthly summaries cannot confirm the calculation-stage keys.
+   Mean/standard deviation are not applicable to the identifier row. */
+SELECT RUN_NUMBER,FIELD_NAME,POU_DT,TOTAL_COUNT,
+       MISSING_COUNT,MISSING_RATE,MEAN_VALUE,STDDEV_VALUE
+FROM LAB_T_ORION_MVT.DQ_BASIC_REVIEW
+WHERE PROJECT_ID='RDS' AND RUN_NUMBER IN (17,18)
+  AND PERIOD_LEVEL='MONTHLY'
+  AND FIELD_NAME IN ('PD_SEG_BILL_AMT_PCKG','PCKG_ID')
+  AND POU_DT BETWEEN DATE '2019-01-01' AND DATE '2019-06-30'
+ORDER BY POU_DT,FIELD_NAME,RUN_NUMBER;
+
 /* 03A: F03: June 2012 zero/special spike and subsequent months */
 SELECT RUN_NUMBER,PROJECT_ID,FIELD_NAME,FIELD_TYPE,POU_DT,
        TOTAL_COUNT,NON_MISSING_COUNT,MISSING_COUNT,MISSING_RATE,

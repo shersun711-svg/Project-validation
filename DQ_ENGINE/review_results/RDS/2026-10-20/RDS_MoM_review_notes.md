@@ -6,15 +6,40 @@ All 85,963 rows were screened; the six export row counts match. No inconsistent 
 
 Of 55,114 rate movements, 48,640 (88.25%) are below 0.5 percentage points in magnitude. This is a prioritisation observation, not a proposed DQ threshold. Review event counts, denominators and field importance before clearing any row.
 
-The main priority investigations are F01–F06. User confirmed the Glenbeigh migration was June 2009. It does not explain the November 2018 or May/June 2019 clusters. No finding has been automatically attributed to migration or closed.
+The field-level CDAO attestation has now been reviewed alongside these findings.
+The next investigation is F02. The two questions already prepared for CDAO are
+in [RDS_CDAO_issues.md](RDS_CDAO_issues.md).
+
+## Field-level attestation review - 21 October 2026
+
+Source: `20260731_CMP2_Data_Attestation_Log_V1_1.xlsx`, sheet
+`Data_Attestation_Log`. All 589 fields have a `DQ_Review_Comment` in column W.
+References below identify cells in that sheet. The review distinguishes
+documented causes and availability dates from changes still requiring testing.
+
+| Finding | Relevant attestation | Review conclusion |
+|---|---|---|
+| F01: November 2018 missingness | W503 links late-2018/early-2019 missingness to Glenbeigh; W157 identifies PROBE NULLs between cutover and migration; W147 addresses a different pre-2012 issue for RATE_TYPE | Seek exact event dates and population reconciliation. The source and an explanation are already documented for some fields. RATE_TYPE needs separate confirmation. |
+| F02: PD_SEG_BILL_AMT_PCKG spikes | W592 explains early zero values through August 2006; O592 describes a package/date window sum | The comment does not explain the February/May 2019 amount spikes. Investigate package aggregation and its inputs next. |
+| F03: CNP zero/special spikes | W49 and W251 explicitly identify a June 2012 PROBE loading error. O423 maps zero PROBE_CNP_AMT to a special value; W423 says special-value DQ needed a rerun | The June 2012 event is a documented data error and the ratio derivation supports the linked special-value movement. Confirm remediation and treatment of historical data. The 2008/2024 events require their own explanations. |
+| F04: 2023 savings/balance ratio spikes | W447 and W444 explain high special rates through savings-account eligibility | This does not explain extreme mean/standard-deviation changes among non-missing, non-special values. Retain for investigation. |
+| F05: MV_AMORTISATION_RT variability | W412 explains early zero values in January 2005-July 2006 through unavailable last-bill data | This does not explain the April 2013 variability spike. Retain the tail/denominator investigation. |
+| F06: 2019 population/coverage changes | W36 explains expected CLOSED_DT missingness; W381/W479 describe portfolio-sale effects; W463 links May 2019 missingness to Glenbeigh; W473 refers to May 2019 migration | These comments provide relevant context. Do not raise high baseline date-field missingness alone as a new issue. Reconcile the relevant event dates, cohort changes and any residual field-specific movements. |
+| F07: Historical availability/defaults | V58, V60 and V78 give January 2006 availability for PAYMENTS_CR_AMT, PAYMENTS_CR_CNT and TRUE_UP_AMT; V564 gives January 2007 for CALC_CUST_ALL_CHNG_CR_TURNOVER | Several transitions align with documented availability. Confirm early zero/default meanings and NULL-versus-special coding before treating coverage as usable. The CHQ_ANNUAL_CREDIT_TURNOVER date discrepancy is already in the CDAO report. |
+| F08: Flood-score introduction | V579 gives 1 December 2023 for MIN_FLOODSCORE_DEF; the source is quarterly Gamma data; W579 notes high missingness | The December 2023 availability change matches the attested start date. Confirm the meaning of zero scores; the introduction itself is not an unexplained discontinuity. |
+| F09: Indicator outlier discontinuities | W536/W552 say zero is valid; field definitions describe default indicators | First assess whether the changes result from the mean +/- 3 population-SD rule on discrete indicators. They do not by themselves demonstrate a data defect. |
+| F10: Near-zero mean bases | W419 discusses 2018/2019 missingness; W515 discusses historical availability and portfolio-related missingness | These comments do not explain the selected 2006/2010 near-zero/negative mean changes. Review units, signs and absolute amounts rather than relative flags alone. |
+
+The analyst's earlier June 2009 count observation is retained below as supplied.
+The attestation also contains explicit May 2019 Glenbeigh references. Confirm
+the official sale, cutover and migration timeline before linking these events.
 
 ## Recorded explanations - 21 October 2026
 
 The companion [explanation log](RDS_DQ_explanation_log.csv) records the analyst's
-count observation and the development-provided DQ themes. The development
-material was supplied as a chat extract; its original document title/version
-was not provided. These entries record explanations and their scope. They do
-not automatically close the assisted-review findings.
+count observation and the initially supplied CDAO DQ themes. The field-level
+attestation workbook received subsequently is identified above and provides
+the more specific references used in this update.
 
 **E01 - Analyst's completed count review:**
 
@@ -24,9 +49,10 @@ not automatically close the assisted-review findings.
 
 This is recorded as the analyst's observation and interpretation. Exact May/June
 totals and an account-level migration reconciliation were not independently
-rechecked in this update. The migration month is June 2009, not June 2019.
+rechecked in this update. The June 2009 date was supplied by the analyst; the
+attestation's separate May 2019 references require timeline reconciliation.
 
-| Log entry | Development explanation recorded | Relationship to the findings |
+| Log entry | CDAO explanation recorded | Relationship to the findings |
 |---|---|---|
 | E02 | Historical source gaps and unavailable 3/6/12-month lookbacks; incomplete early daily-data coverage | Context for F07; confirm the dates and coverage for each field |
 | E03 | Legacy application/scoring systems and standardisation differences | Check field/system/transition-date mapping; F01 remains open |
@@ -37,9 +63,8 @@ rechecked in this update. The migration month is June 2009, not June 2019.
 | E08 | Default/probation attributes apply only to a small process population | Confirm eligible attributes and accounts; does not resolve F09's outlier-method question |
 
 F02's large 2019 amount spikes and F04's 2023 ratio spikes have no specific
-explanation in the supplied development themes. They remain open, as do the
-other findings until their relevant field/date/population match is supported.
-The existing movement flags, profiling values and engine rules are unchanged.
+explanation in the corresponding field-level comments. Profiling values,
+movement flags and engine rules have not been changed by this review.
 
 ## F01: Broad missing-data spike: November 2018
 
@@ -47,9 +72,9 @@ The existing movement flags, profiling values and engine rules are unchanged.
 
 86 fields have a missing-rate increase of at least 2 percentage points. In 56 fields, missing counts go from 0 to exactly 20,808. Total population is nearly unchanged: 129,684 to 129,589. RATE_TYPE moves from 2 to 20,809 missing records (0.000015 to 0.160577).
 
-A coordinated coverage or processing event needs an explanation. Identical counts do not establish that the same accounts are affected. For some fields falling special rates offset part of the missing increase, so examine combined usable coverage.
+CDAO's comments link related PROBE missingness to portfolio cutover/migration. For some fields falling special rates offset part of the missing increase, so examine combined usable coverage.
 
-**Evidence needed:** Ask the source owner for November 2018 release/coverage changes and affected cohort. Check overlap of NULL accounts across fields, and valid/non-special counts before and after. Confirm whether this persists in the complete monthly history.
+**Evidence needed:** Reconcile the event dates and affected cohort to the observed counts, including whether RATE_TYPE shares the cause. The analyst's follow-up confirms elevated missingness persists into December for the three sampled fields in the CDAO report.
 
 Workbook Evidence contains 302 linked flagged rows across 86 fields for this finding. Companion SQL section 01 retrieves saved-result context; it has not been run against Teradata.
 
@@ -63,6 +88,15 @@ The spike months have almost stable valid counts, so population size alone does 
 
 **Evidence needed:** Confirm units and feature derivation, duplicate/aggregation handling and any unusual source values in February and May. Obtain a cohort reconciliation for March and June. Confirm model use and materiality with the model owner.
 
+The attestation's W592 comment covers early zero values through August 2006,
+not the 2019 spikes. Its O592 transformation sums bill amounts by package ID
+and reporting date, substituting repayment amount for a zero bill in the first
+month of account opening. Missing `PCKG_ID` counts in run 18 increase from
+621 to 9,201 in February 2019 and from 707 to 12,802 in May, coinciding with
+the run-17 amount spikes. Check whether missing package keys cause unrelated
+records to share a window partition. This is a testable hypothesis; the
+calculation-stage keys and live transformation have not yet been verified.
+
 Workbook Evidence contains 15 linked flagged rows across 1 fields for this finding. Companion SQL section 02 retrieves saved-result context; it has not been run against Teradata.
 
 ## F03: Temporary zero/special-value spikes in linked fields
@@ -71,9 +105,9 @@ Workbook Evidence contains 15 linked flagged rows across 1 fields for this findi
 
 In June 2012 PROBE_CNP_AMT zero rate rises from 0.045708 to 0.383846 (6,648 to 55,680 zeros); it falls to 0.065308 in July. PCKG_CNP_AMT rises from 0.040634 to 0.323491 then falls to 0.053026. MV_CAP_PAID_PCT_PYMT_RT special rate rises from 0.052240 to 0.385267, then falls to 0.068889. Total population changes only from 145,444 to 145,058 in June.
 
-This looks like a short-lived shared event. A zero denominator or payment/feed timing issue is a hypothesis; aggregate summaries cannot confirm record overlap or causality. Similar earlier and later events warrant checking.
+CDAO explicitly documents a June 2012 PROBE loading error in W49 and W251. The attested ratio transformation in O423 maps zero PROBE_CNP_AMT to special value -999999, supporting the linked special-value increase.
 
-**Evidence needed:** Ask for payment-cycle/feed history and derivation of the ratio special values. Compare affected account sets in May/June/July 2012. Explain recurrence before treating this as legitimate seasonality.
+**Evidence needed:** Confirm whether the June 2012 error was remediated in the supplied RDS or retained as a known historical limitation. Establish its treatment for model use. Review the 2008/2024 events separately; W423's special-value DQ rerun comment also requires clarification.
 
 Workbook Evidence contains 81 linked flagged rows across 3 fields for this finding. Companion SQL section 03 retrieves saved-result context; it has not been run against Teradata.
 
@@ -107,7 +141,7 @@ Workbook Evidence contains 35 linked flagged rows across 1 fields for this findi
 
 In June 2019 total population falls from 119,437 to 107,191 (12,246 records). CLOSED_DT missing rate rises from 0.893073 to 0.993563, while its missing count falls slightly from 106,666 to 106,501. May has separate large changes while population is almost stable, e.g. PCKG_INDEXED_LTV_RT missing 0.019635 to 0.121177.
 
-CLOSED_DT is a clear denominator/composition effect, not an increase in the number of missing observations. Other fields/events may involve changed coverage. User confirmed the Glenbeigh migration was June 2009. That event does not explain these 2019 changes. Do not automatically attribute them to migration.
+CLOSED_DT shows a denominator/composition effect rather than an increase in the number of missing observations. W36 explains that closed accounts are not retained. Other field comments link 2019 changes to portfolio sales, including May 2019 Glenbeigh references; confirm the event timeline and remaining field-specific gaps.
 
 **Evidence needed:** Confirm the 2019 selection/cutover rules, March and June cohort exits and any May data preparation. Assess date-field applicability: an open account may legitimately have no closure date. Explain residual changes after cohort reconciliation.
 
@@ -131,7 +165,7 @@ Workbook Evidence contains 126 linked flagged rows across 84 fields for this fin
 
 MIN_FLOODSCORE_DEF missing rate drops from 1.000000 to 0.014996 in December 2023, while zero rate rises from 0 to 0.703424 (69,046 zeros out of 98,157 records). Related flood-score fields also change.
 
-A possible field introduction/coverage change. Confirm whether zero means no risk, an unavailable assessment, or a default. The MIN prefix is part of the field name; no minimum statistic is being reviewed.
+The observed availability change matches the attested start date of 1 December 2023 in V579. Confirm whether zero means no risk, an unavailable assessment, or a default. The MIN prefix is part of the field name; no minimum statistic is being reviewed.
 
 **Evidence needed:** Confirm score availability dates, coverage matching and zero semantics. If zeros are unavailable/default values, review their treatment separately rather than regarding reduced NULL rates as fully improved coverage.
 
