@@ -5,6 +5,10 @@ Prepared: 21 October 2026
 Attestation reviewed: `20260731_CMP2_Data_Attestation_Log_V1_1.xlsx`, sheet
 `Data_Attestation_Log`.
 
+The review records both findings requiring clarification and observations
+already explained in the attestation. The five items below remain open;
+documented findings accepted for this review are recorded at the end.
+
 ## 1. November 2018 completeness change
 
 **Observation:** In November 2018, 56 fields each increased from zero missing
@@ -135,3 +139,30 @@ April 2013 examples.
 - Confirm and document how ratios with near-zero positive denominators should
   be interpreted and treated in modelling and validation, including any
   limitations on use.
+
+## Findings covered by existing documentation
+
+PASS below applies to the specific observation described, rather than every
+aspect of the field or its suitability for model use. References identify cells
+in the attestation's `Data_Attestation_Log` sheet.
+
+| Finding identified during validation | Existing documentation | Review conclusion |
+|---|---|---|
+| `MIN_FLOODSCORE_DEF`: substantial improvement in availability in December 2023 | V579 gives a populated-from date of 1 December 2023; W579 acknowledges high missingness. The source is quarterly Gamma data. | **PASS - documented introduction.** The timing of the availability change matches the recorded start date. This conclusion does not assess the meaning of zero scores. |
+| `CALC_CUST_ALL_CHNG_CR_TURNOVER`: historical special values before January 2007 | V564 gives a populated-from date of 1 January 2007; W564 explicitly records 100% special values before that date. | **PASS - documented historical availability limitation.** The early special-value pattern is explained; those values do not represent usable historical observations. |
+| `CLOSED_DT`: high baseline missingness | W36 explains that missing closure dates are expected because closed accounts are not retained in the RDS once closed. | **PASS - expected baseline missingness.** High missingness alone is not raised as a new issue. This does not establish the cause of any particular portfolio movement. |
+| `CHQ_LMT_UTIL_AVG_BAL_6M`: high baseline special-value rate | W157 explains that not all mortgage customers have current accounts. | **PASS - documented population eligibility.** High baseline special rates are consistent with the stated coverage limitation. The November 2018 change remains subject to issue 1. |
+
+**Documented historical error:** The June 2012 zero-payment spike in
+`PROBE_CNP_AMT` and `PCKG_CNP_AMT` is explicitly attributed to a PROBE loading
+error in W49 and W251. The observed `PROBE_CNP_AMT` zero rate rose from
+approximately 4.57% to 38.38%, consistent with the documented description of
+circa 40%. The cause is already recorded and is not raised as a new unexplained
+issue. This is a known data limitation, rather than a pass on the accuracy of
+the affected values; remediation is not established by that explanation.
+
+**Partly documented findings:** Issue 1 retains the existing Glenbeigh/Glas
+explanations and requests the event dates and affected scope. The June 2012
+and 2014-2019 payment explanations do not resolve the separate June 2024
+event in issue 4. These open questions relate to the remaining gaps in the
+explanations, rather than an absence of documentation.
