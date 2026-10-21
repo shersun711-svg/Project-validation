@@ -108,8 +108,9 @@ and the increase in derived special values.
 
 **Requested action:**
 
-- What caused the temporary increase in zero CNP values in June 2024, including
-  any month-end payment timing or source-processing effects?
-- Please reconcile the affected records to payment transactions, confirm
-  whether the payment and derived ratio data require correction, and update
-  the attestation with the explanation and any limitations on data use.
+- Explain the temporary increase in zero `PROBE_CNP_AMT` values in June 2024,
+  confirming whether it reflects expected payment behaviour/timing or a
+  source-data processing issue.
+- Reconcile affected records to payment transactions, confirm whether payment
+  and derived-field values require correction, and update the attestation with
+  the explanation and affected scope.
