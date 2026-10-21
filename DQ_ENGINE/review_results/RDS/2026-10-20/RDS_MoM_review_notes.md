@@ -23,7 +23,7 @@ documented causes and availability dates from changes still requiring testing.
 | F02: PD_SEG_BILL_AMT_PCKG spikes | W592 explains early zero values through August 2006; O592 describes a package/date window sum | The analyst's source check found one repeated large bill amount across all NULL-package records in each spike month. Missing-key aggregation requires CDAO confirmation; see issue 3 in the CDAO report. |
 | F03: CNP zero/special spikes | W49 and W251 explicitly identify a June 2012 PROBE loading error. O423 maps zero PROBE_CNP_AMT to a special value; W423 says special-value DQ needed a rerun | The June 2012 event is a documented data error. The analyst confirmed the June 2024 spike and July reversal in saved results; this is now issue 4 in the CDAO report. Seek its own explanation rather than assuming the 2012 cause applies. The 2008 event remains separate. |
 | F04: Savings/balance ratio spikes in October 2011, November 2013 and June 2023 | W447 and W444 explain high special rates through savings-account eligibility; O447/O444 define savings divided by positive balance, multiplied by 100 | Analyst-provided source examples for all three dates reconcile to the formulas and contain very small positive balances. A small number of extreme records dominate the mean. Confirm balance validity and intended ratio treatment before classifying this as a data defect. |
-| F05: MV_AMORTISATION_RT variability | W412 explains early zero values in January 2005-July 2006 through unavailable last-bill data | This does not explain the April 2013 variability spike. Retain the tail/denominator investigation. |
+| F05: MV_AMORTISATION_RT variability | W412 explains early zero values in January 2005-July 2006; O412 divides original loan amount by an adjusted bill component and assigns -999998 for negative denominators | Eight of the analyst's ten largest April 2013 values reconcile to tiny positive reconstructed denominators. Two have negative reconstructed denominators but positive stored values. Issue 6 requests calculation-stage input/precision reconciliation and clarification of near-zero treatment. |
 | F06: 2019 population/coverage changes | W36 explains expected CLOSED_DT missingness; W381/W479 describe portfolio-sale effects; W463 links May 2019 missingness to Glenbeigh; W473 refers to May 2019 migration | These comments provide relevant context. Do not raise high baseline date-field missingness alone as a new issue. Reconcile the relevant event dates, cohort changes and any residual field-specific movements. |
 | F07: Historical availability/defaults | V58, V60 and V78 give January 2006 availability for PAYMENTS_CR_AMT, PAYMENTS_CR_CNT and TRUE_UP_AMT; V564 gives January 2007 for CALC_CUST_ALL_CHNG_CR_TURNOVER | Several transitions align with documented availability. Confirm early zero/default meanings and NULL-versus-special coding before treating coverage as usable. The CHQ_ANNUAL_CREDIT_TURNOVER date discrepancy is already in the CDAO report. |
 | F08: Flood-score introduction | V579 gives 1 December 2023 for MIN_FLOODSCORE_DEF; the source is quarterly Gamma data; W579 notes high missingness | The December 2023 availability change matches the attested start date. Confirm the meaning of zero scores; the introduction itself is not an unexplained discontinuity. |
@@ -171,6 +171,22 @@ In April 2013 mean rises from 63,462.214533 to 545,246.366733 and standard devia
 The much wider mean +/- 3 population-standard-deviation bounds can reduce the flagged rate while extreme values become larger. A low outlier rate is therefore not evidence of a stable tail. This observation does not demonstrate an incorrect outlier calculation.
 
 **Evidence needed:** Confirm units, ratio denominator and legitimate bounds with the source/model owner. Inspect extreme contributing records and saved mean/standard-deviation bounds for selected periods. Do not interpret the rate in isolation.
+
+The analyst's April 2013 source check returned ten largest positive values
+alongside their inputs. Eight reconcile to original loan amount divided by
+the displayed six-decimal review denominator; the smallest such denominator
+is 0.000002. Two reconstructed denominators are negative, yet the stored
+amortisation values are positive and exceed 100 million. O412's negative
+branch would assign -999998 if the same inputs were used.
+
+The supplied final-view DDL exposes TRS_AMT from its transaction aggregate
+alias AGTF, while the attested calculation refers to MTG.TRS_AMT. This is a
+source-mapping lead to reconcile, not proof that the two stages used the same
+TRS values. CDAO should confirm calculation-stage inputs, source versions,
+signs and precision before attributing the discrepancy to a calculation error.
+Very small positive denominator treatment also needs confirmation. These
+questions are recorded as issue 6 in the CDAO report; no engine logic or
+database values have been changed.
 
 Workbook Evidence contains 35 linked flagged rows across 1 fields for this finding. Companion SQL section 05; 08 retrieves saved-result context; it has not been run against Teradata.
 

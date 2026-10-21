@@ -129,3 +129,26 @@ formulas, and a small number of records dominate the means.
   balances and whether the associated savings amounts are correctly mapped.
 - Confirm and document how these records and their ratios should be treated
   in modelling and validation, including any limitations on use.
+
+## 6. MV_AMORTISATION_RT extreme values and input reconciliation
+
+**Observation:** The mean `MV_AMORTISATION_RT` increased from 63,462.21 in
+March 2013 to 545,246.37 in April, while standard deviation increased from
+5,991,903.72 to 179,087,695.78.
+
+A check of the ten largest April values identified eight records whose large
+values reconcile to very small positive denominators reconstructed from the
+displayed RDS inputs. Two records have negative reconstructed denominators
+but large positive stored amortisation values. The attested calculation
+(O412) assigns special value `-999998` for a negative denominator.
+
+CDAO's comment (W412) explains early zero values during 2005-2006 but does not
+address the April 2013 spike or these reconciliation differences.
+
+**Requested action:**
+
+- Reconcile the stored values to the attested calculation and RDS inputs,
+  particularly the negative-denominator cases, confirming the `TRS_AMT`
+  source/sign and calculation precision.
+- Confirm the intended treatment of very small positive denominators, and
+  correct the affected values or attestation as required.
