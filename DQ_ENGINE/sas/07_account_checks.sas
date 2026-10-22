@@ -2,25 +2,31 @@
    All program text is ASCII for LATIN9 sessions. No permanent database writes.
    One field at a time: a session-local evaluated table is dropped after use. */
 %global dq_account_controller_version;
-%let dq_account_controller_version=20261022_SQL_LITERALS;
+%let dq_account_controller_version=20261022_SPECIAL_JOIN;
 %put NOTE: DQ account controller loaded: &dq_account_controller_version;
 %macro dq_at_create;
 /* ACCOUNT_SQL_BEGIN: executed on synthetic data by check_account_checks.mjs. */
 execute (
  CREATE MULTISET VOLATILE TABLE DQ_AT_CHECK AS
  (
-  WITH source_values AS
+  WITH special_values AS
   (
-   SELECT "&_account" AS ACCOUNT_KEY,CAST("&_date" AS DATE) AS POU_DT,
-          EXTRACT(YEAR FROM "&_date")*12+EXTRACT(MONTH FROM "&_date") AS MONTH_KEY,
-          CAST("&_field" AS VARCHAR(512) CASESPECIFIC) AS DISPLAY_VALUE,
-          CHARACTER_LENGTH(CAST("&_field" AS VARCHAR(32000))) AS VALUE_LENGTH,
-          CHARACTER_LENGTH(CAST("&_account" AS VARCHAR(32000))) AS ACCOUNT_LENGTH,
+   SELECT DISTINCT &_special_value_sql AS SPECIAL_KEY
+     FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG
+    WHERE PROJECT_ID=&_project_sql AND FIELD_TYPE=&_type_sql AND ACTIVE_IND='Y'
+  ), source_values AS
+  (
+   SELECT S."&_account" AS ACCOUNT_KEY,CAST(S."&_date" AS DATE) AS POU_DT,
+          EXTRACT(YEAR FROM S."&_date")*12+EXTRACT(MONTH FROM S."&_date") AS MONTH_KEY,
+          CAST(S."&_field" AS VARCHAR(512) CASESPECIFIC) AS DISPLAY_VALUE,
+          CHARACTER_LENGTH(CAST(S."&_field" AS VARCHAR(32000))) AS VALUE_LENGTH,
+          CHARACTER_LENGTH(CAST(S."&_account" AS VARCHAR(32000))) AS ACCOUNT_LENGTH,
           &_number_sql AS NUMBER_VALUE,
           CASE WHEN &_missing_sql THEN 'MISSING'
-               WHEN &_special_sql THEN 'SPECIAL' ELSE 'VALID' END AS VALUE_STATE
-     FROM "&_source_db"."&_source_table"
-    WHERE "&_date">=DATE &_start_sql AND "&_date"<DATE &_end_sql
+               WHEN SV.SPECIAL_KEY IS NOT NULL THEN 'SPECIAL' ELSE 'VALID' END AS VALUE_STATE
+     FROM "&_source_db"."&_source_table" S
+     LEFT JOIN special_values SV ON &_special_match_sql
+    WHERE S."&_date">=DATE &_start_sql AND S."&_date"<DATE &_end_sql
   ), neighbours AS
   (
    SELECT S.*,
@@ -98,7 +104,8 @@ execute (
     start_date=,end_date=,max_details=1000);
  %local _i _n _bad _field _type _stable _abs_min _rel_min _return_abs _return_rel
         _source_db _source_table _account _date _rows _bad_keys _number_sql
-        _missing_sql _special_sql _end_exclusive _created _connected _bad_values
+        _missing_sql _special_value_sql _special_match_sql _end_exclusive
+        _created _connected _bad_values
         _project_sql _start_sql _end_sql _check_sql _field_sql _type_sql _stable_sql;
  %global dq_account_status dq_account_error dq_account_check_id;
  %let dq_account_status=FAILED;
@@ -281,15 +288,18 @@ execute (
    %if &dq_sql_failed %then %goto db_error;
    %let _connected=1;
    %let _number_sql=CAST(NULL AS FLOAT);
-   %let _missing_sql=("&_field" IS NULL OR TRIM(CAST("&_field" AS VARCHAR(512)))='');
-   %let _special_sql=1=0;
+   %let _missing_sql=(S."&_field" IS NULL OR TRIM(CAST(S."&_field" AS VARCHAR(512)))='');
+   %let _special_value_sql=CAST(NULL AS VARCHAR(128));
+   %let _special_match_sql=1=0;
    %if &_type=NUMERIC %then %do;
-    %let _number_sql=CAST("&_field" AS FLOAT);
-    %let _missing_sql="&_field" IS NULL;
-    %let _special_sql="&_field" IN (SELECT NUMERIC_VALUE FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG WHERE PROJECT_ID=&_project_sql AND FIELD_TYPE='NUMERIC' AND ACTIVE_IND='Y');
+    %let _number_sql=CAST(S."&_field" AS FLOAT);
+    %let _missing_sql=S."&_field" IS NULL;
+    %let _special_value_sql=NUMERIC_VALUE;
+    %let _special_match_sql=S."&_field"=SV.SPECIAL_KEY;
    %end;
    %else %if &_type=CATEGORICAL %then %do;
-    %let _special_sql=UPPER(TRIM(CAST("&_field" AS VARCHAR(512)))) IN (SELECT UPPER(TRIM(SPECIAL_VALUE)) FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG WHERE PROJECT_ID=&_project_sql AND FIELD_TYPE='CATEGORICAL' AND ACTIVE_IND='Y');
+    %let _special_value_sql=UPPER(TRIM(SPECIAL_VALUE));
+    %let _special_match_sql=UPPER(TRIM(CAST(S."&_field" AS VARCHAR(512))))=SV.SPECIAL_KEY;
    %end;
    %put NOTE: DQ ACCOUNT CHECK: &_field (&_i of &_n).;
    %dq_at_create;

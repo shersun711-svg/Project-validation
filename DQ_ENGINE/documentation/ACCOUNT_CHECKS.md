@@ -26,7 +26,7 @@ Existing controller macros supply connection/error handling only.
 ### Field-name validation fix
 
 If file 06 reports Invalid important-field configuration for the supplied list,
-reload the latest file 07. Its current log version is **20261022_SQL_LITERALS**.
+reload the latest file 07. Its current log version is **20261022_SPECIAL_JOIN**.
 The check now removes SAS fixed-width padding at the identifier-regex call.
 Invalid names or Y/N settings also print the affected field in DQ ACCOUNT CONFIG
 log messages. Rerun file 06 after loading the updated macros; no Excel reload
@@ -41,6 +41,16 @@ produce the misleading one-active-project error even with valid configuration.
 Reload file 07 and rerun file 06. Expect a log line such as
 `DQ ACCOUNT PROJECT: database=LAB_T_ORION_MVT project=RDS active_rows=1`.
 No project/field configuration change or profiling rerun is needed for this fix.
+
+### Teradata special-value CASE fix
+
+The current file 07 matches the active project's special values with a small
+deduplicated LEFT JOIN before classifying each observation. It avoids the
+IN-subquery inside CASE WHEN that Teradata rejected. Duplicate numeric values
+or categorical labels that normalise to the same value cannot multiply source
+rows. Missing values retain precedence and other projects/inactive settings are
+excluded. Reload file 07 and rerun file 06; no workbook or database changes are
+needed. SAS/Teradata server execution still requires verification.
 
 ## Select fields and thresholds
 

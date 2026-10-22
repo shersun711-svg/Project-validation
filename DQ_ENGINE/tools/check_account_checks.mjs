@@ -7,12 +7,23 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
 const sas=fs.readFileSync(new URL('../sas/07_account_checks.sas',import.meta.url),'utf8');
-const body=sas.slice(sas.indexOf('WITH source_values AS'),sas.indexOf(') WITH DATA PRIMARY INDEX'));
+const body=sas.slice(sas.indexOf('WITH special_values AS'),sas.indexOf(') WITH DATA PRIMARY INDEX'));
 assert.ok(body.length>4000);
 const flags=['NUMERIC_JUMP','NUMERIC_REVERSION','VALUE_REVERSION','MISSING_REVERSION',
  'SPECIAL_REVERSION','BECAME_MISSING','BECAME_SPECIAL','STABLE_VALUE_CHANGE'];
 const db=new DatabaseSync(':memory:');
 db.exec('CREATE TABLE SOURCE (AGMT_ID TEXT,FACT_DT TEXT,FIELD_VALUE);');
+db.exec('CREATE TABLE DQ_SPECIAL_VALUE_CONFIG (PROJECT_ID TEXT,FIELD_TYPE TEXT,'+
+ 'ACTIVE_IND TEXT,NUMERIC_VALUE NUMERIC,SPECIAL_VALUE TEXT);'+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','NUMERIC','Y',-999,'-999');"+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','NUMERIC','Y',-999,'-999.0');"+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('OTHER','NUMERIC','Y',100,'100');"+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','NUMERIC','N',300,'300');"+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','CATEGORICAL','Y',NULL,'UNKNOWN');"+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','CATEGORICAL','Y',NULL,' unknown ');"+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','CATEGORICAL','Y',NULL,'N/A');"+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('OTHER','CATEGORICAL','Y',NULL,'A');"+
+ "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','CATEGORICAL','N',NULL,'B');");
 const put=db.prepare('INSERT INTO SOURCE VALUES (?,?,?)');
 const months=['2019-12-31','2020-01-31','2020-02-29','2020-03-31','2020-04-30'];
 function series(id,values,dates=months.slice(1,4)){
@@ -29,11 +40,13 @@ function sql(type='NUMERIC',stable='N',fragment=body){
   dq_database:'main',_project_sql:quote('TEST'),_check_sql:quote('synthetic-check'),
   _field_sql:quote('FIELD_VALUE'),_type_sql:quote(type),_stable_sql:quote(stable),
   _start_sql:quote('2019-01-01'),_end_sql:quote('2021-01-01'),
-  _number_sql:type==='NUMERIC'?'CAST("FIELD_VALUE" AS FLOAT)':'CAST(NULL AS FLOAT)',
-  _missing_sql:type==='NUMERIC'?'"FIELD_VALUE" IS NULL':
-   '("FIELD_VALUE" IS NULL OR TRIM(CAST("FIELD_VALUE" AS VARCHAR(512)))=\'\')',
-  _special_sql:type==='NUMERIC'?'"FIELD_VALUE" IN (-999)':
-   type==='CATEGORICAL'?'UPPER(TRIM("FIELD_VALUE")) IN (\'UNKNOWN\',\'N/A\')':'1=0'
+  _number_sql:type==='NUMERIC'?'CAST(S."FIELD_VALUE" AS FLOAT)':'CAST(NULL AS FLOAT)',
+  _missing_sql:type==='NUMERIC'?'S."FIELD_VALUE" IS NULL':
+   '(S."FIELD_VALUE" IS NULL OR TRIM(CAST(S."FIELD_VALUE" AS VARCHAR(512)))=\'\')',
+  _special_value_sql:type==='NUMERIC'?'NUMERIC_VALUE':
+   type==='CATEGORICAL'?'UPPER(TRIM(SPECIAL_VALUE))':'CAST(NULL AS VARCHAR(128))',
+  _special_match_sql:type==='NUMERIC'?'S."FIELD_VALUE"=SV.SPECIAL_KEY':
+   type==='CATEGORICAL'?'UPPER(TRIM(CAST(S."FIELD_VALUE" AS VARCHAR(512))))=SV.SPECIAL_KEY':'1=0'
  };
  // SAS does not resolve references inside single-quoted source tokens.
  // Consume a SAS macro delimiter dot, retaining the database separator dot.
@@ -42,9 +55,9 @@ function sql(type='NUMERIC',stable='N',fragment=body){
   assert.ok(k in p,'Unknown SQL parameter '+k);return p[k];
  });
  q=q.replace(/DATE '([^']+)'/g,"'$1'")
-  .replace(/CAST\(("[^"]+") AS DATE\)/g,'$1')
-  .replace(/EXTRACT\(YEAR FROM ("[^"]+"|POU_DT)\)/g,"CAST(strftime('%Y',$1) AS INTEGER)")
-  .replace(/EXTRACT\(MONTH FROM ("[^"]+"|POU_DT)\)/g,"CAST(strftime('%m',$1) AS INTEGER)")
+  .replace(/CAST\(((?:S\.)?"[^"]+") AS DATE\)/g,'$1')
+  .replace(/EXTRACT\(YEAR FROM ((?:S\.)?"[^"]+"|POU_DT)\)/g,"CAST(strftime('%Y',$1) AS INTEGER)")
+  .replace(/EXTRACT\(MONTH FROM ((?:S\.)?"[^"]+"|POU_DT)\)/g,"CAST(strftime('%m',$1) AS INTEGER)")
   .replace(/NULLIFZERO\(ABS\(([^)]+)\)\)/g,'NULLIF(ABS($1),0)')
   .replace(/GREATEST\(/g,'MAX(')
   .replace(/CHARACTER_LENGTH\(/g,'length(')
@@ -96,6 +109,8 @@ function expected(prev,cur,next,type,stable){
 let checked=0;
 function verify(type='NUMERIC',stable='N'){
  const rows=run(type,stable);
+ assert.equal(rows.length,db.prepare('SELECT COUNT(*) AS N FROM SOURCE').get().N,
+  'Normalised duplicate special values must not multiply source observations');
  for(let i=0;i<rows.length;i++){
   const cur=rows[i],p=rows[i-1]?.ACCOUNT_KEY===cur.ACCOUNT_KEY?rows[i-1]:null,
    n=rows[i+1]?.ACCOUNT_KEY===cur.ACCOUNT_KEY?rows[i+1]:null;
@@ -252,6 +267,11 @@ for(const token of singleQuotedTokens(sas))
 assert.ok(sas.includes("%let _project_sql=%sysfunc(quote(%superq(project),%str(%')));"));
 assert.ok(sas.includes('WHERE PROJECT_ID=&_project_sql'));
 assert.ok(sas.includes('DQ ACCOUNT PROJECT: database='));
+assert.match(sas,/SELECT DISTINCT &_special_value_sql AS SPECIAL_KEY/);
+assert.match(sas,/LEFT JOIN special_values SV ON &_special_match_sql/);
+assert.match(sas,/WHEN SV\.SPECIAL_KEY IS NOT NULL THEN 'SPECIAL'/);
+assert.doesNotMatch(sas,/\bIN\s*\(\s*SELECT\b/i,
+ 'Teradata CASE conditions must not contain IN-subqueries');
 console.log('Account checks: '+checked+' synthetic rows match an independent oracle; '+
  'calendar gaps, missing/specials, numeric/category reversions, cap, grain and empty cases passed.');
 console.log('SAS/Teradata execution, physical plans and runtime remain unverified.');
