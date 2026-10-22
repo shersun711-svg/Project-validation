@@ -7,11 +7,12 @@
 
 /* Upload config/DQ_RDS_account_fields.xlsx to a SAS-accessible server folder.
    Edit its AccountFields sheet, not the main profiling workbook.
-   The prepared list has 24 fields; numeric limits still require agreement.
+   The workbook retains all 24 fields. Only package balance and package
+   repayment are active for the pilot, with provisional screening limits.
    Missing limits on active numeric fields stop before source testing. */
 %let account_fields_file=;
-%let account_start_date=; /* YYYY-MM-DD; include prior/following reference months. */
-%let account_end_date=;
+%let account_start_date=2025-10-01;
+%let account_end_date=2026-03-31;
 %let account_max_details=1000; /* Per field; monthly summaries remain uncapped. */
 
 %macro dq_start_account_checks;

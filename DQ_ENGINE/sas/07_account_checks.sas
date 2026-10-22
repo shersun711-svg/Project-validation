@@ -2,7 +2,7 @@
    All program text is ASCII for LATIN9 sessions. No permanent database writes.
    One field at a time: a session-local evaluated table is dropped after use. */
 %global dq_account_controller_version;
-%let dq_account_controller_version=20261021_ACCOUNT_TEMPORAL;
+%let dq_account_controller_version=20261022_FIRST_JUMP_REVERSION;
 %put NOTE: DQ account controller loaded: &dq_account_controller_version;
 %macro dq_at_create;
 /* ACCOUNT_SQL_BEGIN: executed on synthetic data by check_account_checks.mjs. */
@@ -57,9 +57,8 @@ execute (
                THEN 1 ELSE 0 END AS NUMERIC_JUMP,
           CASE WHEN '&_type'='NUMERIC' AND TRIPLE_ELIGIBLE=1
                  AND PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID' AND NEXT_STATE='VALID'
-                 AND ABS(CHANGE_VALUE)>=&_abs_min AND ABS(NEXT_CHANGE_VALUE)>=&_abs_min
+                 AND ABS(CHANGE_VALUE)>=&_abs_min
                  AND (PREVIOUS_NUMBER=0 OR ABS(RELATIVE_CHANGE)>=&_rel_min)
-                 AND (NUMBER_VALUE=0 OR ABS(NEXT_RELATIVE_CHANGE)>=&_rel_min)
                  AND ((CHANGE_VALUE>0 AND NEXT_CHANGE_VALUE<0)
                    OR (CHANGE_VALUE<0 AND NEXT_CHANGE_VALUE>0))
                  AND ABS(NEXT_NUMBER-PREVIOUS_NUMBER)

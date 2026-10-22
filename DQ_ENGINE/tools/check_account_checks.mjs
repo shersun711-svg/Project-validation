@@ -61,7 +61,7 @@ function expected(prev,cur,next,type,stable){
  const e={};
  e.NUMERIC_JUMP=+(type==='NUMERIC'&&pair&&valid(prev)&&valid(cur)&&jump(x,y));
  e.NUMERIC_REVERSION=+(type==='NUMERIC'&&triple&&valid(prev)&&valid(cur)&&valid(next)
-  &&jump(x,y)&&jump(y,z)&&Math.sign(y-x)===-Math.sign(z-y)
+  &&jump(x,y)&&Math.sign(y-x)===-Math.sign(z-y)
   &&Math.abs(z-x)<=Math.max(2,Math.abs(x)*.01));
  e.VALUE_REVERSION=+(type!=='NUMERIC'&&triple&&valid(prev)&&valid(cur)&&valid(next)
   &&prev.DISPLAY_VALUE===next.DISPLAY_VALUE&&cur.DISPLAY_VALUE!==prev.DISPLAY_VALUE);
@@ -95,6 +95,7 @@ series('missing',[100,null,100]);
 series('special',[100,-999,100]);
 series('sign_flip',[100,-100,100]);
 series('threshold',[200,250,200]); // both absolute/relative thresholds inclusive
+series('asymmetric_return',[250,300,250]); // first 20%; return only 16.67%
 series('gap',[100,900,100],['2019-12-31','2020-02-29','2020-03-31']);
 series('gap_after',[100,900,100],['2020-01-31','2020-02-29','2020-04-30']);
 series('no_return',[100,900,300]);
@@ -118,6 +119,14 @@ assert.equal(at('no_return').NUMERIC_REVERSION,0);
 assert.equal(at('missing').MISSING_REVERSION,1);
 assert.equal(at('special').SPECIAL_REVERSION,1);
 assert.equal(at('threshold').NUMERIC_REVERSION,1);
+assert.equal(at('asymmetric_return').NUMERIC_REVERSION,1);
+// Recommended 50% first-leg rule still catches 100 -> 150 -> 100.
+db.exec('SAVEPOINT half_threshold');
+series('half_threshold',[100,150,100]);
+db.exec('DROP TABLE DQ_AT_CHECK');
+db.exec('CREATE TABLE DQ_AT_CHECK AS '+sql().replaceAll('>=0.20','>=0.50'));
+assert.equal(db.prepare("SELECT NUMERIC_REVERSION FROM DQ_AT_CHECK WHERE ACCOUNT_KEY='half_threshold' AND POU_DT='2020-02-29'").get().NUMERIC_REVERSION,1);
+db.exec('ROLLBACK TO half_threshold; RELEASE half_threshold');
 // Exercise the production detail QUALIFY semantics through a nested SELECT.
 const totals=db.prepare('SELECT COUNT(*) AS N FROM DQ_AT_CHECK WHERE FLAGGED_ROW=1').get().N;
 const detail=sas.match(/create table work\._dq_at_one_detail as select \* from connection to dq\s+\(([\s\S]*?)\);\n   %dq_check_sql/)[1];
@@ -212,8 +221,13 @@ assert.deepEqual(configRows[0],['FIELD_NAME','ACTIVE_IND','ABS_CHANGE_MIN','REL_
 const selected=configRows.slice(1);
 assert.equal(selected.length,24);
 assert.equal(new Set(selected.map(r=>r[0])).size,24);
-assert.ok(selected.every(r=>r[1]==='Y'));
-assert.ok(selected.every(r=>[2,3,4,5].every(i=>r[i]===undefined)),'No assumed numeric limits');
+assert.deepEqual(selected.filter(r=>r[1]==='Y').map(r=>r[0]),
+ ['PCKG_BALANCE_AMT','PCKG_REPAY_AMT']);
+assert.equal(selected.filter(r=>r[1]==='N').length,22);
+assert.deepEqual(selected.find(r=>r[0]==='PCKG_BALANCE_AMT').slice(2,6),[10000,.50,1000,.05]);
+assert.deepEqual(selected.find(r=>r[0]==='PCKG_REPAY_AMT').slice(2,6),[250,.50,25,.05]);
+assert.ok(selected.filter(r=>r[1]==='N').every(r=>[2,3,4,5].every(i=>r[i]===undefined)),
+ 'Other field limits remain unset');
 assert.ok(selected.some(r=>r[0]==='PCKG_REPAY_AMT'));
 assert.ok(!selected.some(r=>r[0]==='DPD'));
 assert.deepEqual(selected.filter(r=>r[6]==='Y').map(r=>r[0]),
@@ -236,10 +250,10 @@ const runner=fs.readFileSync(new URL('../sas/06_run_account_checks.sas',import.m
 assert.match(runner,/sheet="AccountFields"/);
 assert.match(runner,/abs_change_min=input\(strip\(vvalue\(_abs\)\),\?\? best32\.\)/);
 assert.match(runner,/%let account_fields_file=;/);
-assert.match(runner,/%let account_start_date=;/);
-assert.match(runner,/%let account_end_date=;/);
+assert.match(runner,/%let account_start_date=2025-10-01;/);
+assert.match(runner,/%let account_end_date=2026-03-31;/);
 assert.ok(runner.indexOf('%let dq_account_status=FAILED')<runner.indexOf('proc import'));
 assert.doesNotMatch(runner,/SP_DQ_APPLY_CONFIG|SP_DQ_RUN_ENGINE/);
 assert.ok(!/[^\x00-\x7f]/.test(runner));
 console.log('Account workbook: 24 unique mapped fields (14 numeric, 9 categorical, 1 date), '+
- 'confirmed repayment inclusion, DPD exclusion, aliases and unset numeric limits checked.');
+ 'two-field pilot, DPD exclusion, aliases and remaining unset numeric limits checked.');

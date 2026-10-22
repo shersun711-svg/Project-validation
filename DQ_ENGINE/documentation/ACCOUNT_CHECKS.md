@@ -10,8 +10,8 @@ The implementation was written independently; no CDAO code was copied.
 1. Open/run `sas/01_dq_controller.sas`, then `sas/07_account_checks.sas` in the
    same SAS server session.
 2. Edit `config/DQ_RDS_account_fields.xlsx`, sheet `AccountFields`. The supplied
-   important-field selection is prepared; numeric movement limits remain blank
-   until agreed. Upload this workbook to a SAS-accessible server folder.
+   important-field selection is prepared, with two fields active for the pilot
+   below. Upload this workbook to a SAS-accessible server folder.
 3. In `sas/06_run_account_checks.sas`, set `account_fields_file` to that server
    path and set explicit `account_start_date` / `account_end_date` values.
 4. Run file 06. Require `dq_account_status=SUCCEEDED` before reviewing
@@ -66,12 +66,29 @@ the CDAO column and package-balance description. Account BALANCE_AMT is not
 silently added. `IO_AT_ORIGINATION_IND` and `CUTOVER_DT` are suggested for the
 normally-fixed check; other selected fields have STABLE_VALUE_IND=N.
 
-Numeric limits are deliberately unset; file 06 cannot start testing active
-numeric fields until they are supplied. No common financial materiality limit
-is assumed across amounts, ratios and counters. Counter resets/increments,
+The two pilot fields have provisional review limits. Other numeric limits are
+unset, and the remaining 22 fields are inactive. No common financial materiality
+limit is assumed across amounts, ratios and counters. Counter resets/increments,
 package membership changes and updated application/collateral selections may
 explain flagged movements. EVENT_DESCRIPTION receives temporal profiling only;
 default-policy validation stays outside scope.
+
+### First pilot
+
+File 06 is set to **1 October 2025 through 31 March 2026**. Set the workbook
+server path before running. The two active fields use these initial screening
+limits; they are not approved materiality thresholds or automatic DQ failures:
+
+| Field | Absolute jump | Relative jump | Absolute return tolerance | Relative return tolerance |
+|---|---:|---:|---:|---:|
+| PCKG_BALANCE_AMT | 10,000 | 0.50 | 1,000 | 0.05 |
+| PCKG_REPAY_AMT | 250 | 0.50 | 25 | 0.05 |
+
+Require successful execution, then review the full summary and selected detail
+for plausible movements and returns. Preserve the outputs and revise limits
+if the screen is too broad/narrow. Other ratios need unit-specific limits;
+months-since counters need counter-specific increment/reset checks before
+activation. The original 24-field list is retained in the workbook.
 
 Source table, account key, snapshot column and types come from project/field
 configuration. Specials use the project's active numeric/categorical lists.
@@ -85,7 +102,7 @@ profiling. Date/identifier specials are not defined.
 | Flag | Condition |
 |---|---|
 | NUMERIC_JUMP | Valid consecutive values; absolute and relative movement thresholds met |
-| NUMERIC_REVERSION | Two qualifying jumps in opposite directions over three consecutive months, returning within tolerance |
+| NUMERIC_REVERSION | A qualifying first jump followed by an opposite movement returning within tolerance over three consecutive months |
 | VALUE_REVERSION | Valid non-numeric values A -> B -> A over three consecutive months |
 | MISSING_REVERSION | Valid -> missing -> valid over three consecutive months |
 | SPECIAL_REVERSION | Valid -> special -> valid over three consecutive months |
@@ -96,7 +113,9 @@ profiling. Date/identifier specials are not defined.
 All applicable tests run. Thresholds are review criteria, not automatic RAG
 decisions. Relative movement is `(current-previous)/ABS(previous)`, a fraction.
 When the previous value is zero, relative change stays NULL and the absolute
-threshold determines the jump. Both legs of a reversion must qualify.
+threshold determines the jump. Only the first leg must meet the jump thresholds;
+the second must reverse direction and return within tolerance. This detects
+100 -> 150 -> 100 with a 50% first-jump limit, despite the return being 33.33%.
 Return tolerance is:
 
 `ABS(next-previous) <= MAX(RETURN_ABS_TOL, ABS(previous)*RETURN_REL_TOL)`.
