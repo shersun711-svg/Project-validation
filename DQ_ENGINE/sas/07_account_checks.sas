@@ -2,7 +2,7 @@
    All program text is ASCII for LATIN9 sessions. No permanent database writes.
    One field at a time: a session-local evaluated table is dropped after use. */
 %global dq_account_controller_version;
-%let dq_account_controller_version=20261022_TRIM_FIELD_NAMES;
+%let dq_account_controller_version=20261022_SQL_LITERALS;
 %put NOTE: DQ account controller loaded: &dq_account_controller_version;
 %macro dq_at_create;
 /* ACCOUNT_SQL_BEGIN: executed on synthetic data by check_account_checks.mjs. */
@@ -20,7 +20,7 @@ execute (
           CASE WHEN &_missing_sql THEN 'MISSING'
                WHEN &_special_sql THEN 'SPECIAL' ELSE 'VALID' END AS VALUE_STATE
      FROM "&_source_db"."&_source_table"
-    WHERE "&_date">=DATE '&start_date' AND "&_date"<DATE '&_end_exclusive'
+    WHERE "&_date">=DATE &_start_sql AND "&_date"<DATE &_end_sql
   ), neighbours AS
   (
    SELECT S.*,
@@ -50,12 +50,12 @@ execute (
   ), movements AS
   (
    SELECT E.*,
-          CASE WHEN '&_type'='NUMERIC' AND PAIR_ELIGIBLE=1
+          CASE WHEN &_type_sql='NUMERIC' AND PAIR_ELIGIBLE=1
                  AND PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID'
                  AND ABS(CHANGE_VALUE)>=&_abs_min
                  AND (PREVIOUS_NUMBER=0 OR ABS(RELATIVE_CHANGE)>=&_rel_min)
                THEN 1 ELSE 0 END AS NUMERIC_JUMP,
-          CASE WHEN '&_type'='NUMERIC' AND TRIPLE_ELIGIBLE=1
+          CASE WHEN &_type_sql='NUMERIC' AND TRIPLE_ELIGIBLE=1
                  AND PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID' AND NEXT_STATE='VALID'
                  AND ABS(CHANGE_VALUE)>=&_abs_min
                  AND (PREVIOUS_NUMBER=0 OR ABS(RELATIVE_CHANGE)>=&_rel_min)
@@ -64,7 +64,7 @@ execute (
                  AND ABS(NEXT_NUMBER-PREVIOUS_NUMBER)
                      <=GREATEST(&_return_abs,ABS(PREVIOUS_NUMBER)*&_return_rel)
                THEN 1 ELSE 0 END AS NUMERIC_REVERSION,
-          CASE WHEN '&_type'<>'NUMERIC' AND TRIPLE_ELIGIBLE=1
+          CASE WHEN &_type_sql<>'NUMERIC' AND TRIPLE_ELIGIBLE=1
                  AND PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID' AND NEXT_STATE='VALID'
                  AND PREVIOUS_VALUE=NEXT_VALUE AND DISPLAY_VALUE<>PREVIOUS_VALUE
                THEN 1 ELSE 0 END AS VALUE_REVERSION,
@@ -78,7 +78,7 @@ execute (
                THEN 1 ELSE 0 END AS BECAME_MISSING,
           CASE WHEN PAIR_ELIGIBLE=1 AND PREVIOUS_STATE='VALID' AND VALUE_STATE='SPECIAL'
                THEN 1 ELSE 0 END AS BECAME_SPECIAL,
-          CASE WHEN '&_stable'='Y' AND PAIR_ELIGIBLE=1
+          CASE WHEN &_stable_sql='Y' AND PAIR_ELIGIBLE=1
                  AND PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID'
                  AND DISPLAY_VALUE<>PREVIOUS_VALUE
                THEN 1 ELSE 0 END AS STABLE_VALUE_CHANGE
@@ -98,7 +98,8 @@ execute (
     start_date=,end_date=,max_details=1000);
  %local _i _n _bad _field _type _stable _abs_min _rel_min _return_abs _return_rel
         _source_db _source_table _account _date _rows _bad_keys _number_sql
-        _missing_sql _special_sql _end_exclusive _created _connected _bad_values;
+        _missing_sql _special_sql _end_exclusive _created _connected _bad_values
+        _project_sql _start_sql _end_sql _check_sql _field_sql _type_sql _stable_sql;
  %global dq_account_status dq_account_error dq_account_check_id;
  %let dq_account_status=FAILED;
  %let dq_account_error=;
@@ -118,6 +119,10 @@ execute (
  %if %sysfunc(prxmatch(%str(/^[A-Za-z0-9_][A-Za-z0-9_-]{0,29}$/),%superq(project)))=0 %then %do;
   %let dq_account_error=Invalid project identifier.; %goto fail;
  %end;
+ /* Resolve first, then quote as Teradata literals. A macro reference inside a
+    single-quoted SAS token is sent literally rather than resolved. */
+ %let _project_sql=%sysfunc(quote(%superq(project),%str(%')));
+ %let _check_sql=%sysfunc(quote(%superq(dq_account_check_id),%str(%')));
  %if %sysfunc(prxmatch(%str(/^[A-Za-z_][A-Za-z0-9_]*[.][A-Za-z_][A-Za-z0-9_]*$/),%superq(fields)))=0 %then %do;
   %let dq_account_error=FIELDS must be a two-level SAS dataset name.; %goto fail;
  %end;
@@ -164,6 +169,8 @@ execute (
  %if &_bad %then %do;
   %let dq_account_error=Invalid dates or MAX_DETAILS (integer 1 to 100000).; %goto fail;
  %end;
+ %let _start_sql=%sysfunc(quote(%superq(start_date),%str(%')));
+ %let _end_sql=%sysfunc(quote(%superq(_end_exclusive),%str(%')));
  %let _bad=0;
  data work._dq_at_input;
   set &fields;
@@ -207,16 +214,19 @@ execute (
   %let _connected=1;
   create table work._dq_at_context as select * from connection to dq
    (SELECT SOURCE_DATABASE,SOURCE_TABLE,ACCOUNT_ID_FIELD,REPORTING_DATE_FIELD
-      FROM &dq_database..DQ_PROJECT_CONFIG WHERE PROJECT_ID='&project' AND ACTIVE_IND='Y');
+      FROM &dq_database..DQ_PROJECT_CONFIG WHERE PROJECT_ID=&_project_sql AND ACTIVE_IND='Y');
   %dq_check_sql;
   %if &dq_sql_failed %then %goto db_error;
   create table work._dq_at_catalog as select * from connection to dq
-   (SELECT FIELD_NAME,FIELD_TYPE FROM &dq_database..DQ_FIELD_CONFIG WHERE PROJECT_ID='&project');
+   (SELECT FIELD_NAME,FIELD_TYPE FROM &dq_database..DQ_FIELD_CONFIG WHERE PROJECT_ID=&_project_sql);
   %dq_check_sql;
   %if &dq_sql_failed %then %goto db_error;
   select count(*) into :_rows trimmed from work._dq_at_context;
+  %dq_check_sql(dbms=N);
+  %if &dq_sql_failed %then %goto db_error;
+  %put NOTE: DQ ACCOUNT PROJECT: database=&dq_database project=&project active_rows=&_rows;
   %if &_rows ne 1 %then %do;
-   %let dq_account_error=Exactly one active project with an account key is required.;
+   %let dq_account_error=Expected one active project row. See DQ ACCOUNT PROJECT in the log.;
    %goto sql_cleanup;
   %end;
   select source_database,source_table,account_id_field,reporting_date_field
@@ -261,6 +271,11 @@ execute (
     into :_field trimmed,:_type trimmed,:_stable trimmed,
          :_abs_min trimmed,:_rel_min trimmed,:_return_abs trimmed,:_return_rel trimmed
     from work._dq_at_fields(firstobs=&_i obs=&_i);
+   %dq_check_sql(dbms=N);
+   %if &dq_sql_failed %then %goto db_error;
+   %let _field_sql=%sysfunc(quote(%superq(_field),%str(%')));
+   %let _type_sql=%sysfunc(quote(%superq(_type),%str(%')));
+   %let _stable_sql=%sysfunc(quote(%superq(_stable),%str(%')));
    %dq_connect;
    %dq_check_sql(dbms=N);
    %if &dq_sql_failed %then %goto db_error;
@@ -271,10 +286,10 @@ execute (
    %if &_type=NUMERIC %then %do;
     %let _number_sql=CAST("&_field" AS FLOAT);
     %let _missing_sql="&_field" IS NULL;
-    %let _special_sql="&_field" IN (SELECT NUMERIC_VALUE FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG WHERE PROJECT_ID='&project' AND FIELD_TYPE='NUMERIC' AND ACTIVE_IND='Y');
+    %let _special_sql="&_field" IN (SELECT NUMERIC_VALUE FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG WHERE PROJECT_ID=&_project_sql AND FIELD_TYPE='NUMERIC' AND ACTIVE_IND='Y');
    %end;
    %else %if &_type=CATEGORICAL %then %do;
-    %let _special_sql=UPPER(TRIM(CAST("&_field" AS VARCHAR(512)))) IN (SELECT UPPER(TRIM(SPECIAL_VALUE)) FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG WHERE PROJECT_ID='&project' AND FIELD_TYPE='CATEGORICAL' AND ACTIVE_IND='Y');
+    %let _special_sql=UPPER(TRIM(CAST("&_field" AS VARCHAR(512)))) IN (SELECT UPPER(TRIM(SPECIAL_VALUE)) FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG WHERE PROJECT_ID=&_project_sql AND FIELD_TYPE='CATEGORICAL' AND ACTIVE_IND='Y');
    %end;
    %put NOTE: DQ ACCOUNT CHECK: &_field (&_i of &_n).;
    %dq_at_create;
@@ -300,8 +315,8 @@ execute (
     %goto sql_cleanup;
    %end;
    create table work._dq_at_one_summary as select * from connection to dq
-    (SELECT '&dq_account_check_id' AS CHECK_ID,'&project' AS PROJECT_ID,
-            '&_field' AS FIELD_NAME,'&_type' AS FIELD_TYPE,
+    (SELECT &_check_sql AS CHECK_ID,&_project_sql AS PROJECT_ID,
+            &_field_sql AS FIELD_NAME,&_type_sql AS FIELD_TYPE,
             EXTRACT(YEAR FROM POU_DT) AS SNAPSHOT_YEAR,EXTRACT(MONTH FROM POU_DT) AS SNAPSHOT_MONTH,
             MAX(POU_DT) AS POU_DT,COUNT(*) AS TOTAL_COUNT,
             SUM(PAIR_ELIGIBLE) AS PAIR_COUNT,SUM(TRIPLE_ELIGIBLE) AS TRIPLE_COUNT,
@@ -327,8 +342,8 @@ execute (
    %dq_check_sql;
    %if &dq_sql_failed %then %goto db_error;
    create table work._dq_at_one_detail as select * from connection to dq
-    (SELECT '&dq_account_check_id' AS CHECK_ID,'&project' AS PROJECT_ID,
-            '&_field' AS FIELD_NAME,'&_type' AS FIELD_TYPE,
+    (SELECT &_check_sql AS CHECK_ID,&_project_sql AS PROJECT_ID,
+            &_field_sql AS FIELD_NAME,&_type_sql AS FIELD_TYPE,
             CAST(ACCOUNT_KEY AS VARCHAR(128)) AS AGMT_ID,
             PREVIOUS_POU_DT,POU_DT,NEXT_POU_DT,PREVIOUS_VALUE,
             DISPLAY_VALUE AS CURRENT_VALUE,NEXT_VALUE,PREVIOUS_STATE,

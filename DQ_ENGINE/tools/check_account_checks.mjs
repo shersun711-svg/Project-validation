@@ -19,19 +19,26 @@ function series(id,values,dates=months.slice(1,4)){
  values.forEach((v,i)=>put.run(id,dates[i],v));
 }
 function sql(type='NUMERIC',stable='N',fragment=body){
+ const quote=s=>"'"+s.replaceAll("'","''")+"'";
  const p={
   _account:'AGMT_ID',_date:'FACT_DT',_field:'FIELD_VALUE',
   _source_db:'main',_source_table:'SOURCE',start_date:'2019-01-01',
   _end_exclusive:'2021-01-01',_type:type,_stable:stable,
   _abs_min:'50',_rel_min:'0.20',_return_abs:'2',_return_rel:'0.01',
   dq_account_check_id:'synthetic-check',project:'TEST',max_details:'2',
+  dq_database:'main',_project_sql:quote('TEST'),_check_sql:quote('synthetic-check'),
+  _field_sql:quote('FIELD_VALUE'),_type_sql:quote(type),_stable_sql:quote(stable),
+  _start_sql:quote('2019-01-01'),_end_sql:quote('2021-01-01'),
   _number_sql:type==='NUMERIC'?'CAST("FIELD_VALUE" AS FLOAT)':'CAST(NULL AS FLOAT)',
   _missing_sql:type==='NUMERIC'?'"FIELD_VALUE" IS NULL':
    '("FIELD_VALUE" IS NULL OR TRIM(CAST("FIELD_VALUE" AS VARCHAR(512)))=\'\')',
   _special_sql:type==='NUMERIC'?'"FIELD_VALUE" IN (-999)':
    type==='CATEGORICAL'?'UPPER(TRIM("FIELD_VALUE")) IN (\'UNKNOWN\',\'N/A\')':'1=0'
  };
- let q=fragment.replace(/&([A-Za-z_][A-Za-z0-9_]*)/g,(_,k)=>{
+ // SAS does not resolve references inside single-quoted source tokens.
+ // Consume a SAS macro delimiter dot, retaining the database separator dot.
+ let q=fragment.replace(/'(?:''|[^'])*'|&([A-Za-z_][A-Za-z0-9_]*)(\.)?/g,(token,k)=>{
+  if(!k)return token;
   assert.ok(k in p,'Unknown SQL parameter '+k);return p[k];
  });
  q=q.replace(/DATE '([^']+)'/g,"'$1'")
@@ -46,6 +53,18 @@ function sql(type='NUMERIC',stable='N',fragment=body){
  assert.ok(!q.includes('&'));
  return q;
 }
+// Execute the actual project-context query: other projects/inactive rows do
+// not substitute for the requested active project.
+db.exec('CREATE TABLE DQ_PROJECT_CONFIG (PROJECT_ID TEXT,ACTIVE_IND TEXT,'+
+ 'SOURCE_DATABASE TEXT,SOURCE_TABLE TEXT,ACCOUNT_ID_FIELD TEXT,REPORTING_DATE_FIELD TEXT);'+
+ "INSERT INTO DQ_PROJECT_CONFIG VALUES ('TEST','Y','main','SOURCE','AGMT_ID','FACT_DT');"+
+ "INSERT INTO DQ_PROJECT_CONFIG VALUES ('OTHER','Y','main','OTHER_SOURCE','OTHER_KEY','OTHER_DATE');");
+const context=sas.match(/create table work\._dq_at_context as select \* from connection to dq\s+\(([\s\S]*?)\);/)[1];
+assert.deepEqual(db.prepare(sql('NUMERIC','N',context)).all().map(r=>({...r})),
+ [{SOURCE_DATABASE:'main',SOURCE_TABLE:'SOURCE',ACCOUNT_ID_FIELD:'AGMT_ID',REPORTING_DATE_FIELD:'FACT_DT'}]);
+db.exec("UPDATE DQ_PROJECT_CONFIG SET ACTIVE_IND='N' WHERE PROJECT_ID='TEST'");
+assert.equal(db.prepare(sql('NUMERIC','N',context)).all().length,0);
+db.exec("UPDATE DQ_PROJECT_CONFIG SET ACTIVE_IND='Y' WHERE PROJECT_ID='TEST'");
 function run(type,stable){
  db.exec('DROP TABLE IF EXISTS DQ_AT_CHECK');
  db.exec('CREATE TABLE DQ_AT_CHECK AS '+sql(type,stable));
@@ -204,6 +223,35 @@ for(const name of ['', '1BAD','BAD NAME','BAD-NAME','A'.repeat(129)])
 assert.ok(!identifier.test('PCKG_BALANCE_AMT'.padEnd(128,' ')),
  'Regression fixture must reproduce the unstripped rejection');
 assert.ok(sas.includes('DQ ACCOUNT CONFIG: Invalid FIELD_NAME.'));
+// Scan SAS tokens, not just generated SQL. Permit macro references in double
+// quotes and skip macro-escaped %str(%') used to construct single-quote values.
+function singleQuotedTokens(source){
+ const out=[];
+ for(let i=0;i<source.length;i++){
+  if(source.slice(i,i+2)==='/*'){
+   const end=source.indexOf('*/',i+2);assert.ok(end>=0);i=end+1;continue;
+  }
+  if(source.slice(i,i+8).toLowerCase()==="%str(%')"){i+=7;continue;}
+  const delimiter=source[i];
+  if(delimiter!=="'"&&delimiter!=='"')continue;
+  const start=i;
+  let closed=false;
+  for(i++;i<source.length;i++)if(source[i]===delimiter){
+   if(source[i+1]===delimiter){i++;continue;}
+   closed=true;break;
+  }
+  assert.ok(closed,'Unclosed SAS quote');
+  if(delimiter==="'")out.push(source.slice(start+1,i));
+ }
+ return out;
+}
+assert.ok(singleQuotedTokens("where PROJECT_ID='&project'").some(s=>/&[A-Za-z_]/.test(s)),
+ 'The literal-project regression must be detected');
+for(const token of singleQuotedTokens(sas))
+ assert.doesNotMatch(token,/&[A-Za-z_]/,'Unresolved SAS reference in a single-quoted token: '+token);
+assert.ok(sas.includes("%let _project_sql=%sysfunc(quote(%superq(project),%str(%')));"));
+assert.ok(sas.includes('WHERE PROJECT_ID=&_project_sql'));
+assert.ok(sas.includes('DQ ACCOUNT PROJECT: database='));
 console.log('Account checks: '+checked+' synthetic rows match an independent oracle; '+
  'calendar gaps, missing/specials, numeric/category reversions, cap, grain and empty cases passed.');
 console.log('SAS/Teradata execution, physical plans and runtime remain unverified.');

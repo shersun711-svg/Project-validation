@@ -26,11 +26,21 @@ Existing controller macros supply connection/error handling only.
 ### Field-name validation fix
 
 If file 06 reports Invalid important-field configuration for the supplied list,
-reload the latest file 07. Its log version is **20261022_TRIM_FIELD_NAMES**.
+reload the latest file 07. Its current log version is **20261022_SQL_LITERALS**.
 The check now removes SAS fixed-width padding at the identifier-regex call.
 Invalid names or Y/N settings also print the affected field in DQ ACCOUNT CONFIG
 log messages. Rerun file 06 after loading the updated macros; no Excel reload
 to Teradata or database deployment is required.
+
+### SQL literal resolution fix
+
+The current file 07 also resolves project, dates, field/type, check ID and
+fixed-field settings before quoting them as Teradata SQL literals. Earlier
+single-quoted SAS tokens sent literal macro names to the database; this could
+produce the misleading one-active-project error even with valid configuration.
+Reload file 07 and rerun file 06. Expect a log line such as
+`DQ ACCOUNT PROJECT: database=LAB_T_ORION_MVT project=RDS active_rows=1`.
+No project/field configuration change or profiling rerun is needed for this fix.
 
 ## Select fields and thresholds
 
