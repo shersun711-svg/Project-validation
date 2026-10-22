@@ -5,45 +5,79 @@
 %let td_authdomain=TeraAuth;
 %let dq_database=LAB_T_ORION_MVT;
 
-/* Populate ONLY after agreeing the important fields and numeric thresholds.
-   Types/source/key/date come from the existing project/field configuration.
-   This list is independent of profiling ACTIVE_IND and does not change Excel.
+/* Upload config/DQ_RDS_account_fields.xlsx to a SAS-accessible server folder.
+   Edit its AccountFields sheet, not the main profiling workbook.
+   The prepared list has 24 fields; numeric limits still require agreement.
+   Missing limits on active numeric fields stop before source testing. */
+%let account_fields_file=;
+%let account_start_date=; /* YYYY-MM-DD; include prior/following reference months. */
+%let account_end_date=;
+%let account_max_details=1000; /* Per field; monthly summaries remain uncapped. */
 
-   Columns:
-   FIELD_NAME ACTIVE_IND ABS_CHANGE_MIN REL_CHANGE_MIN
-   RETURN_ABS_TOL RETURN_REL_TOL STABLE_VALUE_IND
-
-   Illustrative syntax only (do not adopt these thresholds without review):
-   BALANCE_AMT Y 1000 0.20 100 0.05 N
-   RATE_TYPE   Y .    .    .   .    N
-   Use STABLE_VALUE_IND=Y only for fields expected to remain fixed.
-   Add approved rows between DATALINES and the following semicolon.
-*/
-data work.dq_account_fields;
- length field_name $128 active_ind stable_value_ind $1;
- input field_name :$128. active_ind :$1.
-       abs_change_min rel_change_min return_abs_tol return_rel_tol
-       stable_value_ind :$1.;
- datalines;
-;
-run;
-
-/* Explicit dates are mandatory. Begin with a controlled period and few fields.
-   Include one preceding AND following month around a suspected reversion.
-   MAX_DETAILS caps exported flagged rows per field; summary counts are complete.
-   Empty dates/list below deliberately prevent an accidental full-history scan. */
 %macro dq_start_account_checks;
+ %local _bad;
+ %global dq_account_status dq_account_error;
+ %let dq_account_status=FAILED;
+ %let dq_account_error=;
+ proc datasets library=work nolist;
+  delete dq_account_fields dq_account_summary dq_account_detail _dq_account_excel;
+ quit;
  %if not %sysmacexist(run_dq_account_checks) %then %do;
-  %put ERROR: Open and run 07_account_checks.sas first.;
-  %return;
+  %let dq_account_error=Open and run 07_account_checks.sas first.;
+  %goto invalid;
+ %end;
+ %if %length(%superq(account_fields_file))=0 %then %do;
+  %let dq_account_error=Set ACCOUNT_FIELDS_FILE to the workbook SAS server path.;
+  %goto invalid;
+ %end;
+ %if not %sysfunc(fileexist(%superq(account_fields_file))) %then %do;
+  %let dq_account_error=The workbook is not accessible on this SAS server.;
+  %goto invalid;
+ %end;
+ proc import datafile="%superq(account_fields_file)"
+     out=work._dq_account_excel dbms=xlsx replace;
+  sheet="AccountFields";
+  getnames=yes;
+ run;
+ %if &syserr>4 or not %sysfunc(exist(work._dq_account_excel)) %then %do;
+  %let dq_account_error=Cannot import the AccountFields worksheet.;
+  %goto invalid;
+ %end;
+ /* Excel can infer entirely blank limit columns as character. Convert into
+    the controller's declared numeric schema without replacing blanks by zero. */
+ %let _bad=0;
+ data work.dq_account_fields;
+  length field_name $128 active_ind stable_value_ind $1;
+  set work._dq_account_excel(rename=(
+    FIELD_NAME=_name ACTIVE_IND=_active STABLE_VALUE_IND=_stable
+    ABS_CHANGE_MIN=_abs REL_CHANGE_MIN=_rel
+    RETURN_ABS_TOL=_return_abs RETURN_REL_TOL=_return_rel));
+  if lengthn(strip(vvalue(_name)))>128
+     or upcase(strip(vvalue(_active))) not in ('Y','N')
+     or upcase(strip(vvalue(_stable))) not in ('Y','N')
+     then call symputx('_bad',1,'L');
+  field_name=strip(vvalue(_name));
+  active_ind=upcase(strip(vvalue(_active)));
+  stable_value_ind=upcase(strip(vvalue(_stable)));
+  abs_change_min=input(strip(vvalue(_abs)),?? best32.);
+  rel_change_min=input(strip(vvalue(_rel)),?? best32.);
+  return_abs_tol=input(strip(vvalue(_return_abs)),?? best32.);
+  return_rel_tol=input(strip(vvalue(_return_rel)),?? best32.);
+  keep field_name active_ind abs_change_min rel_change_min
+       return_abs_tol return_rel_tol stable_value_ind;
+ run;
+ %if &syserr>4 or &_bad %then %do;
+  %let dq_account_error=Invalid AccountFields headers or selection indicators.;
+  %goto invalid;
  %end;
  %run_dq_account_checks(
-   project=RDS,
-   fields=work.dq_account_fields,
-   start_date=,
-   end_date=,
-   max_details=1000
+   project=RDS,fields=work.dq_account_fields,
+   start_date=&account_start_date,end_date=&account_end_date,
+   max_details=&account_max_details
  );
  %put NOTE: Account check status=%superq(dq_account_status);
+ %return;
+%invalid:
+ %put ERROR: %superq(dq_account_error);
 %mend;
 %dq_start_account_checks;

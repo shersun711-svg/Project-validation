@@ -9,12 +9,14 @@ The implementation was written independently; no CDAO code was copied.
 
 1. Open/run `sas/01_dq_controller.sas`, then `sas/07_account_checks.sas` in the
    same SAS server session.
-2. In `sas/06_run_account_checks.sas`, supply the approved important-field list
-   and explicit start/end dates. Numeric fields require individual thresholds.
-   Example syntax is provided, but no fields or dates are enabled by default.
-3. Run file 06. Require `dq_account_status=SUCCEEDED` before reviewing
+2. Edit `config/DQ_RDS_account_fields.xlsx`, sheet `AccountFields`. The supplied
+   important-field selection is prepared; numeric movement limits remain blank
+   until agreed. Upload this workbook to a SAS-accessible server folder.
+3. In `sas/06_run_account_checks.sas`, set `account_fields_file` to that server
+   path and set explicit `account_start_date` / `account_end_date` values.
+4. Run file 06. Require `dq_account_status=SUCCEEDED` before reviewing
    `WORK.DQ_ACCOUNT_SUMMARY` and `WORK.DQ_ACCOUNT_DETAIL`.
-4. Retain outputs and settings in the approved validation evidence location
+5. Retain outputs and settings in the approved validation evidence location
    before the SAS session ends.
 
 Do not run file 00 or reload Excel for these checks. No deployment SQL, grants,
@@ -23,8 +25,10 @@ Existing controller macros supply connection/error handling only.
 
 ## Select fields and thresholds
 
-File 06 creates a SAS configuration dataset. Your existing Excel import macro
-can populate it instead, using these columns and SAS types:
+File 06 imports `AccountFields` into `WORK.DQ_ACCOUNT_FIELDS`. Blank numeric
+columns are explicitly converted to SAS numeric missing values, not zeros.
+Your existing Excel import macro can also create this dataset and call
+`run_dq_account_checks` directly, using these columns and SAS types:
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -40,6 +44,34 @@ All four numeric settings are mandatory for NUMERIC fields. Use missing numeric
 settings for other types. Both indicators must be Y/N. Unknown fields, duplicate
 names or invalid settings stop before scanning RDS. Selection is independent of
 profiling ACTIVE_IND and does not overwrite Excel or existing configuration.
+
+### Prepared RDS selection
+
+The workbook contains **24 fields: 14 numeric, 9 categorical and 1 date**,
+from the analyst's `Identified_fields.xlsx`: all 23 main-sheet entries plus
+`PCKG_REPAY_AMT`, whose inclusion was confirmed separately. `DPD` is excluded.
+`DataMapping` records the original names and final RDS names; its reference
+metadata is not executed or loaded into engine configuration. The supplied
+workbook's CODE snippets were not copied into this implementation.
+
+Two aliases were verified against the supplied final-view DDL:
+
+| Supplied CDAO name | Final RDS field |
+|---|---|
+| CHQ_LMT_UTILISATION_AVG_BAL_6M | CHQ_LMT_UTIL_AVG_BAL_6M |
+| MV_CUST_ALL_MTHS_SNC_DISTRESS_CNT | MV_CUST_ALL_MTHS_SNC_DIST_CNT |
+
+The legacy `BALANCE_AMT` entry maps to **PCKG_BALANCE_AMT**, as specified in
+the CDAO column and package-balance description. Account BALANCE_AMT is not
+silently added. `IO_AT_ORIGINATION_IND` and `CUTOVER_DT` are suggested for the
+normally-fixed check; other selected fields have STABLE_VALUE_IND=N.
+
+Numeric limits are deliberately unset; file 06 cannot start testing active
+numeric fields until they are supplied. No common financial materiality limit
+is assumed across amounts, ratios and counters. Counter resets/increments,
+package membership changes and updated application/collateral selections may
+explain flagged movements. EVENT_DESCRIPTION receives temporal profiling only;
+default-policy validation stays outside scope.
 
 Source table, account key, snapshot column and types come from project/field
 configuration. Specials use the project's active numeric/categorical lists.

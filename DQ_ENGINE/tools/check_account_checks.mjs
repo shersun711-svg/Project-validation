@@ -3,6 +3,8 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 
 const sas=fs.readFileSync(new URL('../sas/07_account_checks.sas',import.meta.url),'utf8');
 const body=sas.slice(sas.indexOf('WITH source_values AS'),sas.indexOf(') WITH DATA PRIMARY INDEX'));
@@ -184,3 +186,60 @@ assert.ok(!/[^\x00-\x7f]/.test(sas));
 console.log('Account checks: '+checked+' synthetic rows match an independent oracle; '+
  'calendar gaps, missing/specials, numeric/category reversions, cap, grain and empty cases passed.');
 console.log('SAS/Teradata execution, physical plans and runtime remain unverified.');
+
+// Exact prepared selection and Excel loader contract. No third-party JS package.
+const workbook=fileURLToPath(new URL('../config/DQ_RDS_account_fields.xlsx',import.meta.url));
+const xml=p=>execFileSync('unzip',['-p',workbook,p],{encoding:'utf8'});
+const decode=s=>s.replace(/&quot;/g,'"').replace(/&apos;/g,"'")
+ .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+assert.deepEqual([...xml('xl/workbook.xml').matchAll(/<sheet name="([^"]+)"/g)].map(m=>m[1]),
+ ['Instructions','AccountFields','DataMapping','AdditionalFields']);
+function sheetRows(i){
+ return [...xml('xl/worksheets/sheet'+i+'.xml').matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map(m=>{
+  const a=[];
+  for(const c of m[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)){
+   const ref=c[1].match(/r="([A-Z]+)[0-9]+"/)[1];
+   const index=[...ref].reduce((n,ch)=>n*26+ch.charCodeAt(0)-64,0)-1;
+   const value=c[2].match(/<v>([\s\S]*?)<\/v>/)?.[1]??'';
+   a[index]=/t="str"/.test(c[1])?decode(value):Number(value);
+  }
+  return a;
+ });
+}
+const configRows=sheetRows(2),mappingRows=sheetRows(3);
+assert.deepEqual(configRows[0],['FIELD_NAME','ACTIVE_IND','ABS_CHANGE_MIN','REL_CHANGE_MIN',
+ 'RETURN_ABS_TOL','RETURN_REL_TOL','STABLE_VALUE_IND']);
+const selected=configRows.slice(1);
+assert.equal(selected.length,24);
+assert.equal(new Set(selected.map(r=>r[0])).size,24);
+assert.ok(selected.every(r=>r[1]==='Y'));
+assert.ok(selected.every(r=>[2,3,4,5].every(i=>r[i]===undefined)),'No assumed numeric limits');
+assert.ok(selected.some(r=>r[0]==='PCKG_REPAY_AMT'));
+assert.ok(!selected.some(r=>r[0]==='DPD'));
+assert.deepEqual(selected.filter(r=>r[6]==='Y').map(r=>r[0]),
+ ['IO_AT_ORIGINATION_IND','CUTOVER_DT']);
+const registry=new Map(fs.readFileSync(new URL('../config/rds_fields.csv',import.meta.url),'utf8')
+ .trim().split('\n').slice(1).map(r=>r.trim().split(',')));
+for(const r of selected)assert.ok(registry.has(r[0]),r[0]+' must be registered');
+assert.equal(selected.filter(r=>registry.get(r[0])==='NUMERIC').length,14);
+assert.equal(selected.filter(r=>registry.get(r[0])==='CATEGORICAL').length,9);
+assert.equal(selected.filter(r=>registry.get(r[0])==='DATE').length,1);
+assert.equal(mappingRows.length,25);
+const mappings=mappingRows.slice(1).map(r=>Object.fromEntries(mappingRows[0].map((h,i)=>[h,r[i]])));
+assert.equal(mappings.find(r=>r.SUPPLIED_CDAO_FIELD_NAME==='CHQ_LMT_UTILISATION_AVG_BAL_6M').RDS_FIELD_NAME,
+ 'CHQ_LMT_UTIL_AVG_BAL_6M');
+assert.equal(mappings.find(r=>r.SUPPLIED_CDAO_FIELD_NAME==='MV_CUST_ALL_MTHS_SNC_DISTRESS_CNT').RDS_FIELD_NAME,
+ 'MV_CUST_ALL_MTHS_SNC_DIST_CNT');
+assert.equal(mappings.find(r=>r.LEGACY_FIELD_NAME==='BALANCE_AMT').RDS_FIELD_NAME,'PCKG_BALANCE_AMT');
+for(let i=1;i<=4;i++)assert.ok(!/<f[ >]/.test(xml('xl/worksheets/sheet'+i+'.xml')),'No formulas');
+const runner=fs.readFileSync(new URL('../sas/06_run_account_checks.sas',import.meta.url),'utf8');
+assert.match(runner,/sheet="AccountFields"/);
+assert.match(runner,/abs_change_min=input\(strip\(vvalue\(_abs\)\),\?\? best32\.\)/);
+assert.match(runner,/%let account_fields_file=;/);
+assert.match(runner,/%let account_start_date=;/);
+assert.match(runner,/%let account_end_date=;/);
+assert.ok(runner.indexOf('%let dq_account_status=FAILED')<runner.indexOf('proc import'));
+assert.doesNotMatch(runner,/SP_DQ_APPLY_CONFIG|SP_DQ_RUN_ENGINE/);
+assert.ok(!/[^\x00-\x7f]/.test(runner));
+console.log('Account workbook: 24 unique mapped fields (14 numeric, 9 categorical, 1 date), '+
+ 'confirmed repayment inclusion, DPD exclusion, aliases and unset numeric limits checked.');
