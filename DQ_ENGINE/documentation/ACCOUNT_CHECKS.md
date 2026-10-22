@@ -23,6 +23,15 @@ Do not run file 00 or reload Excel for these checks. No deployment SQL, grants,
 stored procedures, permanent tables or profiling changes are required.
 Existing controller macros supply connection/error handling only.
 
+### Field-name validation fix
+
+If file 06 reports Invalid important-field configuration for the supplied list,
+reload the latest file 07. Its log version is **20261022_TRIM_FIELD_NAMES**.
+The check now removes SAS fixed-width padding at the identifier-regex call.
+Invalid names or Y/N settings also print the affected field in DQ ACCOUNT CONFIG
+log messages. Rerun file 06 after loading the updated macros; no Excel reload
+to Teradata or database deployment is required.
+
 ## Select fields and thresholds
 
 File 06 imports `AccountFields` into `WORK.DQ_ACCOUNT_FIELDS`. Blank numeric

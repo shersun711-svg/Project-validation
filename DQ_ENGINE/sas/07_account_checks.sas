@@ -2,7 +2,7 @@
    All program text is ASCII for LATIN9 sessions. No permanent database writes.
    One field at a time: a session-local evaluated table is dropped after use. */
 %global dq_account_controller_version;
-%let dq_account_controller_version=20261022_FIRST_JUMP_REVERSION;
+%let dq_account_controller_version=20261022_TRIM_FIELD_NAMES;
 %put NOTE: DQ account controller loaded: &dq_account_controller_version;
 %macro dq_at_create;
 /* ACCOUNT_SQL_BEGIN: executed on synthetic data by check_account_checks.mjs. */
@@ -164,19 +164,34 @@ execute (
  %if &_bad %then %do;
   %let dq_account_error=Invalid dates or MAX_DETAILS (integer 1 to 100000).; %goto fail;
  %end;
+ %let _bad=0;
  data work._dq_at_input;
   set &fields;
   field_name=strip(field_name); active_ind=upcase(strip(active_ind));
   stable_value_ind=upcase(strip(stable_value_ind));
-  if active_ind not in ('Y','N') then call symputx('_bad',1,'L');
+  if active_ind not in ('Y','N') then do;
+   put 'ERROR: DQ ACCOUNT CONFIG: ACTIVE_IND must be Y or N. '
+       field_name= active_ind=;
+   call symputx('_bad',1,'L');
+  end;
   if active_ind='Y' then do;
-   if not prxmatch('/^[A-Za-z_][A-Za-z0-9_]{0,127}$/',field_name)
-      or stable_value_ind not in ('Y','N') then call symputx('_bad',1,'L');
+   /* Assignment to a $128 variable still pads it with blanks. Strip at the
+      PRXMATCH call, otherwise the end-anchored identifier check rejects it. */
+   if not prxmatch('/^[A-Za-z_][A-Za-z0-9_]{0,127}$/',strip(field_name)) then do;
+    put 'ERROR: DQ ACCOUNT CONFIG: Invalid FIELD_NAME. ' field_name=;
+    call symputx('_bad',1,'L');
+   end;
+   if stable_value_ind not in ('Y','N') then do;
+    put 'ERROR: DQ ACCOUNT CONFIG: STABLE_VALUE_IND must be Y or N. '
+        field_name= stable_value_ind=;
+    call symputx('_bad',1,'L');
+   end;
    output;
   end;
  run;
  %if &syserr>4 or &_bad %then %do;
-  %let dq_account_error=Invalid important-field configuration.; %goto fail;
+  %let dq_account_error=Invalid important-field configuration. Inspect DQ ACCOUNT CONFIG errors above.;
+  %goto fail;
  %end;
  proc sql noprint;
   select count(*),count(*)-count(distinct upcase(field_name))

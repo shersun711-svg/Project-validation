@@ -192,6 +192,18 @@ assert.doesNotMatch(sas,/\b(?:INSERT INTO|UPDATE|DELETE FROM|REPLACE VIEW|REPLAC
 assert.equal((sas.match(/CREATE MULTISET VOLATILE TABLE/g)||[]).length,1);
 assert.equal((sas.match(/%macro\b/gi)||[]).length,(sas.match(/%mend\b/gi)||[]).length);
 assert.ok(!/[^\x00-\x7f]/.test(sas));
+assert.ok(sas.includes("prxmatch('/^[A-Za-z_][A-Za-z0-9_]{0,127}$/',strip(field_name))"),
+ 'Strip SAS fixed-width padding at the regex call');
+const identifier=/^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+for(const name of ['PCKG_BALANCE_AMT','PCKG_REPAY_AMT','A','A'.repeat(128)]){
+ const fixed=name.padEnd(128,' ');
+ assert.ok(identifier.test(fixed.trim()),'Valid padded identifier '+name);
+}
+for(const name of ['', '1BAD','BAD NAME','BAD-NAME','A'.repeat(129)])
+ assert.ok(!identifier.test(name.trim()),'Reject invalid identifier '+name);
+assert.ok(!identifier.test('PCKG_BALANCE_AMT'.padEnd(128,' ')),
+ 'Regression fixture must reproduce the unstripped rejection');
+assert.ok(sas.includes('DQ ACCOUNT CONFIG: Invalid FIELD_NAME.'));
 console.log('Account checks: '+checked+' synthetic rows match an independent oracle; '+
  'calendar gaps, missing/specials, numeric/category reversions, cap, grain and empty cases passed.');
 console.log('SAS/Teradata execution, physical plans and runtime remain unverified.');
