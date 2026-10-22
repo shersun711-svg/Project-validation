@@ -10,8 +10,8 @@ The implementation was written independently; no CDAO code was copied.
 1. Open/run `sas/01_dq_controller.sas`, then `sas/07_account_checks.sas` in the
    same SAS server session.
 2. Edit `config/DQ_RDS_account_fields.xlsx`, sheet `AccountFields`. The supplied
-   important-field selection is prepared, with two fields active for the pilot
-   below. Upload this workbook to a SAS-accessible server folder.
+   important-field selection is prepared, with the nine categorical fields and
+   CUTOVER_DT active. Upload it to a SAS-accessible server folder.
 3. In `sas/06_run_account_checks.sas`, set `account_fields_file` to that server
    path and set explicit `account_start_date` / `account_end_date` values.
 4. Run file 06. Require `dq_account_status=SUCCEEDED` before reviewing
@@ -95,17 +95,37 @@ the CDAO column and package-balance description. Account BALANCE_AMT is not
 silently added. `IO_AT_ORIGINATION_IND` and `CUTOVER_DT` are suggested for the
 normally-fixed check; other selected fields have STABLE_VALUE_IND=N.
 
-The two pilot fields have provisional review limits. Other numeric limits are
-unset, and the remaining 22 fields are inactive. No common financial materiality
+The two numeric pilot fields retain provisional review limits, but all 14
+numeric fields are now inactive. Other numeric limits are unset. No common financial materiality
 limit is assumed across amounts, ratios and counters. Counter resets/increments,
 package membership changes and updated application/collateral selections may
 explain flagged movements. EVENT_DESCRIPTION receives temporal profiling only;
 default-policy validation stays outside scope.
 
-### First pilot
+### Current stage: categorical and date fields
 
-File 06 is set to **1 October 2025 through 31 March 2026**. Set the workbook
-server path before running. The two active fields use these initial screening
+All nine categorical fields and CUTOVER_DT are active. They need no numeric
+movement limits. The runner checks A -> B -> A reversions, temporary missing
+values, valid-to-missing transitions and, for categorical fields, configured
+special-value transitions. Normally-fixed valid-to-valid changes are checked
+for IO_AT_ORIGINATION_IND and CUTOVER_DT. These are review flags, not automatic
+errors; category changes and corrections may be legitimate.
+
+File 06 defaults to **1 January 2005 through 31 March 2026**, covering the
+analyst's full RDS history, with up to 10,000 detail rows per field. Summary
+counts are uncapped. Keep the approved source scope consistent with the
+profiling run; missing boundary references remain unevaluated. Full-history
+runtime/spool for these ten fields has not been measured here.
+
+Replace the account workbook on the SAS server, set the date window and detail
+limit in file 06, and run 06. If the latest account macros are already loaded
+in that session, files 01/07 do not need rerunning. No profiling workbook
+reload or database deployment is required.
+
+### Numeric pilot reference (paused)
+
+The completed numeric pilot covered **1 October 2025 through 31 March 2026**.
+The two paused fields retain these initial screening
 limits; they are not approved materiality thresholds or automatic DQ failures:
 
 | Field | Absolute jump | Relative jump | Absolute return tolerance | Relative return tolerance |
@@ -113,9 +133,8 @@ limits; they are not approved materiality thresholds or automatic DQ failures:
 | PCKG_BALANCE_AMT | 10,000 | 0.50 | 1,000 | 0.05 |
 | PCKG_REPAY_AMT | 250 | 0.50 | 25 | 0.05 |
 
-Require successful execution, then review the full summary and selected detail
-for plausible movements and returns. Preserve the outputs and revise limits
-if the screen is too broad/narrow. Other ratios need unit-specific limits;
+Preserve the pilot outputs and revise limits if the screen is too broad/narrow.
+Other ratios need unit-specific limits;
 months-since counters need counter-specific increment/reset checks before
 activation. The original 24-field list is retained in the workbook.
 

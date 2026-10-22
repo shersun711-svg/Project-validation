@@ -302,11 +302,14 @@ const selected=configRows.slice(1);
 assert.equal(selected.length,24);
 assert.equal(new Set(selected.map(r=>r[0])).size,24);
 assert.deepEqual(selected.filter(r=>r[1]==='Y').map(r=>r[0]),
- ['PCKG_BALANCE_AMT','PCKG_REPAY_AMT']);
-assert.equal(selected.filter(r=>r[1]==='N').length,22);
+ ['IO_IND','IO_AT_ORIGINATION_IND','REPAY_TYPE_CD','CUTOVER_DT',
+  'MV_PROP_POSTCODE_NM','EVENT_DESCRIPTION','PCKG_FTB_CALC_IND','MV_EXDAY_PAYREV',
+  'PCKG_HI_INC_OCC_DESC','PCKG_2ND_INC_OCC_DESC']);
+assert.equal(selected.filter(r=>r[1]==='N').length,14);
 assert.deepEqual(selected.find(r=>r[0]==='PCKG_BALANCE_AMT').slice(2,6),[10000,.50,1000,.05]);
 assert.deepEqual(selected.find(r=>r[0]==='PCKG_REPAY_AMT').slice(2,6),[250,.50,25,.05]);
-assert.ok(selected.filter(r=>r[1]==='N').every(r=>[2,3,4,5].every(i=>r[i]===undefined)),
+assert.ok(selected.filter(r=>!['PCKG_BALANCE_AMT','PCKG_REPAY_AMT'].includes(r[0]))
+ .every(r=>[2,3,4,5].every(i=>r[i]===undefined)),
  'Other field limits remain unset');
 assert.ok(selected.some(r=>r[0]==='PCKG_REPAY_AMT'));
 assert.ok(!selected.some(r=>r[0]==='DPD'));
@@ -330,10 +333,11 @@ const runner=fs.readFileSync(new URL('../sas/06_run_account_checks.sas',import.m
 assert.match(runner,/sheet="AccountFields"/);
 assert.match(runner,/abs_change_min=input\(strip\(vvalue\(_abs\)\),\?\? best32\.\)/);
 assert.match(runner,/%let account_fields_file=;/);
-assert.match(runner,/%let account_start_date=2025-10-01;/);
+assert.match(runner,/%let account_start_date=2005-01-01;/);
 assert.match(runner,/%let account_end_date=2026-03-31;/);
+assert.match(runner,/%let account_max_details=10000;/);
 assert.ok(runner.indexOf('%let dq_account_status=FAILED')<runner.indexOf('proc import'));
 assert.doesNotMatch(runner,/SP_DQ_APPLY_CONFIG|SP_DQ_RUN_ENGINE/);
 assert.ok(!/[^\x00-\x7f]/.test(runner));
 console.log('Account workbook: 24 unique mapped fields (14 numeric, 9 categorical, 1 date), '+
- 'two-field pilot, DPD exclusion, aliases and remaining unset numeric limits checked.');
+ 'categorical/date selection, preserved numeric limits, DPD exclusion and aliases checked.');

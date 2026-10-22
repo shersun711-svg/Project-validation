@@ -33,8 +33,8 @@ For selected important fields, the separate
 consecutive-month jumps, reversions and temporary missing/special values.
 They require an explicit field list and thresholds; they are not part of file 00.
 The [account-field workbook](DQ_ENGINE/config/DQ_RDS_account_fields.xlsx)
-retains the analyst's 24-field selection, with a two-field pilot configured;
-other numeric movement limits remain pending.
+retains the analyst's 24-field selection, with nine categorical fields and one
+date field active. Numeric fields are paused and their settings retained.
 PSI and Excel report export remain deferred.
 See [outlier deployment and validation](DQ_ENGINE/documentation/NUMERIC_OUTLIERS.md).
 See [special-value configuration and validation](DQ_ENGINE/documentation/SPECIAL_VALUES.md) before using this extension.
