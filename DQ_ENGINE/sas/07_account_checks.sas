@@ -1,8 +1,8 @@
 /* Standalone post-RDS account checks. Load 01_dq_controller.sas first.
-   All program text is ASCII for LATIN9 sessions. No permanent database writes.
+   All program text is ASCII for LATIN9 sessions. Account results persist in TD.
    One field at a time: a session-local evaluated table is dropped after use. */
 %global dq_account_controller_version;
-%let dq_account_controller_version=20261022_SPECIAL_JOIN;
+%let dq_account_controller_version=20261023_PERSIST_RESULTS;
 %put NOTE: DQ account controller loaded: &dq_account_controller_version;
 %macro dq_at_create;
 /* ACCOUNT_SQL_BEGIN: executed on synthetic data by check_account_checks.mjs. */
@@ -12,8 +12,8 @@ execute (
   WITH special_values AS
   (
    SELECT DISTINCT &_special_value_sql AS SPECIAL_KEY
-     FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG
-    WHERE PROJECT_ID=&_project_sql AND FIELD_TYPE=&_type_sql AND ACTIVE_IND='Y'
+     FROM &dq_database..DQ_RUN_SPECIAL_VALUE
+    WHERE RUN_ID=&_check_sql AND FIELD_TYPE=&_type_sql
   ), source_values AS
   (
    SELECT S."&_account" AS ACCOUNT_KEY,CAST(S."&_date" AS DATE) AS POU_DT,
@@ -100,19 +100,101 @@ execute (
 /* ACCOUNT_SQL_END */
 %mend;
 
+%macro dq_at_save;
+/* ACCOUNT_SAVE_BEGIN: evaluated rows only; no source scan; detail is uncapped. */
+execute (
+ INSERT INTO &dq_database..DQ_ACCOUNT_SUMMARY
+ (RUN_ID,FIELD_NAME,FIELD_TYPE,POU_DT,TEST_STATUS,STABLE_VALUE_IND,WINDOW_START,WINDOW_END,ACCOUNT_ID_FIELD,ABS_CHANGE_MIN,REL_CHANGE_MIN,RETURN_ABS_TOL,RETURN_REL_TOL,TOTAL_COUNT,PAIR_COUNT,TRIPLE_COUNT,VALID_PAIR_COUNT,VALID_REFERENCE_PAIR_COUNT,VALID_NEIGHBOUR_TRIPLE_COUNT,VALID_TRIPLE_COUNT,NUMERIC_JUMP_COUNT,NUMERIC_REVERSION_COUNT,VALUE_REVERSION_COUNT,MISSING_REVERSION_COUNT,SPECIAL_REVERSION_COUNT,BECAME_MISSING_COUNT,BECAME_SPECIAL_COUNT,STABLE_VALUE_CHANGE_COUNT,FLAGGED_ROW_COUNT,CREATED_TIMESTAMP)
+ SELECT &_check_sql,
+        &_field_sql,
+        &_type_sql,
+        MAX(POU_DT),
+        CASE WHEN COUNT(*)=0 THEN 'NO_OBSERVATIONS' WHEN SUM(PAIR_ELIGIBLE)=0 THEN 'NO_REFERENCE' ELSE 'EVALUATED' END,
+        &_stable_sql,
+        DATE &_start_sql,
+        DATE &_window_end_sql,
+        &_account_sql,
+        &_abs_min,
+        &_rel_min,
+        &_return_abs,
+        &_return_rel,
+        COALESCE(COUNT(*),0),
+        COALESCE(SUM(PAIR_ELIGIBLE),0),
+        COALESCE(SUM(TRIPLE_ELIGIBLE),0),
+        COALESCE(SUM(CASE WHEN PAIR_ELIGIBLE=1 AND PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID' THEN 1 ELSE 0 END),0),
+        COALESCE(SUM(CASE WHEN PAIR_ELIGIBLE=1 AND PREVIOUS_STATE='VALID' THEN 1 ELSE 0 END),0),
+        COALESCE(SUM(CASE WHEN TRIPLE_ELIGIBLE=1 AND PREVIOUS_STATE='VALID' AND NEXT_STATE='VALID' THEN 1 ELSE 0 END),0),
+        COALESCE(SUM(CASE WHEN TRIPLE_ELIGIBLE=1 AND PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID' AND NEXT_STATE='VALID' THEN 1 ELSE 0 END),0),
+        COALESCE(SUM(NUMERIC_JUMP),0),
+        COALESCE(SUM(NUMERIC_REVERSION),0),
+        COALESCE(SUM(VALUE_REVERSION),0),
+        COALESCE(SUM(MISSING_REVERSION),0),
+        COALESCE(SUM(SPECIAL_REVERSION),0),
+        COALESCE(SUM(BECAME_MISSING),0),
+        COALESCE(SUM(BECAME_SPECIAL),0),
+        COALESCE(SUM(STABLE_VALUE_CHANGE),0),
+        COALESCE(SUM(FLAGGED_ROW),0),
+        CURRENT_TIMESTAMP(0)
+ FROM DQ_AT_CHECK
+ %if &_rows>0 %then %do;
+ GROUP BY EXTRACT(YEAR FROM POU_DT),EXTRACT(MONTH FROM POU_DT)
+ %end;
+) by dq;
+%dq_check_sql;
+%if &dq_sql_failed=0 %then %do;
+ execute (
+  INSERT INTO &dq_database..DQ_ACCOUNT_DETAIL
+  (RUN_ID,FIELD_NAME,AGMT_ID,PREVIOUS_POU_DT,POU_DT,NEXT_POU_DT,PREVIOUS_VALUE,CURRENT_VALUE,NEXT_VALUE,PREVIOUS_STATE,CURRENT_STATE,NEXT_STATE,CHANGE_VALUE,RELATIVE_CHANGE,NEXT_CHANGE_VALUE,NUMERIC_JUMP,NUMERIC_REVERSION,VALUE_REVERSION,MISSING_REVERSION,SPECIAL_REVERSION,BECAME_MISSING,BECAME_SPECIAL,STABLE_VALUE_CHANGE,CREATED_TIMESTAMP)
+  SELECT &_check_sql,
+         &_field_sql,
+         CAST(ACCOUNT_KEY AS VARCHAR(128)),
+         PREVIOUS_POU_DT,
+         POU_DT,
+         NEXT_POU_DT,
+         PREVIOUS_VALUE,
+         DISPLAY_VALUE,
+         NEXT_VALUE,
+         PREVIOUS_STATE,
+         VALUE_STATE,
+         NEXT_STATE,
+         CASE WHEN PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID' THEN CHANGE_VALUE END,
+         CASE WHEN PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID' THEN RELATIVE_CHANGE END,
+         CASE WHEN VALUE_STATE='VALID' AND NEXT_STATE='VALID' THEN NEXT_CHANGE_VALUE END,
+         NUMERIC_JUMP,
+         NUMERIC_REVERSION,
+         VALUE_REVERSION,
+         MISSING_REVERSION,
+         SPECIAL_REVERSION,
+         BECAME_MISSING,
+         BECAME_SPECIAL,
+         STABLE_VALUE_CHANGE,
+         CURRENT_TIMESTAMP(0)
+  FROM DQ_AT_CHECK WHERE FLAGGED_ROW=1
+ ) by dq;
+ %dq_check_sql;
+%end;
+/* ACCOUNT_SAVE_END */
+%mend;
+
 %macro run_dq_account_checks(project=RDS,fields=work.dq_account_fields,
     start_date=,end_date=,max_details=1000);
  %local _i _n _bad _field _type _stable _abs_min _rel_min _return_abs _return_rel
         _source_db _source_table _account _date _rows _bad_keys _number_sql
         _missing_sql _special_value_sql _special_match_sql _end_exclusive
         _created _connected _bad_values
-        _project_sql _start_sql _end_sql _check_sql _field_sql _type_sql _stable_sql;
- %global dq_account_status dq_account_error dq_account_check_id;
+        _project_sql _start_sql _end_sql _check_sql _field_sql _type_sql _stable_sql
+        _window_end_sql _account_sql _source_db_sql _source_table_sql _date_sql
+        _registered _publishing _error_sql _error_code_sql _saved_status _ignore;
+ %global dq_account_status dq_account_error dq_account_check_id dq_account_run_number;
  %let dq_account_status=FAILED;
  %let dq_account_error=;
+ %let dq_account_run_number=;
  %let dq_account_check_id=%sysfunc(uuidgen());
  %let _created=0;
  %let _connected=0;
+ %let _registered=0;
+ %let _publishing=0;
+ %let _error_code_sql=NULL;
  proc datasets library=work nolist;
   delete dq_account_summary dq_account_detail _dq_at_summary _dq_at_detail;
  quit;
@@ -270,6 +352,57 @@ execute (
   %let dq_account_error=Check source identifiers and numeric thresholds. No source test started.;
   %goto fail;
  %end;
+ %let _window_end_sql=%sysfunc(quote(%superq(end_date),%str(%')));
+ %let _account_sql=%sysfunc(quote(%superq(_account),%str(%')));
+ %let _source_db_sql=%sysfunc(quote(%superq(_source_db),%str(%')));
+ %let _source_table_sql=%sysfunc(quote(%superq(_source_table),%str(%')));
+ %let _date_sql=%sysfunc(quote(%superq(_date),%str(%')));
+ proc sql noprint;
+  %dq_connect;
+  %dq_check_sql(dbms=N);
+  %if &dq_sql_failed %then %goto db_error;
+  %let _connected=1;
+  /* Fail before scanning RDS if the one-time result deployment is missing. */
+  select N into :_ignore trimmed from connection to dq
+   (SELECT COUNT(*) AS N FROM &dq_database..DQ_ACCOUNT_SUMMARY WHERE 1=0);
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  select N into :_ignore trimmed from connection to dq
+   (SELECT COUNT(*) AS N FROM &dq_database..DQ_ACCOUNT_DETAIL WHERE 1=0);
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  execute (INSERT INTO &dq_database..DQ_RUN_LOG
+   (RUN_ID,PROJECT_ID,START_TIME,STATUS,SOURCE_DATABASE,SOURCE_TABLE,
+    REPORTING_DATE_FIELD,PROFILE_OVERALL,PROFILE_MONTHLY,PROFILE_YEARLY,ATTEMPT_NO)
+   VALUES (&_check_sql,&_project_sql,CURRENT_TIMESTAMP,'RUNNING',
+    &_source_db_sql,&_source_table_sql,&_date_sql,'N','Y','N',1)) by dq;
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  %let _registered=1;
+  execute (INSERT INTO &dq_database..DQ_MODULE_LOG
+   (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS,FIELD_COUNT)
+   VALUES (&_check_sql,'ACCOUNT_CHECKS',1,0,CURRENT_TIMESTAMP,'RUNNING',&_n)) by dq;
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  execute (CALL &dq_database..SP_DQ_ASSIGN_RUN_NUMBER(&_check_sql)) by dq;
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  select RUN_NUMBER into :dq_account_run_number trimmed from connection to dq
+   (SELECT CAST(RUN_NUMBER AS VARCHAR(19)) AS RUN_NUMBER
+      FROM &dq_database..DQ_RUN_NUMBER WHERE RUN_ID=&_check_sql);
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  execute (INSERT INTO &dq_database..DQ_RUN_SPECIAL_VALUE
+   (RUN_ID,FIELD_TYPE,SPECIAL_VALUE,NUMERIC_VALUE)
+   SELECT &_check_sql,FIELD_TYPE,SPECIAL_VALUE,NUMERIC_VALUE
+     FROM &dq_database..DQ_SPECIAL_VALUE_CONFIG
+    WHERE PROJECT_ID=&_project_sql AND ACTIVE_IND='Y') by dq;
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  disconnect from dq;
+  %let _connected=0;
+ quit;
+ %put NOTE: DQ ACCOUNT RUN_NUMBER=&dq_account_run_number CHECK_ID=&dq_account_check_id;
  %do _i=1 %to &_n;
   proc sql noprint;
    select field_name,field_type,stable_value_ind,
@@ -287,6 +420,12 @@ execute (
    %dq_check_sql(dbms=N);
    %if &dq_sql_failed %then %goto db_error;
    %let _connected=1;
+   /* SQL_TEXT holds the field name for this module, not a source SQL query. */
+   execute (INSERT INTO &dq_database..DQ_MODULE_LOG
+    (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS,FIELD_COUNT,SQL_TEXT)
+    VALUES (&_check_sql,'ACCOUNT_CHECKS',1,&_i,CURRENT_TIMESTAMP,'RUNNING',1,&_field_sql)) by dq;
+   %dq_check_sql;
+   %if &dq_sql_failed %then %goto db_error;
    %let _number_sql=CAST(NULL AS FLOAT);
    %let _missing_sql=(S."&_field" IS NULL OR TRIM(CAST(S."&_field" AS VARCHAR(512)))='');
    %let _special_value_sql=CAST(NULL AS VARCHAR(128));
@@ -324,6 +463,8 @@ execute (
     %let dq_account_error=Account key exceeds 128 or field value exceeds 512 characters.;
     %goto sql_cleanup;
    %end;
+   %dq_at_save;
+   %if &dq_sql_failed %then %goto db_error;
    create table work._dq_at_one_summary as select * from connection to dq
     (SELECT &_check_sql AS CHECK_ID,&_project_sql AS PROJECT_ID,
             &_field_sql AS FIELD_NAME,&_type_sql AS FIELD_TYPE,
@@ -369,6 +510,12 @@ execute (
    %dq_check_sql;
    %if &dq_sql_failed %then %goto db_error;
    %let _created=0;
+   execute (UPDATE &dq_database..DQ_MODULE_LOG
+    SET STATUS='SUCCEEDED',END_TIME=CURRENT_TIMESTAMP
+    WHERE RUN_ID=&_check_sql AND MODULE_NAME='ACCOUNT_CHECKS'
+      AND ATTEMPT_NO=1 AND BATCH_ID=&_i AND STATUS='RUNNING') by dq;
+   %dq_check_sql;
+   %if &dq_sql_failed %then %goto db_error;
    disconnect from dq;
    %let _connected=0;
   quit;
@@ -455,14 +602,63 @@ execute (
  %if &syserr>4 %then %goto local_error;
  data work.dq_account_detail; set work._dq_at_detail; run;
  %if &syserr>4 %then %goto local_error;
+ /* Publish both persistent views together. Prior successful runs are retained. */
+ proc sql noprint;
+  %dq_connect;
+  %dq_check_sql(dbms=N);
+  %if &dq_sql_failed %then %goto db_error;
+  %let _connected=1;
+  execute (BT) by dq;
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  %let _publishing=1;
+  execute (UPDATE &dq_database..DQ_MODULE_LOG
+   SET STATUS='SUCCEEDED',END_TIME=CURRENT_TIMESTAMP
+   WHERE RUN_ID=&_check_sql AND MODULE_NAME='ACCOUNT_CHECKS'
+     AND ATTEMPT_NO=1 AND BATCH_ID=0 AND STATUS='RUNNING') by dq;
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  execute (UPDATE &dq_database..DQ_RUN_LOG
+   SET STATUS='SUCCEEDED',END_TIME=CURRENT_TIMESTAMP
+   WHERE RUN_ID=&_check_sql AND PROJECT_ID=&_project_sql AND STATUS='RUNNING') by dq;
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  execute (ET) by dq;
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  %let _publishing=0;
+  select STATUS into :_saved_status trimmed from connection to dq
+   (SELECT STATUS FROM &dq_database..DQ_RUN_LOG
+     WHERE RUN_ID=&_check_sql AND PROJECT_ID=&_project_sql);
+  %dq_check_sql;
+  %if &dq_sql_failed %then %goto db_error;
+  %if %superq(_saved_status) ne SUCCEEDED %then %do;
+   %let dq_account_error=Persistent publication is not confirmed.;
+   %goto sql_cleanup;
+  %end;
+  disconnect from dq;
+  %let _connected=0;
+ quit;
  %let dq_account_status=SUCCEEDED;
  %put NOTE: DQ ACCOUNT CHECK SUCCEEDED: &dq_account_check_id;
+ %put NOTE: DQ ACCOUNT RUN_NUMBER=&dq_account_run_number;
+ %put NOTE: Saved Teradata results: DQ_ACCOUNT_REVIEW and DQ_ACCOUNT_DETAIL_REVIEW.;
  %put NOTE: Review WORK.DQ_ACCOUNT_SUMMARY and WORK.DQ_ACCOUNT_DETAIL.;
  %return;
 %db_error:
  %let dq_account_error=Teradata account check failed. Inspect the first SAS SQL error.;
+ %if %symexist(sqlxrc) %then %do;
+  %if %length(%superq(sqlxrc))>0 %then %do;
+   %if %sysfunc(prxmatch(%str(/^-?[0-9]+$/),%superq(sqlxrc)))>0
+       %then %let _error_code_sql=%superq(sqlxrc);
+  %end;
+ %end;
+ %if %symexist(sqlxmsg) %then %do;
+  %if %length(%superq(sqlxmsg))>0 %then %let dq_account_error=%superq(sqlxmsg);
+ %end;
 %sql_cleanup:
  reset exec;
+ %if &_publishing %then %do; execute (ROLLBACK) by dq; reset exec; %end;
  %if &_created %then %do; execute (DROP TABLE DQ_AT_CHECK) by dq; %end;
  %if &_connected %then %do; disconnect from dq; %end;
  quit;
@@ -470,6 +666,42 @@ execute (
 %local_error:
  %let dq_account_error=Cannot publish account-check outputs.;
 %fail:
+ %if &_registered %then %do;
+  /* Best effort after a failure. A lost connection can leave RUNNING; never
+     infer completion from elapsed time. Never delete a successful run. */
+  data _null_;
+   length message $2000;
+   message=symget('dq_account_error');
+   call symputx('_error_sql',quote(trim(message),"'"),'L');
+  run;
+  proc sql noprint;
+   %dq_connect;
+   %dq_check_sql(dbms=N);
+   %if &dq_sql_failed=0 %then %do;
+    execute (UPDATE &dq_database..DQ_RUN_LOG
+     SET STATUS='FAILED',END_TIME=CURRENT_TIMESTAMP,
+         ERROR_CODE=&_error_code_sql,ERROR_INFORMATION=&_error_sql
+     WHERE RUN_ID=&_check_sql AND PROJECT_ID=&_project_sql AND STATUS='RUNNING') by dq;
+    reset exec;
+    execute (UPDATE &dq_database..DQ_MODULE_LOG
+     SET STATUS='FAILED',END_TIME=CURRENT_TIMESTAMP,
+         ERROR_CODE=&_error_code_sql,ERROR_INFORMATION=&_error_sql
+     WHERE RUN_ID=&_check_sql AND MODULE_NAME='ACCOUNT_CHECKS' AND STATUS='RUNNING') by dq;
+    reset exec;
+    execute (DELETE FROM &dq_database..DQ_ACCOUNT_DETAIL
+     WHERE RUN_ID=&_check_sql AND EXISTS
+      (SELECT 1 FROM &dq_database..DQ_RUN_LOG L
+       WHERE L.RUN_ID=&_check_sql AND L.PROJECT_ID=&_project_sql AND L.STATUS='FAILED')) by dq;
+    reset exec;
+    execute (DELETE FROM &dq_database..DQ_ACCOUNT_SUMMARY
+     WHERE RUN_ID=&_check_sql AND EXISTS
+      (SELECT 1 FROM &dq_database..DQ_RUN_LOG L
+       WHERE L.RUN_ID=&_check_sql AND L.PROJECT_ID=&_project_sql AND L.STATUS='FAILED')) by dq;
+    reset exec;
+    disconnect from dq;
+   %end;
+  quit;
+ %end;
  proc datasets library=work nolist;
   delete dq_account_summary dq_account_detail;
  quit;

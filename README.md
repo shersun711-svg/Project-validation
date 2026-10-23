@@ -32,6 +32,10 @@ For selected important fields, the separate
 [account-level checks](DQ_ENGINE/documentation/ACCOUNT_CHECKS.md) examine
 consecutive-month jumps, reversions and temporary missing/special values.
 They require an explicit field list and thresholds; they are not part of file 00.
+Account results persist in Teradata after the
+[one-time account-results deployment](DQ_ENGINE/documentation/ACCOUNT_CHECKS.md#deploy-persistent-results).
+Review DQ_ACCOUNT_REVIEW, DQ_ACCOUNT_DETAIL_REVIEW and DQ_ACCOUNT_PROGRESS
+by project and short run number, even after SAS closes.
 The [account-field workbook](DQ_ENGINE/config/DQ_RDS_account_fields.xlsx)
 retains the analyst's 24-field selection, with nine categorical fields and one
 date field active. Numeric fields are paused and their settings retained.

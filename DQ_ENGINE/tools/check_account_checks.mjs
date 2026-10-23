@@ -24,12 +24,15 @@ db.exec('CREATE TABLE DQ_SPECIAL_VALUE_CONFIG (PROJECT_ID TEXT,FIELD_TYPE TEXT,'
  "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','CATEGORICAL','Y',NULL,'N/A');"+
  "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('OTHER','CATEGORICAL','Y',NULL,'A');"+
  "INSERT INTO DQ_SPECIAL_VALUE_CONFIG VALUES ('TEST','CATEGORICAL','N',NULL,'B');");
+db.exec("CREATE TABLE DQ_RUN_SPECIAL_VALUE AS SELECT 'synthetic-check' AS RUN_ID,"+
+ "FIELD_TYPE,SPECIAL_VALUE,NUMERIC_VALUE FROM DQ_SPECIAL_VALUE_CONFIG"+
+ " WHERE PROJECT_ID='TEST' AND ACTIVE_IND='Y'");
 const put=db.prepare('INSERT INTO SOURCE VALUES (?,?,?)');
 const months=['2019-12-31','2020-01-31','2020-02-29','2020-03-31','2020-04-30'];
 function series(id,values,dates=months.slice(1,4)){
  values.forEach((v,i)=>put.run(id,dates[i],v));
 }
-function sql(type='NUMERIC',stable='N',fragment=body){
+function sql(type='NUMERIC',stable='N',fragment=body,overrides={}){
  const quote=s=>"'"+s.replaceAll("'","''")+"'";
  const p={
   _account:'AGMT_ID',_date:'FACT_DT',_field:'FIELD_VALUE',
@@ -40,6 +43,7 @@ function sql(type='NUMERIC',stable='N',fragment=body){
   dq_database:'main',_project_sql:quote('TEST'),_check_sql:quote('synthetic-check'),
   _field_sql:quote('FIELD_VALUE'),_type_sql:quote(type),_stable_sql:quote(stable),
   _start_sql:quote('2019-01-01'),_end_sql:quote('2021-01-01'),
+  _window_end_sql:quote('2020-12-31'),_account_sql:quote('AGMT_ID'),_rows:'1',
   _number_sql:type==='NUMERIC'?'CAST(S."FIELD_VALUE" AS FLOAT)':'CAST(NULL AS FLOAT)',
   _missing_sql:type==='NUMERIC'?'S."FIELD_VALUE" IS NULL':
    '(S."FIELD_VALUE" IS NULL OR TRIM(CAST(S."FIELD_VALUE" AS VARCHAR(512)))=\'\')',
@@ -50,6 +54,7 @@ function sql(type='NUMERIC',stable='N',fragment=body){
  };
  // SAS does not resolve references inside single-quoted source tokens.
  // Consume a SAS macro delimiter dot, retaining the database separator dot.
+ Object.assign(p,overrides);
  let q=fragment.replace(/'(?:''|[^'])*'|&([A-Za-z_][A-Za-z0-9_]*)(\.)?/g,(token,k)=>{
   if(!k)return token;
   assert.ok(k in p,'Unknown SQL parameter '+k);return p[k];
@@ -63,6 +68,7 @@ function sql(type='NUMERIC',stable='N',fragment=body){
   .replace(/CHARACTER_LENGTH\(/g,'length(')
   .replace(/ CASESPECIFIC/g,'')
   .replace(/ AS FLOAT/g,' AS REAL');
+ q=q.replace(/CURRENT_TIMESTAMP\(0\)/g,'CURRENT_TIMESTAMP');
  assert.ok(!q.includes('&'));
  return q;
 }
@@ -190,6 +196,70 @@ for(const s of sums){
  assert.equal(s.VALID_NEIGHBOUR_TRIPLE_COUNT,group.filter(r=>r.TRIPLE_ELIGIBLE
   &&r.PREVIOUS_STATE==='VALID'&&r.NEXT_STATE==='VALID').length);
 }
+// Execute production persistent INSERTs and review views. RUNNING/FAILED rows
+// must not appear as successful evidence; server detail must exceed SAS cap.
+const storageDDL=fs.readFileSync(new URL('../teradata/setup/22_create_account_results.sql',import.meta.url),'utf8');
+assert.match(storageDDL,/PRIMARY INDEX \(RUN_ID,FIELD_NAME,AGMT_ID\)/,
+ 'Flagged detail must distribute accounts, not put an entire run on one AMP');
+for(const m of storageDDL.matchAll(/CREATE MULTISET TABLE DQ_DB\.(DQ_ACCOUNT_\w+)\s*\(([\s\S]*?)\)\s*(?:UNIQUE )?PRIMARY INDEX[\s\S]*?;/g))
+ db.exec('CREATE TABLE '+m[1]+' ('+m[2].replace(/CHARACTER SET (LATIN|UNICODE)/g,'')+')');
+db.exec('CREATE UNIQUE INDEX account_detail_key ON DQ_ACCOUNT_DETAIL(RUN_ID,FIELD_NAME,AGMT_ID,POU_DT);'+
+ 'CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT PRIMARY KEY,PROJECT_ID TEXT,STATUS TEXT,'+
+ 'SOURCE_DATABASE TEXT,SOURCE_TABLE TEXT,REPORTING_DATE_FIELD TEXT);'+
+ 'CREATE TABLE DQ_RUN_NUMBER(RUN_ID TEXT PRIMARY KEY,RUN_NUMBER INTEGER UNIQUE);'+
+ 'CREATE TABLE DQ_MODULE_LOG(RUN_ID TEXT,MODULE_NAME TEXT,BATCH_ID INTEGER,SQL_TEXT TEXT,'+
+ 'STATUS TEXT,START_TIME TEXT,END_TIME TEXT,FIELD_COUNT INTEGER,ERROR_CODE INTEGER,ERROR_INFORMATION TEXT);'+
+ "INSERT INTO DQ_RUN_LOG VALUES ('synthetic-check','TEST','RUNNING','main','SOURCE','FACT_DT');"+
+ "INSERT INTO DQ_RUN_NUMBER VALUES ('synthetic-check',901);");
+const views=fs.readFileSync(new URL('../teradata/results/96_dq_account_review.sql',import.meta.url),'utf8');
+for(const m of views.matchAll(/REPLACE VIEW DQ_DB\.(\w+) AS\s*([\s\S]*?);/g)){
+ let q=m[2].replaceAll('DQ_DB.','main.')
+  .replace(/NULLIFZERO\((S\.[A-Z_]+)\)/g,'NULLIF($1,0)')
+  .replace(/EXTRACT\(YEAR FROM ([SD]\.POU_DT)\)/g,"CAST(strftime('%Y',$1) AS INTEGER)")
+  .replace(/EXTRACT\(MONTH FROM ([SD]\.POU_DT)\)/g,"CAST(strftime('%m',$1) AS INTEGER)");
+ db.exec('CREATE VIEW '+m[1]+' AS '+q);
+}
+const saveBlock=sas.slice(sas.indexOf('/* ACCOUNT_SAVE_BEGIN'),sas.indexOf('/* ACCOUNT_SAVE_END'));
+const saveStatements=[...saveBlock.matchAll(/execute \(\s*(INSERT INTO[\s\S]*?)\s*\) by dq;/g)].map(m=>m[1]);
+assert.equal(saveStatements.length,2);
+const saveSummary=saveStatements[0].replace(/%if &_rows>0 %then %do;([\s\S]*?)%end;/,'$1');
+db.exec(sql('NUMERIC','N',saveSummary));
+db.exec(sql('NUMERIC','N',saveStatements[1]));
+assert.equal(db.prepare('SELECT COUNT(*) AS N FROM DQ_ACCOUNT_SUMMARY').get().N,sums.length);
+assert.equal(db.prepare('SELECT COUNT(*) AS N FROM DQ_ACCOUNT_DETAIL').get().N,totals);
+assert.equal(db.prepare('SELECT COUNT(*) AS N FROM DQ_ACCOUNT_REVIEW').get().N,0);
+assert.equal(db.prepare('SELECT COUNT(*) AS N FROM DQ_ACCOUNT_DETAIL_REVIEW').get().N,0);
+db.exec("UPDATE DQ_RUN_LOG SET STATUS='SUCCEEDED' WHERE RUN_ID='synthetic-check'");
+const saved=db.prepare("SELECT * FROM DQ_ACCOUNT_REVIEW WHERE PROJECT_ID='TEST' AND RUN_NUMBER=901").all();
+assert.equal(saved.length,sums.length);
+assert.equal(db.prepare('SELECT COUNT(*) AS N FROM DQ_ACCOUNT_DETAIL_REVIEW').get().N,totals);
+assert.ok(totals>limited.length);
+for(const s of saved){
+ const old=sums.find(r=>r.SNAPSHOT_YEAR===Number(s.POU_DT.slice(0,4))
+  &&r.SNAPSHOT_MONTH===Number(s.POU_DT.slice(5,7)));
+ assert.equal(s.TOTAL_COUNT,old.TOTAL_COUNT);
+ assert.equal(s.FLAGGED_ROW_COUNT,old.FLAGGED_ROW_COUNT);
+ assert.equal(s.VALUE_REVERSION_COUNT,null,'Unsupported numeric metric stays NULL');
+ if(old.VALID_PAIR_COUNT)assert.ok(Math.abs(s.NUMERIC_JUMP_RATE-old.NUMERIC_JUMP_COUNT/old.VALID_PAIR_COUNT)<1e-12);
+ else assert.equal(s.NUMERIC_JUMP_RATE,null);
+}
+assert.throws(()=>db.exec(sql('NUMERIC','N',saveStatements[1])),/UNIQUE/);
+db.exec("INSERT INTO DQ_RUN_LOG VALUES ('prior','OTHER','SUCCEEDED','main','SOURCE','FACT_DT');"+
+ "INSERT INTO DQ_RUN_NUMBER VALUES ('prior',900);"+
+ "INSERT INTO DQ_ACCOUNT_SUMMARY SELECT 'prior',"+Object.keys(db.prepare('SELECT * FROM DQ_ACCOUNT_SUMMARY LIMIT 1').get()).filter(k=>k!=='RUN_ID').join(',')+" FROM DQ_ACCOUNT_SUMMARY WHERE RUN_ID='synthetic-check';");
+db.exec("UPDATE DQ_RUN_LOG SET STATUS='FAILED' WHERE RUN_ID='synthetic-check'");
+assert.equal(db.prepare("SELECT COUNT(*) AS N FROM DQ_ACCOUNT_REVIEW WHERE PROJECT_ID='TEST'").get().N,0);
+assert.equal(db.prepare("SELECT COUNT(*) AS N FROM DQ_ACCOUNT_REVIEW WHERE PROJECT_ID='OTHER' AND RUN_NUMBER=900").get().N,sums.length);
+assert.equal(db.prepare('SELECT COUNT(*) AS N FROM DQ_ACCOUNT_DETAIL_REVIEW').get().N,0);
+// Execute failed-run cleanup only after failure. Partial rows were hidden
+// already; deleting them must preserve prior successful/other-project data.
+const failure=sas.slice(sas.indexOf('%fail:'));
+const deletes=[...failure.matchAll(/execute \((DELETE FROM[\s\S]*?)\) by dq;/g)].map(m=>m[1]);
+assert.equal(deletes.length,2);
+for(const q of deletes)db.exec(sql('NUMERIC','N',q));
+assert.equal(db.prepare("SELECT COUNT(*) AS N FROM DQ_ACCOUNT_DETAIL WHERE RUN_ID='synthetic-check'").get().N,0);
+assert.equal(db.prepare("SELECT COUNT(*) AS N FROM DQ_ACCOUNT_SUMMARY WHERE RUN_ID='synthetic-check'").get().N,0);
+assert.equal(db.prepare("SELECT COUNT(*) AS N FROM DQ_ACCOUNT_SUMMARY WHERE RUN_ID='prior'").get().N,sums.length);
 db.exec('DELETE FROM SOURCE');
 series('category',['A','B','A']);
 series('special',['A',' unknown ','A']);
@@ -212,6 +282,9 @@ assert.equal(bad.filter(r=>r.KEY_COUNT!==1||r.ACCOUNT_KEY===null).length,3);
 assert.equal(bad.filter(r=>r.VALUE_LENGTH>512).length,1);
 db.exec('DELETE FROM SOURCE');
 assert.deepEqual(run('NUMERIC','N'),[]);
+const emptySave=saveStatements[0].replace(/%if &_rows>0 %then %do;[\s\S]*?%end;/,'');
+db.exec(sql('NUMERIC','N',emptySave,{_field_sql:"'EMPTY_FIELD'"}));
+assert.equal(db.prepare("SELECT TEST_STATUS FROM DQ_ACCOUNT_SUMMARY WHERE FIELD_NAME='EMPTY_FIELD'").get().TEST_STATUS,'NO_OBSERVATIONS');
 // Guard the SAS-only lifecycle: no existing runner mutation or persistent SQL.
 assert.match(sas,/SUM\(CASE WHEN ACCOUNT_KEY IS NULL/);
 assert.match(sas,/OR TRIM\(CAST\(ACCOUNT_KEY AS VARCHAR\(128\)\)\)='' OR KEY_COUNT<>1/);
@@ -222,7 +295,14 @@ assert.match(sas,/if valid_pair_count>0/);
 assert.match(sas,/if valid_triple_count>0/);
 assert.match(sas,/numeric_reversion_count,abs_change_min/);
 assert.ok(sas.indexOf('data work.dq_account_summary;')>sas.indexOf('%end;\n /* Public outputs'));
-assert.doesNotMatch(sas,/\b(?:INSERT INTO|UPDATE|DELETE FROM|REPLACE VIEW|REPLACE PROCEDURE)\b/i);
+assert.match(sas,/CALL &dq_database\.\.SP_DQ_ASSIGN_RUN_NUMBER\(&_check_sql\)/);
+assert.match(sas,/WHERE RUN_ID=&_check_sql AND PROJECT_ID=&_project_sql AND STATUS='RUNNING'/);
+assert.match(sas,/L\.STATUS='FAILED'/);
+assert.match(sas,/execute \(BT\) by dq/);
+assert.match(sas,/execute \(ET\) by dq/);
+assert.match(sas,/execute \(ROLLBACK\) by dq/);
+assert.ok(sas.indexOf('%dq_at_save;')<sas.indexOf('execute (DROP TABLE DQ_AT_CHECK)'));
+assert.ok(sas.includes('FROM &dq_database..DQ_RUN_SPECIAL_VALUE'));
 assert.equal((sas.match(/CREATE MULTISET VOLATILE TABLE/g)||[]).length,1);
 assert.equal((sas.match(/%macro\b/gi)||[]).length,(sas.match(/%mend\b/gi)||[]).length);
 assert.ok(!/[^\x00-\x7f]/.test(sas));
@@ -274,7 +354,8 @@ assert.doesNotMatch(sas,/\bIN\s*\(\s*SELECT\b/i,
  'Teradata CASE conditions must not contain IN-subqueries');
 console.log('Account checks: '+checked+' synthetic rows match an independent oracle; '+
  'calendar gaps, missing/specials, numeric/category reversions, cap, grain and empty cases passed.');
-console.log('SAS/Teradata execution, physical plans and runtime remain unverified.');
+console.log('Persistent INSERTs/views, uncapped saved detail, successful-only publication, '+
+ 'project/run isolation and failed-run cleanup passed. SAS/Teradata execution remains unverified.');
 
 // Exact prepared selection and Excel loader contract. No third-party JS package.
 const workbook=fileURLToPath(new URL('../config/DQ_RDS_account_fields.xlsx',import.meta.url));

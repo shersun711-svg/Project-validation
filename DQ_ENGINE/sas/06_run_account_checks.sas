@@ -1,5 +1,6 @@
 /* Separate post-RDS account-level review. Does not call file 00.
    Open/run 01_dq_controller.sas and 07_account_checks.sas in the same session.
+   Deploy setup/22 and results/96 once before using persistent results.
    No server engine_root path is required when files are opened directly. */
 %let td_server=dwhprod;
 %let td_authdomain=TeraAuth;
@@ -77,6 +78,7 @@
    max_details=&account_max_details
  );
  %put NOTE: Account check status=%superq(dq_account_status);
+ %put NOTE: Saved account run number=%superq(dq_account_run_number);
  %return;
 %invalid:
  %put ERROR: %superq(dq_account_error);
