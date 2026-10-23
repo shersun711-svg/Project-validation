@@ -16,14 +16,50 @@ WHERE PROJECT_ID='RDS'
   AND RUN_NUMBER=(SELECT MAX(RUN_NUMBER) FROM DQ_DB.DQ_ACCOUNT_PROGRESS WHERE PROJECT_ID='RDS')
 ORDER BY BATCH_ID;
 
-/* 3. Latest successful account run; older successful results remain available.
-   Replace the subquery with a chosen RUN_NUMBER to review a specific run. */
-SELECT * FROM DQ_DB.DQ_ACCOUNT_REVIEW
+/* 3. Manager overview: one row per field, including fields with no flags.
+   Counts are account-month events, NOT distinct accounts across the history.
+   Checks overlap: do not add check counts to obtain the flagged total.
+   NULL means the check does not apply, or has no eligible observations.
+   Replace the MAX subquery with a chosen number (for example 19) in each query
+   to keep the review pinned to that run. No automated pass/fail conclusion. */
+SELECT FIELD_NAME,FIELD_TYPE,COUNT(*) AS MONTHS_REVIEWED,
+       SUM(FLAGGED_ROW_COUNT) AS FLAGGED_ACCOUNT_MONTHS,
+       SUM(NUMERIC_JUMP_COUNT) AS NUMERIC_JUMPS,
+       SUM(NUMERIC_REVERSION_COUNT) AS NUMERIC_REVERSIONS,
+       SUM(VALUE_REVERSION_COUNT) AS VALUE_REVERSIONS,
+       SUM(MISSING_REVERSION_COUNT) AS TEMPORARY_MISSING,
+       SUM(SPECIAL_REVERSION_COUNT) AS TEMPORARY_SPECIAL,
+       SUM(BECAME_MISSING_COUNT) AS BECAME_MISSING,
+       SUM(BECAME_SPECIAL_COUNT) AS BECAME_SPECIAL,
+       SUM(STABLE_VALUE_CHANGE_COUNT) AS FIXED_VALUE_CHANGES
+FROM DQ_DB.DQ_ACCOUNT_REVIEW
 WHERE PROJECT_ID='RDS'
   AND RUN_NUMBER=(SELECT MAX(RUN_NUMBER) FROM DQ_DB.DQ_ACCOUNT_REVIEW WHERE PROJECT_ID='RDS')
+GROUP BY FIELD_NAME,FIELD_TYPE
+ORDER BY FIELD_NAME;
+
+/* 4. Monthly exceptions: concise review of flagged months only.
+   For categorical/date runs, omit the two NUMERIC columns if exporting.
+   TEMPORARY_MISSING/SPECIAL mean a valid value in both neighbouring months,
+   with a missing/special value in the current month. Flags require investigation.
+   The first month has no previous reference; the last cannot test reversions.
+   Full coverage, denominators and rates remain in DQ_ACCOUNT_REVIEW. */
+SELECT FIELD_NAME,POU_DT,TOTAL_COUNT,FLAGGED_ROW_COUNT AS FLAGGED_ACCOUNTS,
+       NUMERIC_JUMP_COUNT AS NUMERIC_JUMPS,
+       NUMERIC_REVERSION_COUNT AS NUMERIC_REVERSIONS,
+       VALUE_REVERSION_COUNT AS VALUE_REVERSIONS,
+       MISSING_REVERSION_COUNT AS TEMPORARY_MISSING,
+       SPECIAL_REVERSION_COUNT AS TEMPORARY_SPECIAL,
+       BECAME_MISSING_COUNT AS BECAME_MISSING,
+       BECAME_SPECIAL_COUNT AS BECAME_SPECIAL,
+       STABLE_VALUE_CHANGE_COUNT AS FIXED_VALUE_CHANGES
+FROM DQ_DB.DQ_ACCOUNT_REVIEW
+WHERE PROJECT_ID='RDS'
+  AND RUN_NUMBER=(SELECT MAX(RUN_NUMBER) FROM DQ_DB.DQ_ACCOUNT_REVIEW WHERE PROJECT_ID='RDS')
+  AND FLAGGED_ROW_COUNT>0
 ORDER BY FIELD_NAME,POU_DT;
 
-/* 4. Up to 100 priority examples from ALL saved flags, not the SAS capped copy. */
+/* 5. Up to 100 priority examples from ALL saved flags, not the SAS capped copy. */
 SELECT TOP 100 RUN_NUMBER,FIELD_NAME,AGMT_ID,PREVIOUS_POU_DT,POU_DT,NEXT_POU_DT,
        PREVIOUS_VALUE,CURRENT_VALUE,NEXT_VALUE,
        NUMERIC_REVERSION,VALUE_REVERSION,MISSING_REVERSION,SPECIAL_REVERSION,STABLE_VALUE_CHANGE
