@@ -265,9 +265,13 @@ main: BEGIN
                     SET V_YEAR_BOUNDS=',MAX(B1.N' || V_SUFFIX || ') AS YN' || V_SUFFIX
                       || ',MAX(B1.L' || V_SUFFIX || ') AS YL' || V_SUFFIX
                       || ',MAX(B1.U' || V_SUFFIX || ') AS YU' || V_SUFFIX;
-                    SET V_YEAR_COUNT=',COALESCE(SUM(CAST(CASE WHEN CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX
+                    /* For n valid values, |x-mean|/sd_pop <= sqrt(n-1).
+                       Strict 3-sigma outliers are impossible when 1<=n<=10.
+                       Use the reporting period's N, not the scanned chunk size,
+                       to prevent floating-point false positives at that boundary. */
+                    SET V_YEAR_COUNT=',COALESCE(SUM(CAST(CASE WHEN B1.N' || V_SUFFIX || '>10 AND (CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX
                       || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B1.U' || V_SUFFIX
-                      || ' THEN 1 ELSE 0 END AS BIGINT)),0) AS YO' || V_SUFFIX;
+                      || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS YO' || V_SUFFIX;
                 ELSE
                     SET V_YEAR_BOUNDS=',CAST(NULL AS BIGINT) AS YN' || V_SUFFIX
                       || ',CAST(NULL AS FLOAT) AS YL' || V_SUFFIX || ',CAST(NULL AS FLOAT) AS YU' || V_SUFFIX;
@@ -282,10 +286,10 @@ main: BEGIN
                   || ',MAX(BM.L' || V_SUFFIX || ') AS ML' || V_SUFFIX
                   || ',MAX(BM.U' || V_SUFFIX || ') AS MU' || V_SUFFIX
                   || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL' || V_SUFFIX
-                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_OVERALL || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<B0.L' || V_SUFFIX
+                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_OVERALL || '''=''Y'' AND B0.N' || V_SUFFIX || '>10 AND (CAST(' || V_FIELD || ' AS FLOAT)<B0.L' || V_SUFFIX
                   || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B0.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS OO' || V_SUFFIX
                   || V_YEAR_COUNT
-                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_MONTHLY || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<BM.L' || V_SUFFIX
+                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_MONTHLY || '''=''Y'' AND BM.N' || V_SUFFIX || '>10 AND (CAST(' || V_FIELD || ' AS FLOAT)<BM.L' || V_SUFFIX
                   || ' OR CAST(' || V_FIELD || ' AS FLOAT)>BM.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS MO' || V_SUFFIX;
                 /* Reserve 3,000 characters for joins, period/date expressions and
                    physical names. Oversized candidates stay for the next batch.

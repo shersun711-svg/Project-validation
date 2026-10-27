@@ -192,6 +192,30 @@ for(const row of rows){
 }
 assert.equal(reference.get('AMOUNT/OVERALL/ALL').valid,33);assert.equal(reference.get('AMOUNT/OVERALL/ALL').count,2);
 assert.equal(reference.get('BOUNDARY/OVERALL/ALL').count,0);assert.equal(reference.get('CONSTANT_VALUE/OVERALL/ALL').count,0);
+// Analytic small-population bound, tested with the actual generated SQL.
+// A single tail among n-1 zeros has maximum standardized distance sqrt(n-1).
+// At n=10 it is exactly 3; at n=11 it exceeds 3. Perturb the n=10 stored
+// deviation slightly inward to reproduce floating-point boundary disagreement.
+db.exec('SAVEPOINT small_population_boundary');
+for(const n of Array.from({length:11},(_,i)=>i+1))for(const sign of [-1,1]){
+ const pop=Array.from({length:n},(_,i)=>['2000-01-31',i===0?sign*10:0,null,null,null,null,null]);
+ db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT');
+ const add=db.prepare('INSERT INTO '+stageName+' (FACT_DT,'+fields.join(',')+','+stageBucket+','+stageYear+') VALUES (?,?,?,?,?,?,?,?,?)');
+ pop.forEach((r,i)=>add.run(...r,i+1,2000));
+ snapshot(new Map([['OVERALL/ALL',pop],['YEARLY/2000',pop],['MONTHLY/2000-01',pop]]));
+ if(n===10)db.exec("UPDATE DQ_NUMERIC_STATISTICS SET STDDEV_VALUE=STDDEV_VALUE-0.00000000000001 WHERE FIELD_NAME='AMOUNT'");
+ batch(1,1);
+ const got=db.prepare("SELECT PERIOD_LEVEL,METRIC_NAME,METRIC_VALUE FROM DQ_METRIC_RESULT WHERE FIELD_NAME='AMOUNT'").all();
+ assert.equal(got.length,15);
+ for(const r of got){
+  if(r.METRIC_NAME==='OUTLIER_COUNT')assert.equal(r.METRIC_VALUE,n<=10?0:1,`n=${n}, sign=${sign}, ${r.PERIOD_LEVEL}`);
+  if(r.METRIC_NAME==='OUTLIER_RATE_PCT')assert.ok(Math.abs(r.METRIC_VALUE-(n<=10?0:100/n))<1e-9);
+  if(r.METRIC_NAME==='OUTLIER_VALID_COUNT')assert.equal(r.METRIC_VALUE,n);
+ }
+}
+db.exec('ROLLBACK TO small_population_boundary; RELEASE small_population_boundary');
+snapshot(groups);
+console.log('Small-population strict 3-sigma checks passed: n=1..10 zero outliers despite inward rounding; n=11 true tails retained, both directions and all levels.');
 // Same measurements when each field is its own batch.
 db.exec('DELETE FROM DQ_METRIC_RESULT');for(let i=1;i<=6;i++)batch(i,i);
 const order=q=>q.map(({EXECUTION_TIMESTAMP,...values})=>values).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
