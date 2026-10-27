@@ -89,12 +89,12 @@ db.exec(`INSERT INTO DQ_RULE_RESULT
 // Dates are saved with each metric; a different project must stay isolated.
 for(const [level,period,date]of [['MONTHLY','2000-01','2000-01-27'],['MONTHLY','2000-02','2000-02-29'],['YEARLY','2000','2000-02-29']])
  db.prepare('UPDATE DQ_METRIC_RESULT SET POU_DT=? WHERE RUN_ID=? AND PROJECT_ID=? AND PERIOD_LEVEL=? AND PERIOD_VALUE=?').run(date,'mixed','TEST',level,period);
-db.exec("UPDATE DQ_METRIC_RESULT SET EXECUTION_TIMESTAMP='2026-10-15 10:00:00.000000'; UPDATE DQ_METRIC_RESULT SET EXECUTION_TIMESTAMP='2026-10-15 10:02:00.123456' WHERE RUN_ID='mixed' AND MODULE_NAME='NUMERIC_OUTLIERS'");
+db.exec("UPDATE DQ_METRIC_RESULT SET EXECUTION_TIMESTAMP='2026-10-15 10:00:00.000000'; UPDATE DQ_METRIC_RESULT SET EXECUTION_TIMESTAMP='2026-10-15 10:02:00.999999' WHERE RUN_ID='mixed' AND MODULE_NAME='NUMERIC_OUTLIERS'");
 for(const file of ['91_dq_summary_views.sql','93_dq_basic_review.sql']){
  const sql=fs.readFileSync(path.join(root,'teradata/results',file),'utf8')
   .replace(/REPLACE VIEW/g,'CREATE VIEW').replaceAll('DQ_DB.','')
   /* SQLite has no TIMESTAMP precision type; adapt the whole-second display. */
-  .replaceAll('CAST(MAX(R.EXECUTION_TIMESTAMP) AS TIMESTAMP(0))','substr(MAX(R.EXECUTION_TIMESTAMP),1,19)')
+  .replace(/CAST\(SUBSTRING\(CAST\(MAX\(R\.EXECUTION_TIMESTAMP\) AS CHAR\(26\)\)\s+FROM 1 FOR 19\) AS TIMESTAMP\(0\)\)/g,'substr(MAX(R.EXECUTION_TIMESTAMP),1,19)')
   /* SQLite CAST AS DATE differs from Teradata; adapt date extraction only. */
   .replace(/CAST\(CAST\((D\.(?:EARLIEST_DATE|LATEST_DATE)) AS DATE FORMAT 'YYYY-MM-DD'\) AS VARCHAR\(64\)\)/g,'date($1)');
  if(file==='93_dq_basic_review.sql')assert.ok(!sql.includes('STDDEV_SAMP'),'review view must not reference legacy sample deviation');
@@ -139,7 +139,7 @@ assert.equal(combined.OUTLIER_VALID_COUNT,3);assert.equal(combined.OUTLIER_COUNT
 assert.equal(db.prepare("SELECT STATUS FROM DQ_RULE_RESULT WHERE RUN_ID='mixed' AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='OVERALL' AND RULE_NAME='OUTLIER_RATE_PCT'").get().STATUS,'GREEN');
 assert.equal(Object.keys(combined).some(column=>column.endsWith('_COLOUR')),false);
 assert.equal(date.OUTLIER_COUNT,null);
-const only=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_ID='outlier-only'").get();
+const only=db.prepare("SELECT * FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=5").get();
 assert.equal(only.OUTLIER_COUNT,2);assert.equal(only.OUTLIER_VALID_COUNT,33);assert.equal(only.TOTAL_COUNT,null);assert.equal(only.MODULE_NAME,'NUMERIC_OUTLIERS');
 const reviewDdl=fs.readFileSync(path.join(root,'teradata/results','93_dq_basic_review.sql'),'utf8');
 assert.doesNotMatch(reviewDdl,/AS "[A-Z_]*COLOUR"/);
@@ -148,15 +148,16 @@ assert.match(reviewDdl,/AS DECIMAL\(9,6\)\) AS "MISSING_RATE"/);
 assert.match(reviewDdl,/AS DECIMAL\(38,6\)\) AS "MIN_VALUE"/);
 assert.equal(combined.POU_DT,null);
 assert.equal(Object.hasOwn(combined,'PERIOD_VALUE'),false);
+assert.equal(Object.hasOwn(combined,'RUN_ID'),false,'Public review must expose short run number only');
 assert.equal(Object.hasOwn(combined,'MISSING_RATE_PCT'),false);
 assert.equal(combined.ZERO_RATE,0.25);assert.equal(combined.SPECIAL_RATE,0);
-assert.equal(db.prepare("SELECT POU_DT FROM DQ_BASIC_REVIEW WHERE RUN_ID='mixed' AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='MONTHLY' ORDER BY POU_DT DESC LIMIT 1").get().POU_DT,'2000-02-29');
-assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_ID='mixed' AND PERIOD_LEVEL='MONTHLY' AND POU_DT='2000-01-27'").get().n,6);
+assert.equal(db.prepare("SELECT POU_DT FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='AMOUNT' AND PERIOD_LEVEL='MONTHLY' ORDER BY POU_DT DESC LIMIT 1").get().POU_DT,'2000-02-29');
+assert.equal(db.prepare("SELECT COUNT(*) AS n FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND PERIOD_LEVEL='MONTHLY' AND POU_DT='2000-01-27'").get().n,6);
 assert.equal(legacy.POU_DT,null);
 assert.ok(Math.abs(only.OUTLIER_RATE-2/33)<1e-10);
 assert.equal(date.MISSING_RATE,0.25);
-assert.equal(db.prepare("SELECT MISSING_RATE FROM DQ_BASIC_REVIEW WHERE RUN_ID='date-only' LIMIT 1").get().MISSING_RATE,null);
-assert.equal(db.prepare("SELECT MISSING_RATE FROM DQ_BASIC_REVIEW WHERE RUN_ID='mixed' AND FIELD_NAME='NULL_CATEGORY' AND PERIOD_LEVEL='OVERALL'").get().MISSING_RATE,1);
+assert.equal(db.prepare("SELECT MISSING_RATE FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=4 LIMIT 1").get().MISSING_RATE,null);
+assert.equal(db.prepare("SELECT MISSING_RATE FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=1 AND FIELD_NAME='NULL_CATEGORY' AND PERIOD_LEVEL='OVERALL'").get().MISSING_RATE,1);
 assert.equal((reviewDdl.match(/DECIMAL\(9,6\)/g)||[]).length,4);
 assert.equal((reviewDdl.match(/DECIMAL\(38,6\)/g)||[]).length,6);
 db.close();

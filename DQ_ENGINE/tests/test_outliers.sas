@@ -38,7 +38,9 @@
                     CAST(OUTLIER_UPPER_BOUND AS FLOAT) AS UPPER_BOUND,
                     CAST(OUTLIER_COUNT AS FLOAT) AS OUTLIER_COUNT,
                     CAST(OUTLIER_RATE AS FLOAT) AS OUTLIER_RATE
-             from &dq_database..DQ_BASIC_REVIEW where RUN_ID=&_basic_sql
+             from &dq_database..DQ_BASIC_REVIEW
+             where RUN_NUMBER=(select RUN_NUMBER from &dq_database..DQ_RUN_NUMBER
+                               where RUN_ID=&_basic_sql)
              and FIELD_NAME='AMOUNT' and PERIOD_LEVEL='OVERALL');
         %dq_check_sql;
         %let _rc=&dq_sql_failed;
