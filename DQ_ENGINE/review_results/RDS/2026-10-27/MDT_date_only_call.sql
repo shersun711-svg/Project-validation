@@ -1,4 +1,7 @@
 /* MDT DATE-ONLY execution template, based on the supplied procedure interfaces.
+   Alternative chosen by the analyst: MDT_date_focused_suite_call.sql keeps one
+   numeric/category field and uses the existing suite with trends/APPL disabled.
+   Choose one execution approach; do not run both for the same date run ID.
    Calls existing MDT procedures; does not change either engine's calculations.
    Source/configuration names come from the analyst's current suite CALL.
    The deployed MDT date/logger procedures are assumed to use the supplied
