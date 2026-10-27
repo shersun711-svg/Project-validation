@@ -30,7 +30,7 @@ Current-source reconstruction does not itself prove unchanged source history,
 although it reproduces the saved difference. Equality to the mathematical
 boundary is not an outlier under the agreed strict population 3-sigma rule.
 
-## Authorised manual correction — prepared, not executed here
+## Authorised manual correction — analyst confirmed complete
 
 The analyst authorised correcting only RDS run 17, `TOTALNETMONTHLYINCOME`,
 NUMERIC_OUTLIERS, OVERALL/ALL. The intended values are outlier count 0 and
@@ -46,8 +46,13 @@ are preserved. Export the before-images as internal working papers and verify
 the final view before recording the correction as complete.
 
 The script passed adapted SQLite checks for scope, rule handling and already-
-corrected no-op behaviour. It has not been compiled or executed in Teradata.
+corrected no-op behaviour. The analyst subsequently applied the correction in
+Teradata, reran the comparison and confirmed that the result was satisfactory.
+This is analyst-reported completion; this workspace has not independently
+queried the corrected database or received a new post-correction export.
 The original exception export remains evidence of the pre-correction result.
+Expected NULL-versus-zero definition differences are separate from this corrected
+outlier discrepancy and are not calculation mismatches.
 
 ## Reusable engine — precision correction still pending
 
