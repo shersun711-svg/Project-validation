@@ -9,9 +9,10 @@ selected account-detail checks and comparison with the field comments in
 `20260731_CMP2_Data_Attestation_Log_V1_1.xlsx`, sheet `Data_Attestation_Log`.
 Numeric account-level testing is outside this report.
 
-Two findings require CDAO clarification. The larger 2019 gaps extend the existing
-field-level MoM finding; they should be tracked together. Other movement patterns
-remain analyst follow-up items and have not been established as data errors.
+Three observations require CDAO clarification. The larger 2019 gaps extend the
+existing field-level MoM finding; they should be tracked together. Calculation
+checks and deferred observations are summarised below. No data error is assumed
+from a reversion flag alone.
 
 ## 1. Temporary missing repayment type — December 2013
 
@@ -66,15 +67,40 @@ with the existing missing-package-ID/package-bill finding, including any
 required correction. A further 207 February and 143 May event-description
 transitions fall outside the missing-package-ID overlap.
 
-## Additional patterns requiring analyst review
+## 3. Temporary repayment-type changes — low-priority clarification
 
-| Pattern | Evidence | Next check |
-|---|---|---|
-| `MV_EXDAY_PAYREV` value reversions | 169,703 flagged account-month events across 253 months; all flags are value reversions. | Sample the actual A → B → A transitions and compare with field derivation and expected payment behaviour. W427 reports no material DQ issues; frequent reversions alone do not contradict that conclusion. |
-| `IO_IND` and `REPAY_TYPE_CD` reversions | 613 and 654 value-reversion events respectively; August 2011 includes 47 and 46. | Check whether the same accounts drive both fields and whether contract/payment changes explain the reversions. Similar counts alone do not prove overlap. |
-| Postcode value reversions | June 2007 contains 64 A → B → A events, the largest monthly cluster for this field. | Review the values and source mapping to distinguish corrections or valid changes from a temporary mapping problem. |
+**Observation:** Testing identified 654 account-month events where
+`REPAY_TYPE_CD` changed for one month and returned to its previous value the
+following month. The most common patterns were `3 → 1 → 3` (441 events) and
+`2 → 1 → 2` (63 events). These are event counts, not distinct account counts;
+the same account may contribute events in different months. The 441 events
+occurred between March 2006 and June 2021; this does not imply occurrence
+in every intervening month.
 
-These are follow-up checks, not additional confirmed findings for CDAO.
+Codes 2/3 denote interest-only arrangements, 5/6 denote PCI and 0 denotes no
+regular repayment. Temporary arrangement changes may be valid. Preliminary
+priority is low, pending business confirmation; neither the cause nor model
+impact has been established. This observation is separate from the temporary
+missingness recorded under finding 1.
+
+The analyst reconciled `IO_IND` to the documented rule across all 613 of its
+flagged reversion events and their three-month windows: repayment type 2 or 3
+maps to 1; otherwise it maps to 0. All observed indicators matched the expected
+values. No `IO_IND` mapping discrepancy was identified. This does not establish
+whether the underlying repayment-arrangement changes were genuine.
+
+**Requested action:** CDAO to confirm whether the temporary repayment-type
+changes represent genuine repayment-arrangement changes or data-processing
+effects, provide supporting evidence for a small sample, and confirm whether
+any correction or limitation on use is required.
+
+## Completed targeted checks and deferred observations
+
+| Field / pattern | Evidence and conclusion |
+|---|---|
+| `MV_EXDAY_PAYREV` value reversions | Ten account reversions were checked across 30 monthly observations, covering both directions in early and later periods. All classifications agreed with the exposed RDS inputs; sampled movements were driven by days in excess moving between zero and positive values. PASS — no issue identified in the targeted checks. This is not full-population source verification. |
+| `IO_IND` calculation | All 613 flagged reversions were reconciled across their three-month windows with no mapping discrepancies. PASS for the classification check; repayment-type business validity remains under finding 3. |
+| Property-classification reversions in `MV_PROP_POSTCODE_NM` | June 2007 contained 64 events: 37 house/apartment reversions, 18 urban/non-urban house reversions and 9 missing-type/house reversions. Approximately 0.04% of the month's population. Low-volume observation; detailed source tracing deferred. No data error established. |
 
 ## Checks with no movements flagged and documented context
 
