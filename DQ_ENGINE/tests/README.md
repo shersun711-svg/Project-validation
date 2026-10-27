@@ -1,4 +1,30 @@
-# Optional validation and performance checks
+# Which test files should I use?
+
+For the current MDT result comparison, use only:
+
+| File | Current use |
+|---|---|
+| [compare_numeric_development.sql](compare_numeric_development.sql) | Our numeric run 17 versus MDT runs 12, 13, 14 and 15, all in LAB_T_ORION_MVT. |
+| [compare_categorical_development.sql](compare_categorical_development.sql) | Categorical comparison when the MDT categorical results are ready. Defaults: our run 18, MDT run 1; confirm that MDT ID separately. |
+
+Replace DQ_DB in deployment copies. Submit each complete comparison as one
+request. No engine deployment, fixture creation or profiling rerun is needed.
+See [comparison settings and classification exceptions](../documentation/DEVELOPMENT_COMPARISON.md).
+
+The other SQL/SAS files are optional maintenance checks:
+
+- `validate_rds.sql`: read-only checks of source/configuration/population.
+- `benchmark_numeric.sql`: read-only performance diagnosis.
+- `00_create_*` through `03_create_*`: synthetic test-data setup.
+- `test_*.sql` and `test_*.sas`: regression checks for calculations, configuration,
+  run lifecycle and prior fixes. Some modify data or configuration in an isolated
+  test engine; they are not part of the routine RDS workflow.
+
+Keep the regression files for future engine changes. They are not unused merely
+because normal users do not run them. The detailed maintenance instructions below
+are for developers, not a checklist to execute before comparing results.
+
+## Optional validation and performance checks
 
 These files support engine maintenance and verification. Normal users load
 Excel and run the engine; they do not need to run this folder on every use.
@@ -141,10 +167,10 @@ This does not execute Teradata SPL or establish a production runtime gain.
 ## Reconcile with development results
 
 [compare_numeric_development.sql](compare_numeric_development.sql) compares
-DQ_BASIC_REVIEW directly against development run ID 1 for Numeric Basic/Outliers.
+DQ_BASIC_REVIEW directly against MDT run IDs 12, 13, 14 and 15 for Numeric Basic/Outliers.
 It shows OUR_VALUE, DEV_VALUE, DIFFERENCE and STATUS for each field/period/metric;
 rates are fractions and values display to six decimals. Edit the engine
-short run number (default 16) and replace DQ_DB in a local copy, then submit the
+short run number (default 17) and replace DQ_DB in a local copy, then submit the
 complete statement in SQL Assistant. See [scope, mappings and interpretation](../documentation/DEVELOPMENT_COMPARISON.md).
 Local synthetic regression: `node DQ_ENGINE/tools/check_development_comparison.mjs`.
 No profiling rerun or database objects are needed; Teradata execution is unverified.
