@@ -14,19 +14,20 @@ The updated analyst workbook `Book1 (3).xlsx` contains:
 
 | Original sheet | Work evidenced | Repository evidence |
 |---|---|---|
-| `Overall` | Ten field summaries, each covering 255 months. | Field totals and conclusions in `Field summary`. |
-| `POU` | 1,236 field/month exception rows. | Original retained internally; key exceptions summarised in the report and `Key evidence`. |
-| `Specific field` | February/May 2019 package-ID overlap; both MV_EXDAY_PAYREV patterns; both IO_IND patterns; all 12 repayment-type reversion patterns. | Principal conclusions in `Findings` and this log; overlap counts in `Key evidence`. |
-| `IO_IND` | 1,839 observations covering 613 flagged three-month windows, with actual and expected indicator values. | Reconciliation conclusion in `Field summary` and this log; account identifiers are excluded. |
+| `Overall` | Ten field summaries, each covering 255 months. | Original aggregate values retained. |
+| `POU` | 1,236 field/month exception rows. | Original aggregate values retained. |
+| `Specific field` | February/May 2019 package-ID overlap; both MV_EXDAY_PAYREV patterns; both IO_IND patterns; all 12 repayment-type reversion patterns. | Original values retained; later overlap, next-month presence and property-classification pattern results appended. |
+| `IO_IND` | 1,839 observations covering 613 flagged three-month windows, with actual and expected indicator values. | Aggregated by flagged month and reversion pattern; event/observation/mismatch totals reconcile to the original. Individual account records are excluded. |
 
 Repository copy: [RDS_account_level_evidence_run19.xlsx](RDS_account_level_evidence_run19.xlsx).
 The original account-level workbook remains outside the public repository.
-The simplified repository copy has only three sheets: `Field summary` (ten
-fields), `Findings` (four observations) and `Key evidence` (ten rows combining
-package-ID overlap and next-month absence). Detailed exports remain in the
-original internal workbook. Amber means pending clarification and green means
-a passed check within its stated scope or no tested flags; these are review
-annotations, not automated rule results or proof of overall accuracy.
+The repository workbook is a working paper, not a manager report. It keeps
+the four original sheet names and adds `SQL and analysis`, which records the
+question, reproducible SQL, saved result location and interpretation for each
+step. Queries were reconstructed from the review discussion and were not rerun
+here. The original individual account observations remain in the internal copy.
+Future revisions to the working papers are to be saved to the repository;
+public copies continue to exclude individual customer records and identifiers.
 
 ## Review work and conclusions
 
@@ -53,9 +54,9 @@ in the internal working papers if needed for evidence handover:
 - The 30 MV_EXDAY_PAYREV sample observations and their exposed input values.
 - The five June 2007 property-classification reversion pattern counts.
 - The six additional package-ID overlap rows for February 2020, March 2022
-  and November 2024; these are now transcribed in `Key evidence`.
+  and November 2024; these are now transcribed in `Specific field`.
 - The ten following-month presence results for both fields across all five
-  identified spike months; their absence counts are now in `Key evidence`.
+  identified spike months; the presence and absence counts are now in `Specific field`.
 
 The latest report records these aggregate results. The original uploaded
 `Book1 (3).xlsx` contains the four February/May 2019 overlap rows but not
