@@ -4,6 +4,20 @@ Users edit the project workbook and load it with sas/04_load_dq_config.sas.
 SAS loads configuration directly; there is no SAS workbook-validation or
 approval stage. See [sheet headers and loading instructions](EXCEL_CONFIGURATION.md).
 
+## Reuse across projects
+
+Core profiling calculations apply consistently across projects. Do not add
+field-name, project-name or sample-size exceptions to resolve a single
+comparison discrepancy. Investigate the cause and test a general correction
+before changing the calculation. Agreement with another engine is evidence
+for review, not the definition of correctness.
+
+Use the existing configuration for source/account/date mappings, field types,
+field selection, special values, thresholds and reporting levels, with SAS
+switches selecting modules. Keep project-specific explanations and replication
+exceptions in that project's working papers. This principle introduces no new
+settings and does not change existing metric definitions.
+
 ## Choose fields in Excel
 
 The Fields sheet contains FIELD_NAME, FIELD_TYPE and ACTIVE_IND.

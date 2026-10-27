@@ -13,15 +13,6 @@ NUMERIC field. No new workbook columns or per-field switches are needed.
     Upper bound = mean + 3 * population standard deviation
 
 Only values strictly below/above these bounds are outliers. Equality is allowed.
-For a population of n valid observations, the largest possible absolute
-population-standardised distance is sqrt(n-1). Therefore, with 1–10 valid
-observations no strict 3-sigma outlier is mathematically possible. The counting
-predicates enforce this identity using each reporting period's valid count,
-preventing floating-point rounding from turning a boundary value into an outlier.
-This is not a new minimum-sample-size setting: statistics and bounds are still
-calculated, counts/rates are zero for these valid populations, and empty
-populations keep their existing NULL behaviour. No tolerance is added to larger
-populations and the multiplier remains 3.
 Calculate separate statistics/bounds for OVERALL, YEARLY and MONTHLY; NULL
 reporting dates appear in UNKNOWN yearly/monthly groups. Source view rows are
 not deduplicated or filtered. NULL and configured numeric special values are

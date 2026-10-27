@@ -32,24 +32,25 @@ is inconsistent with that mathematical rule. Floating-point evaluation at the
 boundary is a plausible cause; the actual ten source values have not been
 independently inspected to establish the exact rounding path.
 
-## Focused correction prepared
+## Decision — investigate before changing the calculation
 
-`modules/12_numeric_outliers.sql` now prevents outlier counts for period-specific
-valid populations of 1–10. This enforces the existing mathematical rule without
-changing its multiplier, bounds, denominator, missing/special-value handling,
-source scans or calculation for larger populations. Existing saved results are
-not overwritten.
+A proposed valid-count safeguard was locally tested but withdrawn following
+analyst review. The current repository procedure retains the original strict
+mean ± 3 population-standard-deviation comparison, without a sample-size
+condition. No decimal-conversion change has been made either.
 
-Local regression executes the generated counting SQL for n=1..11, both tail
-directions and overall/yearly/monthly periods. It reproduces inward-rounded
-ten-observation bounds, verifies zero false positives, and preserves genuine
-tails at n=11. Existing reporting-level, batch-width and shared-copy checks also
-pass. These checks do not compile or run Teradata SPL.
+The mathematical property above is evidence for investigating the discrepancy,
+not evidence that its precise numerical cause has been established. Next,
+inspect the ten valid values and full-precision inputs/bounds and independently
+recalculate the result. Select and test any correction on that basis, rather
+than changing a rule solely to agree with MDT. Casting to decimal can also
+introduce rounding and must be assessed before adoption.
 
-Deployment: replace DQ_DB with LAB_T_ORION_MVT in file 12, recompile its two
-complete procedures separately in file order and apply the supplied grants.
-Verify a fresh controlled single-field outlier run before broader use. A full
-RDS rerun is not needed to diagnose or document this discrepancy; the original
-run 17 comparison remains evidence of the pre-correction result.
+The discrepancy remains open; local baseline regression checks do not resolve
+it or verify live Teradata SPL. Run 17 remains unchanged as comparison evidence.
+There is no correction to deploy at this stage and no full RDS rerun is needed
+for this investigation. If the superseded guarded procedure was already deployed,
+record that version separately and restore the current unguarded procedure
+before conducting a like-for-like baseline test.
 
 Read-only queries: [RDS_numeric_MDT_follow_up.sql](RDS_numeric_MDT_follow_up.sql).
