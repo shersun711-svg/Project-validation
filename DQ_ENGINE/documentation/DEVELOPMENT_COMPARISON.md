@@ -6,7 +6,8 @@ same output layout. Choose the script for the field type; neither reruns profili
 
 [compare_numeric_development.sql](../tests/compare_numeric_development.sql)
 compares saved **DQ_BASIC_REVIEW** results with the development team's numeric
-result table. It is read-only: no profiling rerun, source-data scan, new tables,
+result table, selecting MDT runs **12, 13, 14 and 15** together. It is read-only:
+no profiling rerun, source-data scan, new tables,
 SAS changes or Excel changes are needed. The comparison was written independently
 using the supplied development schema and metric definitions as references.
 
@@ -14,17 +15,47 @@ using the supplied development schema and metric definitions as references.
 
 1. Download the SQL file. Replace `DQ_DB` with `LAB_T_ORION_MVT` in your copy.
 2. Set `OUR_RUN_NUMBER` at the top to your successful run; default **17**.
-   Development `DEV_RUN_ID` is already **1**, as confirmed. These identifiers
-   refer to different engines and do not need to have the same number.
+   The `DEV_RUN_IDS` list is already **12, 13, 14 and 15**, as confirmed.
+   These identifiers refer to different engines and do not need to have the
+   same number as our run.
 3. Confirm SELECT access to
    `LAB_T_ORION_MVT.IRB_RDS_DQ_NUMERIC_PROFILE_RESULT`.
 4. Submit the complete `WITH ... SELECT` statement as one request.
 
 Both engines' saved results now reside in `LAB_T_ORION_MVT`. Replacing `DQ_DB`
 sets the schema for both sides; the MDT result-table names are assumed unchanged.
-Our run numbers and the MDT run ID belong to separate engines. The defaults
-remain MDT run 1, our numeric run 17 and our categorical run 18; edit the MDT
-ID if the completed MDT execution used a different ID.
+The numeric defaults are our run **17** and MDT runs **12–15**. The categorical
+query remains our run **18**, MDT run **1**; the numeric run-ID correction does
+not establish which MDT categorical execution to select.
+
+### MDT numeric field batches
+
+The analyst ran the 415 MDT numeric fields in four batches: 100, 100, 100 and
+115. The query reads the saved rows from all four IDs as one comparison scope;
+it does not sum statistics or counts across batches. Each compared row reports
+the actual contributing MDT `DEV_RUN_ID`.
+
+Each field/period must have one MDT row across the selected runs. Overlap is
+flagged `DUPLICATE_DEVELOPMENT` (or `PERIOD_SCOPE_MISMATCH` for several actual
+dates within a month), with values withheld. No latest-run choice or silent
+deduplication is performed. Missing selected runs or repeated/NULL selected IDs
+return `NOT_EVALUATED`. All batches must use equivalent source versions, filters,
+periods and metric definitions; matching counts alone do not establish that.
+
+To verify the saved field batches before comparison:
+
+```sql
+SELECT RUN_ID,COUNT(DISTINCT UPPER(TRIM(FIELD_NAME))) AS FIELD_COUNT
+FROM LAB_T_ORION_MVT.IRB_RDS_DQ_NUMERIC_PROFILE_RESULT
+WHERE RUN_ID IN (12,13,14,15)
+GROUP BY RUN_ID
+ORDER BY RUN_ID;
+```
+
+Expect 100, 100, 100 and 115 in the stated batch order. These counts do not prove
+disjoint fields; the comparison also checks duplicate field/period keys within
+its selected validation scope. MDT-only fields outside that scope require the
+classification-exception review below.
 
 ## CDAO-confirmed field classification exceptions
 
@@ -184,7 +215,9 @@ and are not compared. No source data is read and no new objects are created.
 SELECT on synthetic review/development results with SQLite dialect adaptations.
 It covers all 17 metrics, fractions, six-decimal rounding, exact large counts,
 missing/duplicate rows, input guards, population/date mismatches and an
-Outliers-only run. The same checker executes the categorical query across all
+Outliers-only run. It also checks four numeric field batches, actual contributing
+run IDs, overlapping batches, missing selected runs and repeated selection IDs.
+The same checker executes the categorical query across all
 seven metrics, definition differences, unavailable prerequisites and exception
 cases. Teradata parsing, permissions, query plans and actual results
 remain unverified until you run it in the lab.

@@ -37,9 +37,11 @@ for(const [level,date] of [['OVERALL',null],['MONTHLY','2018-01-31']]){
  const values=['our','RDS','AMOUNT','NUMERIC',level,date,...Object.values(metrics)];
  db.prepare(`INSERT INTO DQ_BASIC_REVIEW VALUES (${values.map(()=>'?').join(',')})`).run(...values);
  db.prepare('INSERT INTO IRB_RDS_DQ_NUMERIC_PROFILE_RESULT VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
- .run(1,'AMOUNT',level,date,100,10,.1,5,.05,0,50,10,2,10,.1,80,2,.025,4,16);
+ .run(12,'AMOUNT',level,date,100,10,.1,5,.05,0,50,10,2,10,.1,80,2,.025,4,16);
 }
 const dev='IRB_RDS_DQ_NUMERIC_PROFILE_RESULT';
+// All four selected MDT batches must exist; these three begin outside field scope.
+for(const id of [13,14,15]) db.exec(`INSERT INTO ${dev} SELECT ${id},'BATCH_'||${id},RUN_TYPE,POU_DT,ROW_COUNT,MISSING_COUNT,MISSING_PCT,ZERO_COUNT,ZERO_PCT,MIN_VALUE,MAX_VALUE,MEAN_VALUE,STDDEV_VALUE,SPECIAL_COUNT,SPECIAL_PCT,VALID_COUNT,OUTLIER_COUNT,OUTLIER_PCT,OUTLIER_VALUE_LOWER,OUTLIER_VALUE_UPPER FROM ${dev} WHERE RUN_ID=12`);
 const rows=(query=sql)=>{const statement=db.prepare(query);statement.setReadBigInts(true);return statement.all();};
 let scenarios=0;
 function scenario(change,status,metric,query=sql){
@@ -73,8 +75,23 @@ scenario("UPDATE DQ_RUN_LOG SET STATUS='FAILED'",'NOT_EVALUATED');
 scenario("UPDATE DQ_RUN_LOG SET PROJECT_ID='OTHER'",'NOT_EVALUATED');
 scenario("UPDATE DQ_MODULE_LOG SET STATUS='FAILED'",'NOT_EVALUATED');
 scenario(`DELETE FROM ${dev}`,'NOT_EVALUATED');
-scenario('', 'NOT_EVALUATED',null,sql.replace('CAST(1 AS BIGINT) AS DEV_RUN_ID','CAST(NULL AS BIGINT) AS DEV_RUN_ID'));
+scenario('', 'NOT_EVALUATED',null,sql.replace('CAST(12 AS BIGINT) AS DEV_RUN_ID','CAST(NULL AS BIGINT) AS DEV_RUN_ID'));
 scenario("UPDATE DQ_RUN_LOG SET PROFILE_OVERALL='N',PROFILE_MONTHLY='N',PROFILE_YEARLY='Y'",'NOT_EVALUATED');
+// Missing selected batches cannot be silently treated as a complete comparison.
+scenario(`DELETE FROM ${dev} WHERE RUN_ID=14`,'NOT_EVALUATED');
+scenario('', 'NOT_EVALUATED',null,sql.replace('CAST(15 AS BIGINT) AS DEV_RUN_ID','CAST(14 AS BIGINT) AS DEV_RUN_ID'));
+// Each MDT field batch contributes values with its actual run ID.
+db.exec('SAVEPOINT multi_batch');
+for(const id of [13,14,15]){
+ db.exec(`INSERT INTO DQ_RUN_FIELD_CONFIG VALUES ('our','BATCH_${id}','NUMERIC');
+ INSERT INTO DQ_BASIC_REVIEW SELECT RUN_ID,PROJECT_ID,'BATCH_${id}',FIELD_TYPE,PERIOD_LEVEL,POU_DT,${Object.keys(metrics).join(',')} FROM DQ_BASIC_REVIEW WHERE FIELD_NAME='AMOUNT'`);
+}
+const multi=rows();assert.equal(multi.length,136);assert(multi.every(r=>r.STATUS==='MATCH'));
+for(const id of [12,13,14,15])assert(multi.filter(r=>r.FIELD_NAME===(id===12?'AMOUNT':`BATCH_${id}`)).every(r=>Number(r.DEV_RUN_ID)===id));
+// Overlap across selected IDs must be flagged, even if saved metric values agree.
+db.exec(`UPDATE ${dev} SET FIELD_NAME='AMOUNT' WHERE RUN_ID=13`);
+const overlap=rows();assert(overlap.some(r=>r.FIELD_NAME==='AMOUNT'&&r.STATUS==='DUPLICATE_DEVELOPMENT'&&r.DEV_VALUE===null&&r.DEV_RUN_ID===null));
+db.exec('ROLLBACK TO multi_batch; RELEASE multi_batch');
 // Outliers-only review has no Basic totals. Do not demand absent Basic columns.
 db.exec('SAVEPOINT outliers_only');
 db.exec("DELETE FROM DQ_MODULE_LOG WHERE MODULE_NAME='NUMERIC_BASIC';UPDATE DQ_BASIC_REVIEW SET TOTAL_COUNT=NULL");
