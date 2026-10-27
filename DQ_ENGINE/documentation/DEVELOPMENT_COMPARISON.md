@@ -13,12 +13,46 @@ using the supplied development schema and metric definitions as references.
 ## Run in SQL Assistant
 
 1. Download the SQL file. Replace `DQ_DB` with `LAB_T_ORION_MVT` in your copy.
-2. Set `OUR_RUN_NUMBER` at the top to your successful run; default **16**.
+2. Set `OUR_RUN_NUMBER` at the top to your successful run; default **17**.
    Development `DEV_RUN_ID` is already **1**, as confirmed. These identifiers
    refer to different engines and do not need to have the same number.
 3. Confirm SELECT access to
-   `LAB_P_DECISION_SCIENCE.IRB_RDS_DQ_NUMERIC_PROFILE_RESULT`.
+   `LAB_T_ORION_MVT.IRB_RDS_DQ_NUMERIC_PROFILE_RESULT`.
 4. Submit the complete `WITH ... SELECT` statement as one request.
+
+Both engines' saved results now reside in `LAB_T_ORION_MVT`. Replacing `DQ_DB`
+sets the schema for both sides; the MDT result-table names are assumed unchanged.
+Our run numbers and the MDT run ID belong to separate engines. The defaults
+remain MDT run 1, our numeric run 17 and our categorical run 18; edit the MDT
+ID if the completed MDT execution used a different ID.
+
+## CDAO-confirmed field classification exceptions
+
+The analyst confirmed with CDAO that these fields should be categorical:
+
+| Field | CDAO classification | MDT numeric output |
+|---|---|---|
+| `BRANCH_ORIGIN_ID` | CATEGORICAL | Retain as replication evidence only. |
+| `BROKER_CD` | CATEGORICAL | Retain as replication evidence only. |
+| `SECURITISED_DEAL_ID` | CATEGORICAL | Retain as replication evidence only. |
+| `BOR2_CUSTOMER_AGE` | CATEGORICAL | Retain as replication evidence only. |
+
+All four are already categorical in the engine's checked-in field list.
+Preserve any numeric and categorical runs made for replication; do not rewrite
+their saved types or results. A numeric match for these fields is evidence of
+reproduction under the numeric definition, not endorsement of that field type.
+
+The numeric comparison follows the selected run's saved numeric field scope.
+If our saved run classified a field as categorical, no numeric result is
+invented or compared for that field. Its absence from numeric scope is an
+expected classification exception, not a metric mismatch or a numeric pass.
+If both numeric outputs exist from a dedicated replication run, they can be
+compared using that run, with this exception recorded in the working papers.
+
+Use categorical results for the validation interpretation. A categorical
+comparison requires MDT categorical output as well; numeric statistics cannot
+substitute for it. No configuration, source data or saved result is changed
+by these comparison queries.
 
 ## Read the output
 
@@ -105,9 +139,9 @@ It cannot establish that either engine is correct merely because values match.
 Use [compare_categorical_development.sql](../tests/compare_categorical_development.sql)
 with the same schema replacement and run-number settings. Choose a successful
 engine run that **contains CATEGORICAL_BASIC results**; a numeric-only run will
-return NOT_EVALUATED. The default engine number is 16 and must be edited if
+return NOT_EVALUATED. The default engine number is 18 and must be edited if
 that run did not include categorical profiling. Development run ID is 1, using
-`LAB_P_DECISION_SCIENCE.IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT`.
+`LAB_T_ORION_MVT.IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT`.
 
 It compares seven metrics, for overall/enabled monthly periods:
 

@@ -4,13 +4,19 @@
    One row per field/period/metric: OUR_VALUE, DEV_VALUE, DIFFERENCE, STATUS.
    Rates are already fractions; no division by 100 is needed.
    SHOW_MATCHES=Y displays all comparisons; N displays exceptions only.
+   Both engines' saved results are read from DQ_DB. MDT result table names
+   are assumed unchanged. CDAO classifies BRANCH_ORIGIN_ID, BROKER_CD,
+   SECURITISED_DEAL_ID and BOR2_CUSTOMER_AGE as CATEGORICAL. If captured as
+   numeric in this run, their numeric results are replication evidence only.
+   This query follows the saved run field types; it does not coerce categories
+   or create numeric results that were not calculated.
    Numeric Basic + Outliers, overall/monthly only. See
    documentation/DEVELOPMENT_COMPARISON.md for scope and known differences. */
 WITH
 PARAMS AS
 (
     SELECT CAST('RDS' AS VARCHAR(30)) AS PROJECT_ID,
-           CAST(16 AS BIGINT) AS OUR_RUN_NUMBER,
+           CAST(17 AS BIGINT) AS OUR_RUN_NUMBER,
            CAST(1 AS BIGINT) AS DEV_RUN_ID,
            CAST(0.000001 AS DECIMAL(18,12)) AS RATE_ABS_TOL,
            CAST(0.000001 AS DECIMAL(18,12)) AS VALUE_ABS_TOL,
@@ -155,7 +161,7 @@ ENGINE_VALUES AS
 ),
 DEV_RUN_VALUES AS
 (
-    SELECT D.* FROM LAB_P_DECISION_SCIENCE.IRB_RDS_DQ_NUMERIC_PROFILE_RESULT D
+    SELECT D.* FROM DQ_DB.IRB_RDS_DQ_NUMERIC_PROFILE_RESULT D
     JOIN PARAMS P ON D.RUN_ID=P.DEV_RUN_ID
 ),
 DEV_SCOPED AS
