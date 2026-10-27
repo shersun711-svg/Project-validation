@@ -13,6 +13,25 @@ NUMERIC field. No new workbook columns or per-field switches are needed.
     Upper bound = mean + 3 * population standard deviation
 
 Only values strictly below/above these bounds are outliers. Equality is allowed.
+For consistent boundary decisions, source values and final calculated bounds
+are explicitly rounded to ten decimal places and converted to DECIMAL(38,10)
+before comparison. The comparisons remain strict at that precision; values
+equal after rounding are inliers, including differences below that resolution.
+This matches the metric table's stored numeric scale and applies to every field,
+project and reporting level, without field-name or sample-size exceptions.
+
+The mean and population deviation still come from the captured full-precision
+FLOAT statistics. Only the final bounds are rounded; the same decimal bounds
+are published as outlier metrics. Native NULL/special filtering happens before
+source-value rounding, so rounding does not change valid counts or special-value
+membership. Basic statistics, source copies and scans are unchanged.
+
+DECIMAL(38,10) supports 28 integer digits and ten fractional digits. Values and
+bounds must fit this existing metric-storage contract; conversions outside the
+range fail instead of silently returning a valid assessment. Future projects
+needing a wider range or finer scale require an explicit precision-contract
+review. This does not remove all approximation in FLOAT statistics, and SQLite
+checks do not establish Teradata decimal/ROUND behaviour or performance.
 Calculate separate statistics/bounds for OVERALL, YEARLY and MONTHLY; NULL
 reporting dates appear in UNKNOWN yearly/monthly groups. Source view rows are
 not deduplicated or filtered. NULL and configured numeric special values are

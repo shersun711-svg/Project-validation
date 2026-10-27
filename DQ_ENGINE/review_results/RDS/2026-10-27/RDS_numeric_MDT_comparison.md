@@ -54,20 +54,31 @@ The original exception export remains evidence of the pre-correction result.
 Expected NULL-versus-zero definition differences are separate from this corrected
 outlier discrepancy and are not calculation mismatches.
 
-## Reusable engine — precision correction still pending
+## Reusable engine — precision correction prepared; server verification pending
 
-File 12 retains the original strict mean ± 3 population-standard-deviation
-formula. The proposed sample-size safeguard was withdrawn. No field-specific
-exception, >10 condition or general decimal conversion is deployed by this work.
+File 12 now compares valid values and final bounds after ROUND(...,10) and
+conversion to DECIMAL(38,10), using the existing metric-storage scale. The mean
+and population deviation remain captured as FLOAT; only final comparison bounds
+are rounded. Native special-value filtering still precedes rounding. The same
+bounds are saved, and the strict mean ± 3 population-standard-deviation rule
+remains. There is no sample-size or field/project-specific exception.
 
-A general precision correction is still necessary to prevent recurrence at
-numeric boundaries. Assess consistent precision for values and bounds against
-source numeric ranges and scales, and regression-test equality and genuine
-outliers across fields, reporting levels and population sizes. Do not change
-the calculation solely to reproduce MDT or treat this manual correction as a
-replacement for the engine fix. Casting final output alone cannot correct an
-earlier FLOAT classification decision.
+Local generated-SQL checks cover both boundary directions, the reported
+ten-value case, another boundary case at twenty observations, differences at
+the declared decimal resolution, genuine tails and a valid value close to a
+configured special code. An independent scaled-integer oracle verifies the
+ten-value mathematical boundary. Existing period, empty-source and batch
+checks also pass. These are dialect-adapted SQLite checks, not proof of
+Teradata decimal semantics, SPL compilation or runtime.
+
+The conversion must fit DECIMAL(38,10): 28 integer digits and ten fractional
+digits. Review that precision contract for future projects with wider/finer
+values. No source data, historical metrics or configuration are changed by
+deploying the procedure. The correction was implemented independently; matching
+MDT alone was not used as proof of correctness.
 
 [Follow-up SQL](RDS_numeric_MDT_follow_up.sql) retains the saved-statistic and
 current-value diagnostics. No full RDS rerun is needed for the manual correction;
-future corrected engine code requires a controlled server test before broader use.
+the updated procedure requires a controlled server test before broader use.
+Deploy the latest file 12's two complete procedures and grants in file order,
+then verify a small outlier run before the next full profiling execution.

@@ -252,8 +252,12 @@ main: BEGIN
         DO
             IF F.FIELD_ORDINAL<=V_LAST THEN
                 SET V_SUFFIX=TRIM(CAST(F.FIELD_ORDINAL AS VARCHAR(12)));
+                /* Test special values in the native source first. Valid values
+                   and final bounds use the metric store's DECIMAL(38,10)
+                   comparison precision; never convert them back to FLOAT. */
                 SET V_SOURCE_PART='' || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_LIST
-                  || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
+                  || ' THEN NULL ELSE CAST(ROUND("' || TRIM(F.FIELD_NAME)
+                  || '",10) AS DECIMAL(38,10)) END AS DQ_C' || V_SUFFIX;
                 SET V_OVERALL_PART=''
                   || ',MAX(N' || V_SUFFIX || ') AS N' || V_SUFFIX
                   || ',MAX(L' || V_SUFFIX || ') AS L' || V_SUFFIX
@@ -265,8 +269,8 @@ main: BEGIN
                     SET V_YEAR_BOUNDS=',MAX(B1.N' || V_SUFFIX || ') AS YN' || V_SUFFIX
                       || ',MAX(B1.L' || V_SUFFIX || ') AS YL' || V_SUFFIX
                       || ',MAX(B1.U' || V_SUFFIX || ') AS YU' || V_SUFFIX;
-                    SET V_YEAR_COUNT=',COALESCE(SUM(CAST(CASE WHEN CAST(' || V_FIELD || ' AS FLOAT)<B1.L' || V_SUFFIX
-                      || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B1.U' || V_SUFFIX
+                    SET V_YEAR_COUNT=',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || '<B1.L' || V_SUFFIX
+                      || ' OR ' || V_FIELD || '>B1.U' || V_SUFFIX
                       || ' THEN 1 ELSE 0 END AS BIGINT)),0) AS YO' || V_SUFFIX;
                 ELSE
                     SET V_YEAR_BOUNDS=',CAST(NULL AS BIGINT) AS YN' || V_SUFFIX
@@ -282,11 +286,11 @@ main: BEGIN
                   || ',MAX(BM.L' || V_SUFFIX || ') AS ML' || V_SUFFIX
                   || ',MAX(BM.U' || V_SUFFIX || ') AS MU' || V_SUFFIX
                   || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS ACTUAL' || V_SUFFIX
-                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_OVERALL || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<B0.L' || V_SUFFIX
-                  || ' OR CAST(' || V_FIELD || ' AS FLOAT)>B0.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS OO' || V_SUFFIX
+                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_OVERALL || '''=''Y'' AND (' || V_FIELD || '<B0.L' || V_SUFFIX
+                  || ' OR ' || V_FIELD || '>B0.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS OO' || V_SUFFIX
                   || V_YEAR_COUNT
-                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_MONTHLY || '''=''Y'' AND (CAST(' || V_FIELD || ' AS FLOAT)<BM.L' || V_SUFFIX
-                  || ' OR CAST(' || V_FIELD || ' AS FLOAT)>BM.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS MO' || V_SUFFIX;
+                  || ',COALESCE(SUM(CAST(CASE WHEN ''' || V_PROFILE_MONTHLY || '''=''Y'' AND (' || V_FIELD || '<BM.L' || V_SUFFIX
+                  || ' OR ' || V_FIELD || '>BM.U' || V_SUFFIX || ') THEN 1 ELSE 0 END AS BIGINT)),0) AS MO' || V_SUFFIX;
                 /* Reserve 3,000 characters for joins, period/date expressions and
                    physical names. Oversized candidates stay for the next batch.
                    Validate before appending to the bounded fragment buffers. */
@@ -353,12 +357,13 @@ main: BEGIN
         UPDATE DQ_DB.DQ_MODULE_LOG SET START_TIME=CURRENT_TIMESTAMP(6)
          WHERE RUN_ID=P_RUN_ID AND MODULE_NAME='NUMERIC_OUTLIERS'
            AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
-        /* Bounds table contains period aggregates only. Fixed 3 is recorded
-           in SQL; no rounded DECIMAL mean/deviation is read from metric results. */
+        /* Calculate bounds from captured full-precision statistics, then round
+           only the final comparison bounds. The same decimal bounds are saved
+           as metrics. No field/project/sample-size exception is applied. */
         SET V_SQL='CREATE VOLATILE TABLE DQ_NO_BOUNDS AS (SELECT PERIOD_LEVEL,PERIOD_VALUE,MAX(TOTAL_COUNT) AS TOTAL_N'
           || V_BOUND_PROJECTION || ' FROM (SELECT S.*,'
-          || 'CASE WHEN VALID_COUNT>=1 AND STDDEV_VALUE IS NOT NULL THEN MEAN_VALUE-3.0*STDDEV_VALUE END AS LB,'
-          || 'CASE WHEN VALID_COUNT>=1 AND STDDEV_VALUE IS NOT NULL THEN MEAN_VALUE+3.0*STDDEV_VALUE END AS UB '
+          || 'CASE WHEN VALID_COUNT>=1 AND STDDEV_VALUE IS NOT NULL THEN CAST(ROUND(MEAN_VALUE-3.0*STDDEV_VALUE,10) AS DECIMAL(38,10)) END AS LB,'
+          || 'CASE WHEN VALID_COUNT>=1 AND STDDEV_VALUE IS NOT NULL THEN CAST(ROUND(MEAN_VALUE+3.0*STDDEV_VALUE,10) AS DECIMAL(38,10)) END AS UB '
           || 'FROM DQ_DB.DQ_NUMERIC_STATISTICS S WHERE RUN_ID=''' || P_RUN_ID || ''' AND FIELD_NAME IN ('
           || 'SELECT FIELD_NAME FROM DQ_DB.DQ_RUN_FIELD_CONFIG WHERE RUN_ID=''' || P_RUN_ID
           || ''' AND FIELD_TYPE=''NUMERIC'' AND FIELD_ORDINAL BETWEEN ' || TRIM(CAST(V_FIRST AS VARCHAR(12)))

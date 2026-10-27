@@ -192,6 +192,48 @@ for(const row of rows){
 }
 assert.equal(reference.get('AMOUNT/OVERALL/ALL').valid,33);assert.equal(reference.get('AMOUNT/OVERALL/ALL').count,2);
 assert.equal(reference.get('BOUNDARY/OVERALL/ALL').count,0);assert.equal(reference.get('CONSTANT_VALUE/OVERALL/ALL').count,0);
+// Exact decimal oracle for the independently inspected two-point population.
+// All arithmetic here uses scaled integers, not the engine's FLOAT statistics.
+const unit=10000000000n,exact=[16646700000000n,...Array(9).fill(18747300000000n)];
+const exactMean=exact.reduce((a,b)=>a+b,0n)/10n,exactSd=630180000000n;
+assert.equal(exact.reduce((s,x)=>s+(x-exactMean)**2n,0n),10n*exactSd**2n);
+assert.equal(exactMean-3n*exactSd,exact[0]);
+assert.equal(exact.filter(x=>x<exactMean-3n*exactSd||x>exactMean+3n*exactSd).length,0);
+assert.equal(Number(exactMean)/Number(unit),1853.724);
+assert.doesNotMatch(sql,/B(?:0|1|M)\.N[^\n]*>10/,'No sample-size exception');
+assert.doesNotMatch(sql,/CAST\('[^\n]*V_FIELD[^\n]*AS FLOAT/,'Do not recast decimal comparison values to FLOAT');
+db.exec('SAVEPOINT decimal_comparison');
+const cases=[
+ {values:[1664.67,...Array(9).fill(1874.73)],mean:1853.724,sd:63.018-0.000000000009,want:0},
+ {values:[-1664.67,...Array(9).fill(-1874.73)],mean:-1853.724,sd:63.018-0.000000000009,want:0},
+ // Same rounding fault at n=20: the fix must not depend on the sample size.
+ {values:[-3,3,-1,1,...Array(16).fill(0)],mean:0,sd:1-0.000000000009,want:0},
+ {values:[-3,3.00000000004,-1,1,...Array(16).fill(0)],want:0},
+ {values:[-3,3.0000000002,-1,1,...Array(16).fill(0)],want:1},
+ {values:[11,...Array(10).fill(0)],want:1},
+ {values:[-11,...Array(10).fill(0)],want:1},
+ // Native special filtering precedes rounding: a near-special valid value
+ // must not be discarded merely because it rounds to the special code.
+ {values:[-9999.00000000004,...Array(10).fill(0)],want:1}
+];
+for(const c of cases){
+ const pop=c.values.map(x=>['2000-01-31',x,null,null,null,null,null]);
+ db.exec('DELETE FROM '+stageName+'; DELETE FROM DQ_METRIC_RESULT');
+ const add=db.prepare('INSERT INTO '+stageName+' (FACT_DT,'+fields.join(',')+','+stageBucket+','+stageYear+') VALUES (?,?,?,?,?,?,?,?,?)');
+ pop.forEach((r,i)=>add.run(...r,i+1,2000));
+ snapshot(new Map([['OVERALL/ALL',pop],['YEARLY/2000',pop],['MONTHLY/2000-01',pop]]));
+ if(c.mean!==undefined)db.prepare("UPDATE DQ_NUMERIC_STATISTICS SET MEAN_VALUE=?,STDDEV_VALUE=? WHERE FIELD_NAME='AMOUNT'").run(c.mean,c.sd);
+ const v=batch(1,1);
+ assert.ok(v.V_SOURCE_PROJECTION.includes('CAST(ROUND("AMOUNT",10) AS DECIMAL(38,10))'));
+ assert.ok(!v.V_PROJECTION.includes('AS FLOAT'),'All three period comparisons retain decimal operands');
+ for(const row of db.prepare("SELECT * FROM DQ_METRIC_RESULT WHERE FIELD_NAME='AMOUNT'").all()){
+  if(row.METRIC_NAME==='OUTLIER_COUNT')assert.equal(row.METRIC_VALUE,c.want,JSON.stringify(c));
+  if(row.METRIC_NAME==='OUTLIER_RATE_PCT')assert.ok(Math.abs(row.METRIC_VALUE-100*c.want/c.values.length)<1e-9);
+  if(row.METRIC_NAME==='OUTLIER_VALID_COUNT')assert.equal(row.METRIC_VALUE,c.values.length);
+ }
+}
+db.exec('ROLLBACK TO decimal_comparison; RELEASE decimal_comparison');snapshot(groups);
+console.log('Decimal comparison checks passed: exact integer oracle, both boundary directions, n=10 and n=20, ten-decimal resolution and genuine tails at n=11 across all three levels.');
 // Same measurements when each field is its own batch.
 db.exec('DELETE FROM DQ_METRIC_RESULT');for(let i=1;i<=6;i++)batch(i,i);
 const order=q=>q.map(({EXECUTION_TIMESTAMP,...values})=>values).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));

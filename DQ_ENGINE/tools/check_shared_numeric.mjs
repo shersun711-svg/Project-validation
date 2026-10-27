@@ -67,7 +67,9 @@ assert.match(runner,/IF P_OUTLIERS='Y' AND P_NUMERIC='N' THEN\s+CALL DQ_DB.SP_DQ
 assert.match(out,/IF P_INCLUDE_BASIC='Y' THEN\s+CALL DQ_DB.SP_DQ_NUMERIC_BASIC_BATCH\(P_RUN_ID,P_PROJECT_ID,V_DB,V_SOURCE,V_DATE,\s+V_FIRST,V_LAST,V_BATCH\)/);
 assert.match(out,/V_COUNT=0 AND P_INCLUDE_BASIC='N'/);
 assert.ok(out.indexOf('SET V_SOURCE=V_STAGE')<out.indexOf('CALL DQ_DB.SP_DQ_NUMERIC_BASIC_BATCH'));
-assert.ok(out.indexOf('CALL DQ_DB.SP_DQ_NUMERIC_BASIC_BATCH')<out.indexOf('/* Bounds table contains'));
+const boundsCreate=out.indexOf('CREATE VOLATILE TABLE DQ_NO_BOUNDS');
+assert.ok(boundsCreate>=0);
+assert.ok(out.indexOf('CALL DQ_DB.SP_DQ_NUMERIC_BASIC_BATCH')<boundsCreate);
 assert.ok(out.indexOf('CALL DQ_DB.SP_DQ_NUMERIC_BASIC_BATCH')<out.lastIndexOf("'DROP TABLE DQ_DB.'"));
 assert.match(out,/MODULE_NAME IN \('NUMERIC_OUTLIERS','NUMERIC_PREPARE'\)/);
 assert.match(out,/NUMERIC_PREPARE/);
