@@ -21,8 +21,12 @@ The updated analyst workbook `Book1 (3).xlsx` contains:
 
 Repository copy: [RDS_account_level_evidence_run19.xlsx](RDS_account_level_evidence_run19.xlsx).
 The original account-level workbook remains outside the public repository.
-The repository copy removes unused trailing cells and retains the aggregate
-evidence; it is not a complete copy of the original account-detail sheet.
+The repository copy includes a findings guide, highlighted fields/counts and
+the additional `Package ID overlap` and `Next month presence` sheets. It is
+not a complete copy of the original account-detail sheet. Amber means pending
+clarification, green means a passed check within its stated scope, and grey
+means detailed investigation was deferred; colours are review annotations,
+not automated rule results.
 
 ## Review work and conclusions
 
@@ -39,7 +43,7 @@ evidence; it is not a complete copy of the original account-detail sheet.
 | `MV_PROP_POSTCODE_NM` reversions | All five June 2007 patterns reviewed: 64 events, including 37 house/apartment, 18 urban/non-urban house and nine missing-type/house reversions. | Low-volume observation; detailed source tracing deferred. No error established. |
 | `PCKG_2ND_INC_OCC_DESC` / `PCKG_HI_INC_OCC_DESC` | Monthly counts and timing reviewed. Respectively 622/639 and 4,200/4,298 became-missing events occurred before 2010. W455/W462 reviewed. | Low-priority observations pending explanation. Historical capture comments do not establish the cause of populated-to-missing transitions. |
 
-## Evidence supplied in discussion but not in this updated workbook
+## Follow-up evidence provenance and internal working papers
 
 The analyst supplied the following results in the review discussion. These
 support the findings report but should be retained as original SQL exports
@@ -49,13 +53,15 @@ in the internal working papers if needed for evidence handover:
 - The 30 MV_EXDAY_PAYREV sample observations and their exposed input values.
 - The five June 2007 property-classification reversion pattern counts.
 - The six additional package-ID overlap rows for February 2020, March 2022
-  and November 2024.
+  and November 2024; these are now transcribed in `Package ID overlap`.
 - The ten following-month presence results for both fields across all five
-  identified spike months.
+  identified spike months; these are now transcribed in `Next month presence`.
 
-The latest report records these aggregate results. This workbook contains
-the four February/May 2019 overlap rows, but does not contain the later six
-overlap rows or the ten following-month presence rows.
+The latest report records these aggregate results. The original uploaded
+`Book1 (3).xlsx` contains the four February/May 2019 overlap rows but not
+the later six overlap rows or the ten following-month presence rows. The
+updated repository copy includes all of those aggregate rows, transcribed
+from the analyst's supplied results; they were not independently rerun.
 
 ## Outstanding follow-up
 
