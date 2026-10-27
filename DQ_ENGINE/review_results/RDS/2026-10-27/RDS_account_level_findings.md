@@ -7,12 +7,15 @@ fields and `CUTOVER_DT`, using saved run 19. Each field has 255 monthly summary
 rows covering January 2005–March 2026. Review comprised the exported summary,
 selected account-detail checks and comparison with the field comments in
 `20260731_CMP2_Data_Attestation_Log_V1_1.xlsx`, sheet `Data_Attestation_Log`.
-Numeric account-level testing is outside this report.
+The planned non-numeric testing and analyst-review stage is complete; open
+observations remain subject to CDAO response. Numeric account-level testing
+is outside this report and remains outstanding.
 
-Three observations require CDAO clarification. The larger 2019 gaps extend the
-existing field-level MoM finding; they should be tracked together. Calculation
-checks and deferred observations are summarised below. No data error is assumed
-from a reversion flag alone.
+Three principal observations require CDAO clarification. The missing-package-ID
+gaps extend the existing field-level MoM finding and should be tracked together.
+Low-priority occupation-field observations, completed calculation checks and
+deferred observations are summarised below. No data error is assumed from a
+reversion flag alone.
 
 ## 1. Temporary missing repayment type — December 2013
 
@@ -32,7 +35,7 @@ January 2005 and remediation in February 2005. It does not explain December 2013
 **Requested action:** CDAO to confirm the cause of the one-month gap, whether
 it is expected, and whether remediation is required.
 
-## 2. February/May 2019 completeness gaps associated with missing package IDs
+## 2. Completeness gaps associated with missing package IDs and subsequent absence from RDS
 
 **Observation:** Account-level checks identified large transitions from valid
 to missing values in `EVENT_DESCRIPTION` and `MV_PROP_POSTCODE_NM`. A source
@@ -43,29 +46,55 @@ and reporting date:
 |---|---|---:|---:|---:|
 | `EVENT_DESCRIPTION` | 28 February 2019 | 8,828 | 8,621 | 97.7% |
 | `EVENT_DESCRIPTION` | 31 May 2019 | 12,208 | 12,065 | 98.8% |
+| `EVENT_DESCRIPTION` | 29 February 2020 | 2,025 | 1,955 | 96.5% |
+| `EVENT_DESCRIPTION` | 31 March 2022 | 1,311 | 1,247 | 95.1% |
+| `EVENT_DESCRIPTION` | 30 November 2024 | 989 | 957 | 96.8% |
 | `MV_PROP_POSTCODE_NM` | 28 February 2019 | 9,123 | 9,123 | 100% |
 | `MV_PROP_POSTCODE_NM` | 31 May 2019 | 12,710 | 12,710 | 100% |
+| `MV_PROP_POSTCODE_NM` | 29 February 2020 | 2,460 | 2,460 | 100% |
+| `MV_PROP_POSTCODE_NM` | 31 March 2022 | 1,821 | 1,821 | 100% |
+| `MV_PROP_POSTCODE_NM` | 30 November 2024 | 1,506 | 1,506 | 100% |
+
+A separate check of the same became-missing populations found that most had
+no observation in RDS the following month:
+
+| Reporting month | Event-description accounts absent next month | Property-classification accounts absent next month |
+|---|---:|---:|
+| February 2019 | 8,661 of 8,828 (98.1%) | 9,058 of 9,123 (99.3%) |
+| May 2019 | 12,081 of 12,208 (99.0%) | 12,593 of 12,710 (99.1%) |
+| February 2020 | 1,956 of 2,025 (96.6%) | 2,379 of 2,460 (96.7%) |
+| March 2022 | 1,249 of 1,311 (95.3%) | 1,711 of 1,821 (94.0%) |
+| November 2024 | 959 of 989 (97.0%) | 1,404 of 1,506 (93.2%) |
+
+This supports investigating an account-exit or portfolio-processing explanation.
+Absence in the following month does not prove a permanent exit or its cause.
+The two checks do not establish the exact intersection of accounts with missing
+package IDs and accounts absent next month.
 
 This extends finding 3 of the field-level MoM report, which identified 9,201
 and 12,802 records with missing package IDs and repeated large package bill
 amounts in February and May 2019 respectively. The checks demonstrate account
 and date overlap; they do not establish that missing package IDs caused the
-other fields to become missing.
+other fields to become missing. The repeated package-bill aggregation effect
+has only been demonstrated for February/May 2019, not the three later months.
 
 The postcode attestation comment (W446) states that missingness and PSI spikes
 in 2018/2019 are due to the Glenbeigh sale. The `EVENT_DESCRIPTION` comment
 (W128) states that no material DQ issues were found. Portfolio processing is
 therefore a plausible explanation, but the specific months, source/process
 and affected accounts need reconciliation. The previously explained June 2009
-population movement is separate from these 2019 observations.
+population movement is separate from these observations. No portfolio-specific
+explanation has been confirmed for the 2020, 2022 or 2024 observations.
 
-**Requested action:** CDAO to confirm whether the February/May 2019 gaps relate
-to GLA/Glas or Glenbeigh portfolio processing, identify the relevant sale,
-cutover and migration dates and affected accounts/sources, and document the
-expected availability and treatment of these fields. Reconcile this explanation
-with the existing missing-package-ID/package-bill finding, including any
-required correction. A further 207 February and 143 May event-description
-transitions fall outside the missing-package-ID overlap.
+**Requested action:** CDAO to confirm the relevant portfolio or account-exit
+events for February/May 2019, February 2020, March 2022 and November 2024,
+identify the affected populations and dates, explain why these fields became
+unavailable before the accounts ceased appearing in RDS, and confirm whether
+the treatment is expected or requires correction. Update the attestation with
+the affected sources/fields, periods and limitations. Reconcile the explanation
+with the existing missing-package-ID/package-bill finding. Some event-description
+transitions fall outside the missing-package-ID overlap and should not be
+assumed to share the same cause.
 
 ## 3. Temporary repayment-type changes — low-priority clarification
 
@@ -109,7 +138,28 @@ any correction or limitation on use is required.
 | `IO_AT_ORIGINATION_IND` | No fixed-value changes or other tested movements flagged among eligible comparisons. |
 | `CUTOVER_DT` | No fixed-value changes or other tested movements flagged among eligible comparisons. W381 explains expected high missingness and portfolio-related changes; absence of movement flags does not establish completeness. |
 | `PCKG_FTB_CALC_IND` | No tested movements flagged. |
-| `PCKG_2ND_INC_OCC_DESC` / `PCKG_HI_INC_OCC_DESC` | W455/W462 explain legacy capture limitations and portfolio-related divergence. Observed transitions to missing require this context; no separate new issue is established by the summary alone. |
+
+## Low-priority occupation-field observations — explanation pending
+
+| Field | Transitions to missing | Before 2010 | From 2010 onward |
+|---|---:|---:|---:|
+| `PCKG_2ND_INC_OCC_DESC` | 639 | 622 (97.3%) | 17 |
+| `PCKG_HI_INC_OCC_DESC` | 4,298 | 4,200 (97.7%) | 98 |
+
+The largest monthly transition counts were 24 and 136 respectively. Neither
+field had value reversions or temporary-missing reversions. There were also
+one and two transitions to configured special values respectively.
+
+Attestation comments W455/W462 describe pre-2010 missingness exceeding 10%,
+inconsistent capture across legacy systems, standardisation and improved later
+capture. They also state that the capture issue was resolved. Those comments
+address historical missingness but do not demonstrate the cause of the observed
+populated-to-missing transitions. Timing alone does not establish that connection.
+
+Retain as low-priority observations pending explanation, rather than passed
+checks or confirmed legacy-system errors. CDAO should clarify whether the
+documented limitations explain these historical transitions in the final RDS,
+supported by selected examples if required.
 
 ## Interpretation
 
