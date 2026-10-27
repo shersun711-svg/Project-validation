@@ -24,6 +24,9 @@ using the supplied development schema and metric definitions as references.
 
 Both engines' saved results now reside in `LAB_T_ORION_MVT`. Replacing `DQ_DB`
 sets the schema for both sides; the MDT result-table names are assumed unchanged.
+The comparison joins the deployed `DQ_BASIC_REVIEW` by `RUN_NUMBER` and
+`PROJECT_ID`; that view does not need to expose the internal `RUN_ID` UUID.
+Existing run logs and captured configuration still use the internal ID.
 The numeric defaults are our run **17** and MDT runs **12–15**. The categorical
 query remains our run **18**, MDT run **1**; the numeric run-ID correction does
 not establish which MDT categorical execution to select.
