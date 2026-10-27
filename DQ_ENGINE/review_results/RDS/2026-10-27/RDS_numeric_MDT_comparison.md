@@ -2,55 +2,67 @@
 
 Reviewed: 27 October 2026
 
-Source evidence: analyst-supplied `Comparison Result.xlsx`, Sheet1 (8,430
-exception rows). Our run 17 was compared with MDT runs 12–15, using saved
-overall/monthly results. This review did not execute the comparison in Teradata.
+The analyst supplied `Comparison Result.xlsx` (8,430 exception rows), comparing
+our run 17 with MDT runs 12–15 for saved overall/monthly numeric results.
+This workspace did not execute the comparison or follow-up queries in Teradata.
 
-| Exception | Rows | Interpretation |
+| Exception | Rows | Review conclusion |
 |---|---:|---|
-| `DEFINITION_DIFFERENCE` | 8,428 | Monthly outlier counts across 159 fields: our value is NULL and MDT's is zero. The comparison assigns this status when both valid counts are zero. Expected representation difference; no valid observations exist to assess. |
-| `DIFFERENT` | 2 | One field/period: `TOTALNETMONTHLYINCOME`, overall, MDT run 15. Our outlier count is 1 versus 0; our outlier rate is 0.100000 versus 0.000000. These are two metrics from the same underlying discrepancy. |
+| `DEFINITION_DIFFERENCE` | 8,428 | Monthly outlier counts across 159 fields: our NULL versus MDT zero, where both eligible populations are empty. Representation difference. |
+| `DIFFERENT` | 2 | One field/period: `TOTALNETMONTHLYINCOME`, overall, MDT run 15. Our count/rate are 1 / 0.100000; MDT's are 0 / 0.000000. |
 
-No other exception statuses or metrics appear in the supplied export. That
-conclusion applies to the comparison's selected scope and tolerances; an
-exceptions-only export does not independently establish complete field coverage,
-identical source data or correctness of both engines. The four CDAO-confirmed
-categorical fields remain classification exceptions, as documented in the
-comparison instructions.
+No other metric exceptions appear in the export. This conclusion is limited to
+comparison scope and tolerances; it is not independent proof of full coverage
+or identical sources. CDAO-confirmed categorical classification exceptions
+remain documented in the comparison instructions.
 
-## Outstanding investigation
+## Boundary investigation
 
-The analyst ran the saved-result follow-up queries and confirmed that both
-valid counts are 10 and that the other inspected statistics/bounds match;
-the outlier count differs. Displayed equality does not establish identical
-full-precision values.
+The analyst confirmed ten valid observations on both sides. The current-source
+follow-up returned ten valid observations, with one equal to the exact lower
+3-sigma boundary when calculated from the reported values. Our stored FLOAT
+statistics produced a lower bound approximately 0.0000000000270592 above that
+observation. The original strict FLOAT comparison therefore flagged it; MDT's
+saved decimal boundary did not. The other nine observations were unflagged.
 
-Under the agreed strict mean ± 3 population-standard-deviation rule, a population
-of ten observations cannot contain an outlier: its maximum possible standardised
-distance is sqrt(10-1)=3, and equality is not an outlier. Our saved count of one
-is inconsistent with that mathematical rule. Floating-point evaluation at the
-boundary is a plausible cause; the actual ten source values have not been
-independently inspected to establish the exact rounding path.
+This reproduces the floating-point boundary error for the inspected values.
+Current-source reconstruction does not itself prove unchanged source history,
+although it reproduces the saved difference. Equality to the mathematical
+boundary is not an outlier under the agreed strict population 3-sigma rule.
 
-## Decision — investigate before changing the calculation
+## Authorised manual correction — prepared, not executed here
 
-A proposed valid-count safeguard was locally tested but withdrawn following
-analyst review. The current repository procedure retains the original strict
-mean ± 3 population-standard-deviation comparison, without a sample-size
-condition. No decimal-conversion change has been made either.
+The analyst authorised correcting only RDS run 17, `TOTALNETMONTHLYINCOME`,
+NUMERIC_OUTLIERS, OVERALL/ALL. The intended values are outlier count 0 and
+fractional rate 0.000000. Internally, OUTLIER_RATE_PCT changes from 10 to 0,
+with numerator 1 to 0 and denominator retained at 10.
 
-The mathematical property above is evidence for investigating the discrepancy,
-not evidence that its precise numerical cause has been established. Next,
-inspect the ten valid values and full-precision inputs/bounds and independently
-recalculate the result. Select and test any correction on that basis, rather
-than changing a rule solely to agree with MDT. Casting to decimal can also
-introduce rounding and must be assessed before adoption.
+[correct_run17_income_outlier.sql](correct_run17_income_outlier.sql) checks
+expected original values, previews the before-images and updates only those
+two metric rows in a transaction. An existing associated rule row is refreshed
+using the shared evaluator and the run's captured thresholds. If no rule row
+existed, none is invented. Statistics, bounds, timestamps and other results
+are preserved. Export the before-images as internal working papers and verify
+the final view before recording the correction as complete.
 
-The discrepancy remains open; local baseline regression checks do not resolve
-it or verify live Teradata SPL. Run 17 remains unchanged as comparison evidence.
-There is no correction to deploy at this stage and no full RDS rerun is needed
-for this investigation. If the superseded guarded procedure was already deployed,
-record that version separately and restore the current unguarded procedure
-before conducting a like-for-like baseline test.
+The script passed adapted SQLite checks for scope, rule handling and already-
+corrected no-op behaviour. It has not been compiled or executed in Teradata.
+The original exception export remains evidence of the pre-correction result.
 
-Read-only queries: [RDS_numeric_MDT_follow_up.sql](RDS_numeric_MDT_follow_up.sql).
+## Reusable engine — precision correction still pending
+
+File 12 retains the original strict mean ± 3 population-standard-deviation
+formula. The proposed sample-size safeguard was withdrawn. No field-specific
+exception, >10 condition or general decimal conversion is deployed by this work.
+
+A general precision correction is still necessary to prevent recurrence at
+numeric boundaries. Assess consistent precision for values and bounds against
+source numeric ranges and scales, and regression-test equality and genuine
+outliers across fields, reporting levels and population sizes. Do not change
+the calculation solely to reproduce MDT or treat this manual correction as a
+replacement for the engine fix. Casting final output alone cannot correct an
+earlier FLOAT classification decision.
+
+[Follow-up SQL](RDS_numeric_MDT_follow_up.sql) retains the saved-statistic and
+current-value diagnostics. No full RDS rerun is needed for the manual correction;
+future corrected engine code requires a controlled server test before broader use.
