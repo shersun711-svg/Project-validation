@@ -4,6 +4,9 @@ For configurable overall/monthly/yearly output, follow the current
 
 # Numeric Outliers
 
+See the [before/after precision-change review](OUTLIER_PRECISION_CHANGE_REVIEW.md)
+for the exact code diff, behavioural effect and verification limits.
+
 Enable numeric_outliers=Y in sas/00_run_dq_engine.sas. It runs for every active
 NUMERIC field. No new workbook columns or per-field switches are needed.
 
