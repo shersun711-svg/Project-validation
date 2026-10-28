@@ -36,23 +36,7 @@ and clarify any limitations on using these fields.
 
 *Evidence: Numeric_POU, Categorical_POU and Categorical_Specific.*
 
-## 2. December 2013: temporary missing and special values
-
-`Numeric_Specific` contains 128 `PCKG_REPAY_AMT` observations that were populated
-in November, missing in December and populated again in January. It also shows
-43 temporary `-999993` values in `MV_PCKG_LOAN_TO_INC_RT` and 60 in
-`MV_PCKG_REPAY_TO_INC_RT`. All 43 loan-to-income values returned exactly to their
-November value in January.
-
-Separately, `Categorical_POU` records 111 temporary missing `REPAY_TYPE_CD`
-events in December. It does not show their individual account sequences.
-
-**Question for CDAO:** What caused the one-month gaps in repayment, ratios and
-repayment type, and are they expected or a data quality issue?
-
-*Evidence: Numeric_Specific, Numeric_POU and Categorical_POU.*
-
-## 3. Temporary special values in savings and payment ratios
+## 2. Temporary special values in savings and payment ratios
 
 | Field | December 2013 | November 2016 | November 2018 |
 |---|---:|---:|---:|
@@ -73,7 +57,7 @@ availability or processing changes. Account overlap is not established here.
 
 *Evidence: Numeric_POU; account-level special-code extracts are not included.*
 
-## 4. Large historical movements
+## 3. Large historical movements
 
 - **November 2007 — CHQ_LMT_UTIL_AVG_BAL_6M:** 133,607 values became special
   (81.00% of eligible reference pairs); 11,257 met the numeric-jump limits
@@ -87,7 +71,26 @@ and underlying values have not been established from the summaries.
 
 *Evidence: Numeric_POU.*
 
-## Lower-priority categorical observations
+## Lower-priority observations
+
+### December 2013: limited temporary gaps requiring clarification
+
+`Numeric_Specific` contains 128 `PCKG_REPAY_AMT` observations that were populated
+in November, missing in December and populated again in January. It also shows
+43 temporary `-999993` values in `MV_PCKG_LOAN_TO_INC_RT` and 60 in
+`MV_PCKG_REPAY_TO_INC_RT`. All 43 loan-to-income values returned exactly to their
+November value in January.
+
+Separately, `Categorical_POU` records 111 temporary missing `REPAY_TYPE_CD`
+events in December. It does not show their individual account sequences.
+
+Treat this as a lower-priority historical observation. The eligible-population percentage and downstream impact are not established in this report, so the count alone does not demonstrate a material issue. Account overlap across these fields has not been established.
+
+**Question for CDAO:** Please explain whether these temporary December 2013 gaps were expected processing effects and whether they affected downstream use.
+
+*Evidence: Numeric_Specific, Numeric_POU and Categorical_POU.*
+
+### Categorical observations
 
 - `REPAY_TYPE_CD` has 654 category reversions, mainly `3 → 1 → 3` (441)
   and `2 → 1 → 2` (63). Please confirm whether these are genuine temporary
