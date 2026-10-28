@@ -145,7 +145,7 @@ let catScenarios=0;
 function catCase(change,check){catDB.exec('SAVEPOINT cat_case');try{catDB.exec(change);check(catRows());catScenarios++;}finally{catDB.exec('ROLLBACK TO cat_case; RELEASE cat_case');}}
 catCase(`UPDATE ${catDev} SET BLANK_COUNT=5,MISSING_COUNT=15,MISSING_PCT=.15`,rows=>{
  const affected=rows.filter(r=>['NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE'].includes(r.METRIC_NAME));
- assert.equal(affected.length,6);assert(affected.every(r=>r.STATUS==='DEFINITION_DIFFERENCE'));
+ assert.equal(affected.length,6);assert(affected.every(r=>r.STATUS==='MATCH_AFTER_BLANK_ADJUSTMENT'&&r.BLANKCOUNT===5n&&Number(r.ADJUSTED_DIFFERENCE)===0));
  assert(rows.filter(r=>r.METRIC_NAME==='MISSING_COUNT').every(r=>r.DEV_VALUE===15n&&r.OUR_VALUE===10n&&r.DIFFERENCE===-5n));
  assert(rows.filter(r=>r.METRIC_NAME==='TOTAL_COUNT').every(r=>r.STATUS==='MATCH'));
 });
@@ -174,6 +174,28 @@ for(const [change,status] of [
 ])catCase(change,rows=>assert(rows.some(r=>r.STATUS===status)));
 catCase(`UPDATE DQ_BASIC_REVIEW SET DISTINCT_COUNT=9007199254740993;UPDATE ${catDev} SET DISTINCT_COUNT=9007199254740992`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='DISTINCT_COUNT').every(r=>r.STATUS==='DIFFERENT'&&r.DIFFERENCE===1n)));
 assert.equal(catRows(catSQL.replace("CAST('Y' AS CHAR(1)) AS SHOW_MATCHES","CAST('N' AS CHAR(1)) AS SHOW_MATCHES")).length,0);
+// Blanks must reconcile values numerically, not merely suppress a mismatch.
+catCase(`UPDATE ${catDev} SET BLANK_COUNT=5,MISSING_COUNT=16,MISSING_PCT=.16`,rows=>{
+ const affected=rows.filter(r=>['NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE'].includes(r.METRIC_NAME));
+ assert(affected.every(r=>r.STATUS==='DIFFERENT'&&r.BLANKCOUNT===5n&&Number(r.ADJUSTED_DIFFERENCE)!==0));
+});
+for(const value of ['NULL','-1','101']) catCase(`UPDATE ${catDev} SET BLANK_COUNT=${value}`,rows=>
+ assert(rows.filter(r=>['NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE'].includes(r.METRIC_NAME)).every(r=>r.STATUS==='NOT_EVALUATED'&&r.ADJUSTED_OUR_VALUE===null)));
+catCase(`UPDATE ${catDev} SET BLANK_COUNT=5,MISSING_COUNT=15,MISSING_PCT=.15`,()=>{
+ assert.equal(catRows(catSQL.replace("CAST('Y' AS CHAR(1)) AS SHOW_MATCHES","CAST('N' AS CHAR(1)) AS SHOW_MATCHES")).length,0);
+});
+catCase(`INSERT INTO ${catDev} SELECT * FROM ${catDev}`,rows=>assert(rows.every(r=>r.STATUS==='DUPLICATE_DEVELOPMENT'&&r.BLANKCOUNT===null&&r.ADJUSTED_OUR_VALUE===null)));
+// First uploaded example: 22,042 NULLs + 6,264 blanks = 28,306 MDT missing.
+catCase(`UPDATE DQ_BASIC_REVIEW SET TOTAL_COUNT=108421,NON_MISSING_COUNT=86379,MISSING_COUNT=22042,MISSING_RATE=.203300;
+ UPDATE ${catDev} SET ROW_COUNT=108421,MISSING_COUNT=28306,MISSING_PCT=.261075,BLANK_COUNT=6264`,rows=>{
+ const m=rows.filter(r=>r.METRIC_NAME==='MISSING_COUNT');
+ assert(m.every(r=>r.OUR_VALUE===22042n&&r.DEV_VALUE===28306n&&r.DIFFERENCE===-6264n&&r.BLANKCOUNT===6264n&&r.ADJUSTED_OUR_VALUE===28306n&&r.ADJUSTED_DIFFERENCE===0n&&r.STATUS==='MATCH_AFTER_BLANK_ADJUSTMENT'));
+ assert(rows.filter(r=>r.METRIC_NAME==='NON_MISSING_COUNT').every(r=>r.ADJUSTED_OUR_VALUE===80115n&&r.STATUS==='MATCH_AFTER_BLANK_ADJUSTMENT'));
+ assert(rows.filter(r=>r.METRIC_NAME==='MISSING_RATE').every(r=>r.STATUS==='MATCH_AFTER_BLANK_ADJUSTMENT'));
+});
+catCase(`UPDATE DQ_BASIC_REVIEW SET TOTAL_COUNT=9007199254740994,NON_MISSING_COUNT=9007199254740984,MISSING_COUNT=10;
+ UPDATE ${catDev} SET ROW_COUNT=9007199254740994,MISSING_COUNT=15,BLANK_COUNT=5`,rows=>
+ assert(rows.filter(r=>r.METRIC_NAME==='NON_MISSING_COUNT').every(r=>r.ADJUSTED_OUR_VALUE===9007199254740979n&&r.ADJUSTED_DIFFERENCE===0n&&r.STATUS==='MATCH_AFTER_BLANK_ADJUSTMENT')));
 // A different MDT execution must not leak into the categorical comparison.
 catCase(`INSERT INTO ${catDev} SELECT 21,FIELD_NAME,RUN_TYPE,POU_DT,999,999,1,BLANK_COUNT,SPECIAL_COUNT,SPECIAL_PCT,DISTINCT_COUNT FROM ${catDev}`,
  rows=>assert(rows.length===14&&rows.every(r=>r.STATUS==='MATCH'&&r.DEV_RUN_ID===20n)));

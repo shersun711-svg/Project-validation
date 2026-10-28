@@ -5,8 +5,14 @@ For the current MDT result comparison, use only:
 | File | Current use |
 |---|---|
 | [compare_numeric_development.sql](compare_numeric_development.sql) | Our numeric run 17 versus MDT runs 12, 13, 14 and 15, all in LAB_T_ORION_MVT. |
-| [compare_categorical_development.sql](compare_categorical_development.sql) | Our categorical run 18 versus MDT run 20; reads the categorical profile result table. |
+| [compare_categorical_development.sql](compare_categorical_development.sql) | Our categorical run 18 versus MDT run 20; includes BLANKCOUNT and adjusted missing-value reconciliation. |
 | [compare_date_development.sql](compare_date_development.sql) | Our date run 18 versus MDT run 21; reads the separate date profile result table. |
+
+Categorical output preserves the original values and adds `BLANKCOUNT`,
+`ADJUSTED_OUR_VALUE` and `ADJUSTED_DIFFERENCE`. It checks our missing count plus
+MDT blanks against MDT missing count (which already includes blanks).
+`MATCH_AFTER_BLANK_ADJUSTMENT` means this reconciliation agrees; residual
+differences remain `DIFFERENT`.
 
 Run categorical and date comparisons separately for separate result tables/grids.
 They do not create persistent database tables.

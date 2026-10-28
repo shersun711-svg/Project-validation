@@ -2,6 +2,10 @@
    Replace DQ_DB with LAB_T_ORION_MVT in your copy; edit OUR_RUN_NUMBER below.
    Submit this complete statement. No profiling rerun or new database objects.
    One row per field/period/metric: OUR_VALUE, DEV_VALUE, DIFFERENCE, STATUS.
+   BLANKCOUNT is MDT BLANK_COUNT (already included in MDT MISSING_COUNT).
+   ADJUSTED_OUR_VALUE adds blanks to our NULL-only missing count, subtracts
+   blanks from our non-missing count, or recomputes the missing fraction.
+   STATUS uses the adjusted comparison; original values/difference remain visible.
    Rates are already fractions; no division by 100 is needed.
    SHOW_MATCHES=Y displays all comparisons; N displays exceptions only.
    Separate categorical result grid; date results use compare_date_development.sql.
@@ -97,7 +101,8 @@ ENGINE_VALUES AS
              WHEN 6 THEN CAST(R.SPECIAL_RATE AS DECIMAL(38,6))
              WHEN 7 THEN CAST(R.DISTINCT_COUNT AS DECIMAL(38,6))
            END) AS METRIC_VALUE,
-           MAX(R.TOTAL_COUNT) AS TOTAL_COUNT,MAX(R.SPECIAL_COUNT) AS SPECIAL_COUNT
+           MAX(R.TOTAL_COUNT) AS TOTAL_COUNT,MAX(R.MISSING_COUNT) AS MISSING_COUNT,
+           MAX(R.SPECIAL_COUNT) AS SPECIAL_COUNT
     FROM ENGINE_REVIEW R
     JOIN FIELD_SCOPE F ON UPPER(TRIM(R.FIELD_NAME))=F.FIELD_NAME
     CROSS JOIN ENABLED_METRICS M
@@ -172,6 +177,7 @@ PAIRED AS
            E.ROW_COPIES AS ENGINE_COPIES,D.ROW_COPIES AS DEV_COPIES,
            D.SNAPSHOT_DATES,
            E.TOTAL_COUNT AS ENGINE_TOTAL,D.ROW_COUNT AS DEV_TOTAL,
+           E.MISSING_COUNT AS ENGINE_MISSING,D.MISSING_COUNT AS DEV_MISSING,
            E.SPECIAL_COUNT AS ENGINE_SPECIAL,D.SPECIAL_COUNT AS DEV_SPECIAL,D.BLANK_COUNT AS DEV_BLANK,
            CASE WHEN E.ROW_COPIES=1 THEN E.METRIC_VALUE END AS ENGINE_VALUE,
            CASE WHEN D.ROW_COPIES=1 THEN CASE M.METRIC_ORDINAL
@@ -192,6 +198,24 @@ PAIRED AS
       AND D.PERIOD_KEY=T.PERIOD_KEY
     WHERE P.INPUT_ERROR IS NULL
 ),
+RECONCILED AS
+(
+    SELECT A.*,
+           CASE WHEN METRIC_NAME IN ('NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE')
+                  AND (DEV_BLANK IS NULL OR DEV_BLANK<0 OR DEV_MISSING IS NULL
+                       OR DEV_BLANK>DEV_MISSING OR ENGINE_MISSING IS NULL
+                       OR ENGINE_MISSING<0 OR ENGINE_MISSING+DEV_BLANK>ENGINE_TOTAL)
+                THEN CAST(NULL AS DECIMAL(38,10))
+                WHEN METRIC_NAME='MISSING_COUNT' AND DEV_BLANK>0
+                  THEN ENGINE_VALUE+CAST(DEV_BLANK AS DECIMAL(38,10))
+                WHEN METRIC_NAME='NON_MISSING_COUNT' AND DEV_BLANK>0
+                  THEN ENGINE_VALUE-CAST(DEV_BLANK AS DECIMAL(38,10))
+                WHEN METRIC_NAME='MISSING_RATE' AND DEV_BLANK>0
+                  THEN CAST(CAST(ENGINE_MISSING+DEV_BLANK AS FLOAT)
+                       /NULLIF(CAST(ENGINE_TOTAL AS FLOAT),0) AS DECIMAL(38,10))
+                ELSE ENGINE_VALUE END AS ADJUSTED_OUR_VALUE
+    FROM PAIRED A
+),
 EVALUATED AS
 (
     SELECT A.*,
@@ -209,31 +233,39 @@ EVALUATED AS
                   THEN 'POPULATION_UNAVAILABLE'
              WHEN ENGINE_TOTAL<>DEV_TOTAL THEN 'POPULATION_MISMATCH'
              WHEN METRIC_NAME IN ('NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE')
-                  AND DEV_BLANK IS NULL THEN 'NOT_EVALUATED'
+                  AND (DEV_BLANK IS NULL OR DEV_BLANK<0 OR DEV_MISSING IS NULL
+                       OR DEV_BLANK>DEV_MISSING OR ENGINE_MISSING IS NULL
+                       OR ENGINE_MISSING<0 OR ENGINE_MISSING+DEV_BLANK>ENGINE_TOTAL)
+                  THEN 'NOT_EVALUATED'
              WHEN METRIC_NAME='DISTINCT_COUNT' AND (ENGINE_SPECIAL IS NULL OR DEV_SPECIAL IS NULL)
                   THEN 'NOT_EVALUATED'
-             WHEN METRIC_NAME IN ('NON_MISSING_COUNT','MISSING_COUNT','MISSING_RATE')
-                  AND DEV_BLANK>0 THEN 'DEFINITION_DIFFERENCE'
              WHEN METRIC_NAME='DISTINCT_COUNT' AND (ENGINE_SPECIAL>0 OR DEV_SPECIAL>0)
                   THEN 'DEFINITION_DIFFERENCE'
-             WHEN ENGINE_VALUE IS NULL AND DEV_VALUE IS NULL THEN 'MATCH'
-             WHEN ENGINE_VALUE IS NULL OR DEV_VALUE IS NULL THEN 'DIFFERENT'
-             WHEN VALUE_KIND='COUNT' AND ENGINE_VALUE=DEV_VALUE THEN 'MATCH'
+             WHEN ADJUSTED_OUR_VALUE IS NULL AND DEV_VALUE IS NULL THEN 'MATCH'
+             WHEN ADJUSTED_OUR_VALUE IS NULL OR DEV_VALUE IS NULL THEN 'DIFFERENT'
+             WHEN VALUE_KIND='COUNT' AND ADJUSTED_OUR_VALUE=DEV_VALUE THEN
+               CASE WHEN METRIC_NAME IN ('NON_MISSING_COUNT','MISSING_COUNT') AND DEV_BLANK>0
+                    THEN 'MATCH_AFTER_BLANK_ADJUSTMENT' ELSE 'MATCH' END
              WHEN VALUE_KIND IN ('COUNT','EXACT') THEN 'DIFFERENT'
-             WHEN VALUE_KIND='RATE' AND ROUND(ABS(ENGINE_VALUE-DEV_VALUE),10)<=RATE_ABS_TOL THEN 'MATCH'
+             WHEN VALUE_KIND='RATE' AND ROUND(ABS(ADJUSTED_OUR_VALUE-DEV_VALUE),10)<=RATE_ABS_TOL THEN
+               CASE WHEN METRIC_NAME='MISSING_RATE' AND DEV_BLANK>0
+                    THEN 'MATCH_AFTER_BLANK_ADJUSTMENT' ELSE 'MATCH' END
              WHEN VALUE_KIND='RATE' THEN 'DIFFERENT'
              ELSE 'DIFFERENT' END AS VARCHAR(32)) AS COMPARISON_STATUS
-    FROM PAIRED A
+    FROM RECONCILED A
 ),
 DETAIL AS
 (
     SELECT PROJECT_ID,OUR_RUN_NUMBER,DEV_RUN_ID,FIELD_NAME,PERIOD_LEVEL,PERIOD_KEY,
            ENGINE_POU_DT,DEV_POU_DT,METRIC_NAME,VALUE_KIND,ENGINE_VALUE,DEV_VALUE,
+           CASE WHEN DEV_COPIES=1 THEN DEV_BLANK END AS BLANKCOUNT,
+           CASE WHEN ENGINE_COPIES=1 AND DEV_COPIES=1 THEN ADJUSTED_OUR_VALUE END AS ADJUSTED_OUR_VALUE,
            COMPARISON_STATUS,
            CAST(CASE COMPARISON_STATUS
-             WHEN 'NOT_EVALUATED' THEN 'Blank/special counts unavailable; cannot establish matching metric definitions'
+             WHEN 'NOT_EVALUATED' THEN 'Blank/missing/special counts unavailable or invalid; cannot reconcile metric definitions'
+             WHEN 'MATCH_AFTER_BLANK_ADJUSTMENT' THEN 'MDT includes blanks: our missing + blanks, non-missing - blanks, or recomputed missing rate agrees with MDT'
              WHEN 'MATCH' THEN 'Values agree at review precision within the configured tolerance'
-             WHEN 'DIFFERENT' THEN 'Unequal values, NULL mismatch, or tolerance exceeded'
+             WHEN 'DIFFERENT' THEN 'Values remain unequal after any blank adjustment, NULL mismatch, or tolerance exceeded'
              WHEN 'DUPLICATE_ENGINE' THEN 'More than one final review row for this field/month'
              WHEN 'PERIOD_SCOPE_MISMATCH' THEN 'Development has multiple actual snapshot dates within this engine month; no pooling performed'
              WHEN 'DUPLICATE_DEVELOPMENT' THEN 'More than one development row for the same normalized field/period key'
@@ -243,15 +275,14 @@ DETAIL AS
              WHEN 'SNAPSHOT_MISMATCH' THEN 'Monthly actual source snapshot dates differ'
              WHEN 'POPULATION_UNAVAILABLE' THEN 'Missing row count in the final review or development result'
              WHEN 'POPULATION_MISMATCH' THEN 'Row counts differ; establish the same source population before comparing statistics'
-             WHEN 'DEFINITION_DIFFERENCE' THEN CASE WHEN METRIC_NAME='DISTINCT_COUNT'
-               THEN 'Development distinct count includes special values; our distinct count excludes them; saved counts cannot be normalized'
-               ELSE 'Development missing includes blanks; ours counts NULL only; both displayed values are unchanged' END
+             WHEN 'DEFINITION_DIFFERENCE' THEN 'Development distinct count includes special values; our distinct count excludes them; saved counts cannot be normalized'
              END AS VARCHAR(256)) AS REASON
     FROM EVALUATED
     UNION ALL
     SELECT P.PROJECT_ID,P.OUR_RUN_NUMBER,P.DEV_RUN_ID,CAST(NULL AS VARCHAR(128)),
            CAST(NULL AS VARCHAR(8)),CAST(NULL AS VARCHAR(10)),CAST(NULL AS DATE),CAST(NULL AS DATE),
            CAST(NULL AS VARCHAR(32)),CAST(NULL AS VARCHAR(8)),CAST(NULL AS DECIMAL(38,10)),CAST(NULL AS DECIMAL(38,10)),
+           CAST(NULL AS BIGINT),CAST(NULL AS DECIMAL(38,10)),
            CAST('NOT_EVALUATED' AS VARCHAR(32)),CAST(P.INPUT_ERROR AS VARCHAR(256))
     FROM INPUT_CHECK P WHERE P.INPUT_ERROR IS NOT NULL
 )
@@ -259,8 +290,10 @@ SELECT D.FIELD_NAME,D.PERIOD_LEVEL,D.ENGINE_POU_DT AS POU_DT,D.DEV_POU_DT,
        D.METRIC_NAME,CAST(D.ENGINE_VALUE AS DECIMAL(38,6)) AS OUR_VALUE,
        CAST(D.DEV_VALUE AS DECIMAL(38,6)) AS DEV_VALUE,
        CAST(D.ENGINE_VALUE-D.DEV_VALUE AS DECIMAL(38,6)) AS DIFFERENCE,
+       D.BLANKCOUNT,CAST(D.ADJUSTED_OUR_VALUE AS DECIMAL(38,6)) AS ADJUSTED_OUR_VALUE,
+       CAST(D.ADJUSTED_OUR_VALUE-D.DEV_VALUE AS DECIMAL(38,6)) AS ADJUSTED_DIFFERENCE,
        D.COMPARISON_STATUS AS STATUS,D.REASON,
        D.OUR_RUN_NUMBER,D.DEV_RUN_ID,D.PROJECT_ID
 FROM DETAIL D CROSS JOIN PARAMS P
-WHERE D.COMPARISON_STATUS<>'MATCH' OR P.SHOW_MATCHES='Y'
+WHERE D.COMPARISON_STATUS NOT IN ('MATCH','MATCH_AFTER_BLANK_ADJUSTMENT') OR P.SHOW_MATCHES='Y'
 ORDER BY FIELD_NAME,PERIOD_LEVEL,POU_DT,METRIC_NAME;

@@ -198,28 +198,54 @@ It compares seven metrics, for overall/enabled monthly periods:
 
 Counts compare exactly; fractional rates use absolute tolerance 0.000001.
 The output is the same OUR_VALUE / DEV_VALUE / DIFFERENCE / STATUS layout,
-with six decimals and SHOW_MATCHES=Y by default. Saved values are not adjusted.
+with six decimals and SHOW_MATCHES=Y by default. Original saved values and the
+original `DIFFERENCE` are preserved. Categorical output additionally includes
+`BLANKCOUNT` (MDT's saved blank count), `ADJUSTED_OUR_VALUE` and
+`ADJUSTED_DIFFERENCE`. `STATUS` evaluates the adjusted values after the existing
+scope/population/duplicate checks.
 
 The supplied development code has two different definitions:
 
 - **Missing:** development includes NULL and blank/whitespace strings; our
-  missing metric is NULL-only. When development BLANK_COUNT is positive,
-  missing count/rate and non-missing count are flagged DEFINITION_DIFFERENCE.
+  missing metric is NULL-only. For positive MDT `BLANK_COUNT`, the comparison
+  uses these expressions on our side, then compares with the original MDT value:
+  - Missing count: `our missing count + BLANKCOUNT`.
+  - Non-missing count: `our non-missing count - BLANKCOUNT`.
+  - Missing rate: `(our missing count + BLANKCOUNT) / our total count`.
+  The rate is recomputed from counts rather than adding a blank fraction to an
+  already rounded rate. A matching adjusted value is marked
+  `MATCH_AFTER_BLANK_ADJUSTMENT`; a residual mismatch is `DIFFERENT`.
+  MDT's missing count already includes blanks, so blanks must not be added to
+  MDT's missing count again.
 - **Distinct:** development counts raw distinct values, including special
   values; our distinct metric excludes configured special values. When either
   special count is positive, distinct is flagged DEFINITION_DIFFERENCE, even
   if the displayed counts happen to agree. Counts alone cannot establish the
   number of distinct special values to subtract.
 
-If a required blank/special count is unavailable, the affected comparison is
-NOT_EVALUATED. Missing rows, duplicate keys, different populations/dates and
+For example, **if the saved MDT BLANK_COUNT is 6,264**, our missing count
+22,042 adjusts to 28,306. Against MDT missing count 28,306, the original difference
+is -6,264 and the adjusted difference is zero. This example is conditional;
+the uploaded comparison did not contain the saved blank count.
+
+`SHOW_MATCHES=N` hides both `MATCH` and `MATCH_AFTER_BLANK_ADJUSTMENT` rows.
+Distinct-count definition differences remain visible; a blank observation count
+cannot establish a distinct special-value count. The adjustment reconciles saved
+counts under MDT's definition; it does not independently verify source records
+or establish which missing-value policy is appropriate.
+
+If required blank/missing/special counts are unavailable, or a blank count is
+negative, exceeds MDT missing count or would make our adjusted missing count
+exceed our population, the affected missing comparison is `NOT_EVALUATED`.
+No unavailable blank count is silently treated as zero. Missing rows, duplicate keys, different populations/dates and
 multiple snapshots per month use the same safeguards as the numeric query.
 Special-value lists, character comparison rules and the source population
 must agree before interpreting results. Development casts strings to
 VARCHAR(4000), while our engine uses the native field for distinct counting;
 longer strings and differing collation/type semantics require separate review.
-Mode, frequencies, blank metrics and string lengths are not engine metrics
-and are not compared. No source data is read and no new objects are created.
+Mode, frequencies and string lengths are not engine metrics and are not
+compared. `BLANKCOUNT` is an MDT reconciliation input, not a separately measured
+engine blank metric. No source data is read and no new objects are created.
 
 ## Date comparison
 
@@ -265,7 +291,9 @@ Outliers-only run. It also checks four numeric field batches, actual contributin
 run IDs, overlapping batches, missing selected runs and repeated selection IDs.
 The same checker executes the categorical query across all
 seven metrics, definition differences, unavailable prerequisites, MDT run 20
-selection and exception cases. The date query is exercised across four metrics
+selection and exception cases. It also checks blank-adjusted counts/rates,
+residual mismatches, invalid/unavailable blank counts, exact large adjusted
+counts, duplicate withholding and filtering of reconciled matches. The date query is exercised across four metrics
 for overall/monthly periods, rate tolerance, exact large counts, NULLs, missing
 and duplicate rows, population/snapshot mismatches, input/module guards,
 reporting switches and run/field-type isolation (our 18 versus MDT 21).
