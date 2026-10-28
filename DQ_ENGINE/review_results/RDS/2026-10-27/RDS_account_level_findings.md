@@ -98,11 +98,4 @@ and underlying values have not been established from the summaries.
 
 *Evidence: Categorical_Overall, Categorical_POU and Categorical_Specific.*
 
-`IO_IND` and `MV_EXDAY_PAYREV` reversions are retained as review selections.
-The workbook contains their pattern counts, but not checks against the
-underlying factors, so this report does not conclude that those checks passed.
-The 64 June 2007 property-classification reversions remain a lower-priority
-observation. No flags were recorded for `IO_AT_ORIGINATION_IND`, `CUTOVER_DT`
-or `PCKG_FTB_CALC_IND` in Categorical_Overall; this is not a full accuracy check.
-
 [Working workbook](RDS_account_level_review_workbook.xlsx)
