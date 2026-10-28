@@ -136,9 +136,10 @@ INSERT INTO DQ_MODULE_LOG VALUES ('cat','CATEGORICAL_BASIC',1,0,'SUCCEEDED');`);
 const catDev='IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT';
 for(const [level,date] of [['OVERALL',null],['MONTHLY','2018-01-31']]){
  catDB.prepare('INSERT INTO DQ_BASIC_REVIEW VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(18,'RDS','CATEGORY','CATEGORICAL',level,date,100,90,10,.1,0,0,3);
- catDB.prepare(`INSERT INTO ${catDev} VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(1,'CATEGORY',level,date,100,10,.1,0,0,0,3);
+ catDB.prepare(`INSERT INTO ${catDev} VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(20,'CATEGORY',level,date,100,10,.1,0,0,0,3);
 }
 const catRows=(query=catSQL)=>{const stmt=catDB.prepare(query);stmt.setReadBigInts(true);return stmt.all();};
+assert(catRows().every(r=>r.OUR_RUN_NUMBER===18n&&r.DEV_RUN_ID===20n));
 assert.equal(catRows().length,14);assert(catRows().every(r=>r.STATUS==='MATCH'&&Number(r.DIFFERENCE)===0));
 let catScenarios=0;
 function catCase(change,check){catDB.exec('SAVEPOINT cat_case');try{catDB.exec(change);check(catRows());catScenarios++;}finally{catDB.exec('ROLLBACK TO cat_case; RELEASE cat_case');}}
@@ -173,5 +174,80 @@ for(const [change,status] of [
 ])catCase(change,rows=>assert(rows.some(r=>r.STATUS===status)));
 catCase(`UPDATE DQ_BASIC_REVIEW SET DISTINCT_COUNT=9007199254740993;UPDATE ${catDev} SET DISTINCT_COUNT=9007199254740992`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='DISTINCT_COUNT').every(r=>r.STATUS==='DIFFERENT'&&r.DIFFERENCE===1n)));
 assert.equal(catRows(catSQL.replace("CAST('Y' AS CHAR(1)) AS SHOW_MATCHES","CAST('N' AS CHAR(1)) AS SHOW_MATCHES")).length,0);
+// A different MDT execution must not leak into the categorical comparison.
+catCase(`INSERT INTO ${catDev} SELECT 21,FIELD_NAME,RUN_TYPE,POU_DT,999,999,1,BLANK_COUNT,SPECIAL_COUNT,SPECIAL_PCT,DISTINCT_COUNT FROM ${catDev}`,
+ rows=>assert(rows.length===14&&rows.every(r=>r.STATUS==='MATCH'&&r.DEV_RUN_ID===20n)));
+catCase(`UPDATE ${catDev} SET RUN_ID=1`,rows=>assert(rows.length===1&&rows[0].STATUS==='NOT_EVALUATED'));
 console.log(`Categorical comparison passed: 14 field/period/metrics; ${catScenarios} definition/exception cases. Saved values preserved; SQLite only, Teradata execution unverified.`);
 catDB.close();
+
+// Date results are deliberately a separate SELECT and use only DATE_BASIC metrics.
+const dateSource=fs.readFileSync(new URL('../tests/compare_date_development.sql',import.meta.url),'utf8');
+const dateExecutable=dateSource.replace(/\/\*[\s\S]*?\*\//g,'');
+assert(!/\b(CREATE|INSERT|UPDATE|DELETE|DROP|CALL|REPLACE)\b/i.test(dateExecutable));
+assert(!/VW_RDS_PHASE2_FACT|DQ_METRIC_RESULT|IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT|SPECIAL_COUNT|DISTINCT_COUNT|MIN_VALUE|MAX_VALUE|\/\s*100/.test(dateExecutable));
+assert.match(dateSource,/CAST\(18 AS BIGINT\) AS OUR_RUN_NUMBER/);
+assert.match(dateSource,/CAST\(21 AS BIGINT\) AS DEV_RUN_ID/);
+assert.equal((dateSource.slice(dateSource.indexOf('METRIC_MAP AS'),dateSource.indexOf('ENABLED_METRICS AS')).match(/FROM PARAMS/g)||[]).length,4);
+const dateSQL=dateSource.replaceAll('DQ_DB.','')
+ .replace(/EXTRACT\(YEAR FROM ([DR])\.POU_DT\)/g,(_,alias)=>`CAST(strftime('%Y',${alias}.POU_DT) AS INTEGER)`)
+ .replace(/EXTRACT\(MONTH FROM ([DR])\.POU_DT\)/g,(_,alias)=>`CAST(strftime('%m',${alias}.POU_DT) AS INTEGER)`);
+const dateDB=new DatabaseSync(':memory:');
+dateDB.function('CHARACTER_LENGTH',v=>v?.length??null);
+dateDB.exec(`CREATE TABLE DQ_RUN_LOG (RUN_ID TEXT,PROJECT_ID TEXT,STATUS TEXT,ATTEMPT_NO INTEGER,PROFILE_OVERALL TEXT,PROFILE_MONTHLY TEXT,PROFILE_YEARLY TEXT);
+CREATE TABLE DQ_RUN_NUMBER (RUN_ID TEXT,RUN_NUMBER INTEGER);
+CREATE TABLE DQ_RUN_FIELD_CONFIG (RUN_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT);
+CREATE TABLE DQ_MODULE_LOG (RUN_ID TEXT,MODULE_NAME TEXT,ATTEMPT_NO INTEGER,BATCH_ID INTEGER,STATUS TEXT);
+CREATE TABLE DQ_BASIC_REVIEW (RUN_NUMBER INTEGER,PROJECT_ID TEXT,FIELD_NAME TEXT,FIELD_TYPE TEXT,PERIOD_LEVEL TEXT,POU_DT TEXT,
+ TOTAL_COUNT INTEGER,NON_MISSING_COUNT INTEGER,MISSING_COUNT INTEGER,MISSING_RATE NUMERIC);
+CREATE TABLE IRB_RDS_DQ_DATE_PROFILE_RESULT
+ (RUN_ID INTEGER,FIELD_NAME TEXT,RUN_TYPE TEXT,POU_DT TEXT,ROW_COUNT INTEGER,MISSING_COUNT INTEGER,MISSING_PCT NUMERIC);
+INSERT INTO DQ_RUN_LOG VALUES ('date','RDS','SUCCEEDED',1,'Y','Y','N');
+INSERT INTO DQ_RUN_NUMBER VALUES ('date',18);
+INSERT INTO DQ_RUN_FIELD_CONFIG VALUES ('date','EVENT_DATE','DATE');
+INSERT INTO DQ_MODULE_LOG VALUES ('date','DATE_BASIC',1,0,'SUCCEEDED');`);
+const dateDev='IRB_RDS_DQ_DATE_PROFILE_RESULT';
+for(const [level,date] of [['OVERALL',null],['MONTHLY','2018-01-31']]){
+ dateDB.prepare('INSERT INTO DQ_BASIC_REVIEW VALUES (?,?,?,?,?,?,?,?,?,?)').run(18,'RDS','EVENT_DATE','DATE',level,date,100,90,10,.1);
+ dateDB.prepare(`INSERT INTO ${dateDev} VALUES (?,?,?,?,?,?,?)`).run(21,'EVENT_DATE',level,date,100,10,.1);
+}
+const dateRows=(query=dateSQL)=>{const stmt=dateDB.prepare(query);stmt.setReadBigInts(true);return stmt.all();};
+assert.equal(dateRows().length,8);
+assert(dateRows().every(r=>r.STATUS==='MATCH'&&Number(r.DIFFERENCE)===0&&r.OUR_RUN_NUMBER===18n&&r.DEV_RUN_ID===21n));
+let dateScenarios=0;
+function dateCase(change,check){dateDB.exec('SAVEPOINT date_case');try{dateDB.exec(change);check(dateRows());dateScenarios++;}finally{dateDB.exec('ROLLBACK TO date_case; RELEASE date_case');}}
+for(const [change,status] of [
+ ['INSERT INTO DQ_BASIC_REVIEW SELECT * FROM DQ_BASIC_REVIEW','DUPLICATE_ENGINE'],
+ [`INSERT INTO ${dateDev} SELECT * FROM ${dateDev}`,'DUPLICATE_DEVELOPMENT'],
+ [`UPDATE ${dateDev} SET POU_DT='2018-01-30' WHERE RUN_TYPE='MONTHLY'`,'SNAPSHOT_MISMATCH'],
+ [`INSERT INTO ${dateDev} SELECT RUN_ID,FIELD_NAME,RUN_TYPE,'2018-01-15',ROW_COUNT,MISSING_COUNT,MISSING_PCT FROM ${dateDev} WHERE RUN_TYPE='MONTHLY'`,'PERIOD_SCOPE_MISMATCH'],
+ [`DELETE FROM ${dateDev} WHERE RUN_TYPE='MONTHLY'`,'MISSING_DEVELOPMENT'],
+ ["DELETE FROM DQ_BASIC_REVIEW WHERE PERIOD_LEVEL='MONTHLY'",'MISSING_ENGINE'],
+ ["INSERT INTO DQ_RUN_FIELD_CONFIG VALUES ('date','MISSING_DATE','DATE')",'MISSING_BOTH'],
+ [`UPDATE ${dateDev} SET ROW_COUNT=101`,'POPULATION_MISMATCH'],
+ [`UPDATE ${dateDev} SET ROW_COUNT=NULL`,'POPULATION_UNAVAILABLE'],
+ ["UPDATE DQ_RUN_LOG SET STATUS='RUNNING'",'NOT_EVALUATED'],
+ ["UPDATE DQ_MODULE_LOG SET STATUS='FAILED'",'NOT_EVALUATED'],
+ ["UPDATE DQ_MODULE_LOG SET ATTEMPT_NO=2",'NOT_EVALUATED'],
+ ["UPDATE DQ_RUN_FIELD_CONFIG SET FIELD_TYPE='CATEGORICAL'",'NOT_EVALUATED'],
+ [`DELETE FROM ${dateDev}`,'NOT_EVALUATED'],
+ [`UPDATE ${dateDev} SET RUN_ID=20`,'NOT_EVALUATED'],
+ [`UPDATE ${dateDev} SET MISSING_COUNT=11`,'DIFFERENT']
+])dateCase(change,rows=>assert(rows.some(r=>r.STATUS===status),status));
+dateCase(`UPDATE ${dateDev} SET MISSING_PCT=.100001`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='MISSING_RATE').every(r=>r.STATUS==='MATCH')));
+dateCase(`UPDATE ${dateDev} SET MISSING_PCT=.100002`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='MISSING_RATE').every(r=>r.STATUS==='DIFFERENT')));
+dateCase(`UPDATE ${dateDev} SET MISSING_PCT=NULL`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='MISSING_RATE').every(r=>r.STATUS==='DIFFERENT')));
+dateCase(`UPDATE DQ_BASIC_REVIEW SET MISSING_RATE=NULL; UPDATE ${dateDev} SET MISSING_PCT=NULL`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='MISSING_RATE').every(r=>r.STATUS==='MATCH'&&r.DIFFERENCE===null)));
+dateCase(`UPDATE DQ_BASIC_REVIEW SET TOTAL_COUNT=9007199254740994,NON_MISSING_COUNT=9007199254740993,MISSING_COUNT=1; UPDATE ${dateDev} SET ROW_COUNT=9007199254740994,MISSING_COUNT=2`,rows=>assert(rows.filter(r=>r.METRIC_NAME==='NON_MISSING_COUNT').every(r=>r.STATUS==='DIFFERENT'&&r.DIFFERENCE===1n)));
+// Wrong run IDs and non-date results must not create rows or false duplicates.
+dateCase(`INSERT INTO ${dateDev} SELECT 20,FIELD_NAME,RUN_TYPE,POU_DT,999,999,1 FROM ${dateDev};
+ INSERT INTO DQ_BASIC_REVIEW SELECT 17,PROJECT_ID,FIELD_NAME,FIELD_TYPE,PERIOD_LEVEL,POU_DT,999,999,999,1 FROM DQ_BASIC_REVIEW;
+ INSERT INTO DQ_BASIC_REVIEW SELECT RUN_NUMBER,PROJECT_ID,FIELD_NAME,'CATEGORICAL',PERIOD_LEVEL,POU_DT,999,999,999,1 FROM DQ_BASIC_REVIEW WHERE RUN_NUMBER=18;
+ INSERT INTO DQ_RUN_FIELD_CONFIG VALUES ('date','CATEGORY','CATEGORICAL');`,
+ rows=>assert(rows.length===8&&rows.every(r=>r.STATUS==='MATCH'&&r.FIELD_NAME==='EVENT_DATE'&&r.DEV_RUN_ID===21n)));
+dateCase("UPDATE DQ_RUN_LOG SET PROFILE_MONTHLY='N'",rows=>assert(rows.length===4&&rows.every(r=>r.PERIOD_LEVEL==='OVERALL')));
+dateCase("UPDATE DQ_RUN_LOG SET PROFILE_OVERALL='N'",rows=>assert(rows.length===4&&rows.every(r=>r.PERIOD_LEVEL==='MONTHLY')));
+dateCase(`UPDATE DQ_BASIC_REVIEW SET POU_DT=NULL WHERE PERIOD_LEVEL='MONTHLY'; UPDATE ${dateDev} SET POU_DT=NULL WHERE RUN_TYPE='MONTHLY'`,rows=>assert(rows.length===8&&rows.every(r=>r.STATUS==='MATCH')));
+assert.equal(dateRows(dateSQL.replace("CAST('Y' AS CHAR(1)) AS SHOW_MATCHES","CAST('N' AS CHAR(1)) AS SHOW_MATCHES")).length,0);
+console.log(`Date comparison passed: 8 field/period/metrics; ${dateScenarios} scope/exception cases; run 18 vs MDT 21, separate date table. SQLite only, Teradata execution unverified.`);
+dateDB.close();

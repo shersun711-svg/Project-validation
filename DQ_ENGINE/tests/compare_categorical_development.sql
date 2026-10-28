@@ -1,9 +1,10 @@
-/* READ ONLY: compare the final DQ_BASIC_REVIEW with development categorical run 1.
+/* READ ONLY: compare the final DQ_BASIC_REVIEW with MDT categorical run 20 (our run 18).
    Replace DQ_DB with LAB_T_ORION_MVT in your copy; edit OUR_RUN_NUMBER below.
    Submit this complete statement. No profiling rerun or new database objects.
    One row per field/period/metric: OUR_VALUE, DEV_VALUE, DIFFERENCE, STATUS.
    Rates are already fractions; no division by 100 is needed.
    SHOW_MATCHES=Y displays all comparisons; N displays exceptions only.
+   Separate categorical result grid; date results use compare_date_development.sql.
    Categorical Basic, overall/monthly only. See
    documentation/DEVELOPMENT_COMPARISON.md for scope and known differences. */
 WITH
@@ -11,7 +12,7 @@ PARAMS AS
 (
     SELECT CAST('RDS' AS VARCHAR(30)) AS PROJECT_ID,
            CAST(18 AS BIGINT) AS OUR_RUN_NUMBER,
-           CAST(1 AS BIGINT) AS DEV_RUN_ID,
+           CAST(20 AS BIGINT) AS DEV_RUN_ID,
            CAST(0.000001 AS DECIMAL(18,12)) AS RATE_ABS_TOL,
            CAST('Y' AS CHAR(1)) AS SHOW_MATCHES
     FROM (SELECT COUNT(*) AS SEED_COUNT FROM DQ_DB.DQ_RUN_NUMBER) SEED

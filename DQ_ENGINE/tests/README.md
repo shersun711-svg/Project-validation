@@ -5,7 +5,11 @@ For the current MDT result comparison, use only:
 | File | Current use |
 |---|---|
 | [compare_numeric_development.sql](compare_numeric_development.sql) | Our numeric run 17 versus MDT runs 12, 13, 14 and 15, all in LAB_T_ORION_MVT. |
-| [compare_categorical_development.sql](compare_categorical_development.sql) | Categorical comparison when the MDT categorical results are ready. Defaults: our run 18, MDT run 1; confirm that MDT ID separately. |
+| [compare_categorical_development.sql](compare_categorical_development.sql) | Our categorical run 18 versus MDT run 20; reads the categorical profile result table. |
+| [compare_date_development.sql](compare_date_development.sql) | Our date run 18 versus MDT run 21; reads the separate date profile result table. |
+
+Run categorical and date comparisons separately for separate result tables/grids.
+They do not create persistent database tables.
 
 Replace DQ_DB in deployment copies. Submit each complete comparison as one
 request. No engine deployment, fixture creation or profiling rerun is needed.
@@ -202,3 +206,5 @@ The same checker executes all 16 SELECTs in
 rate/count context and row-count markers. These user review queries are separate
 from isolated fixtures and do not write database objects. See
 [manual review/export instructions](../documentation/MOM_MANUAL_REVIEW.md).
+
+Date comparison regression is included in `node DQ_ENGINE/tools/check_development_comparison.mjs`: our run 18 versus MDT date run 21, four metrics, separate result grid, scope isolation and exception handling. See the date schema assumptions in [comparison settings](../documentation/DEVELOPMENT_COMPARISON.md#date-comparison).

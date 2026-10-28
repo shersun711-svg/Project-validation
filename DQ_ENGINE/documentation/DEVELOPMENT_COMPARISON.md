@@ -1,8 +1,17 @@
 # Compare the final review with development
 
 [Numeric comparison](../tests/compare_numeric_development.sql) and
-[categorical comparison](../tests/compare_categorical_development.sql) use the
-same output layout. Choose the script for the field type; neither reruns profiling.
+[categorical comparison](../tests/compare_categorical_development.sql) and
+[date comparison](../tests/compare_date_development.sql) use the same output
+layout. Run categorical and date scripts separately to get separate result
+tables/grids; their rows are never combined. None reruns profiling or creates
+database objects.
+
+| Field type | Our run number | MDT run ID(s) | MDT saved result table |
+|---|---:|---|---|
+| Numeric | 17 | 12, 13, 14, 15 | `IRB_RDS_DQ_NUMERIC_PROFILE_RESULT` |
+| Categorical | 18 | 20 | `IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT` |
+| Date | 18 | 21 | `IRB_RDS_DQ_DATE_PROFILE_RESULT` |
 
 [compare_numeric_development.sql](../tests/compare_numeric_development.sql)
 compares saved **DQ_BASIC_REVIEW** results with the development team's numeric
@@ -28,8 +37,8 @@ The comparison joins the deployed `DQ_BASIC_REVIEW` by `RUN_NUMBER` and
 `PROJECT_ID`; that view does not need to expose the internal `RUN_ID` UUID.
 Existing run logs and captured configuration still use the internal ID.
 The numeric defaults are our run **17** and MDT runs **12–15**. The categorical
-query remains our run **18**, MDT run **1**; the numeric run-ID correction does
-not establish which MDT categorical execution to select.
+query uses our run **18**, MDT run **20**. The separate date query uses our
+run **18**, MDT run **21**, as confirmed by the analyst.
 
 ### MDT numeric field batches
 
@@ -174,7 +183,7 @@ Use [compare_categorical_development.sql](../tests/compare_categorical_developme
 with the same schema replacement and run-number settings. Choose a successful
 engine run that **contains CATEGORICAL_BASIC results**; a numeric-only run will
 return NOT_EVALUATED. The default engine number is 18 and must be edited if
-that run did not include categorical profiling. Development run ID is 1, using
+that run did not include categorical profiling. Development run ID is **20**, using
 `LAB_T_ORION_MVT.IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT`.
 
 It compares seven metrics, for overall/enabled monthly periods:
@@ -212,6 +221,40 @@ longer strings and differing collation/type semantics require separate review.
 Mode, frequencies, blank metrics and string lengths are not engine metrics
 and are not compared. No source data is read and no new objects are created.
 
+## Date comparison
+
+Use [compare_date_development.sql](../tests/compare_date_development.sql) for
+our run **18** versus MDT date run **21**. Replace `DQ_DB` with
+`LAB_T_ORION_MVT`, then submit the complete statement separately from the
+categorical query. It reads `IRB_RDS_DQ_DATE_PROFILE_RESULT`, not the
+categorical result table, and returns a separate date result grid.
+
+Our selected successful run must contain captured DATE fields and a successful
+DATE_BASIC module in its current attempt. Only overall and enabled monthly
+periods are compared. A numeric/category field retained for the MDT date-focused
+suite workaround cannot enter the date comparison.
+
+| Review metric | MDT saved date value |
+|---|---|
+| TOTAL_COUNT | row_count |
+| NON_MISSING_COUNT | row_count - missing_count |
+| MISSING_COUNT | missing_count |
+| MISSING_RATE | missing_pct (fraction) |
+
+Counts compare exactly; missing rate uses absolute tolerance `0.000001`.
+The engine date review exposes no date-value minimum/maximum, distinct or
+special metrics, so these are not compared. Field-availability dates are not
+date-value extrema. The query assumes the deployed MDT date table has
+`RUN_ID`, `FIELD_NAME`, `RUN_TYPE`, `POU_DT`, `ROW_COUNT`, `MISSING_COUNT` and
+`MISSING_PCT`, with rates stored as fractions, consistent with the MDT profile
+naming used by the existing comparisons. The repository has no MDT date-result
+DDL; confirm these column names and units in the lab before execution.
+
+Output uses the same OUR_VALUE / DEV_VALUE / DIFFERENCE / STATUS columns.
+The duplicate, missing-row, snapshot, population and input checks apply to date
+results independently. `SHOW_MATCHES=N` returns date exceptions only. These are
+read-only result grids, not persistent output database tables.
+
 ## Verification
 
 `node DQ_ENGINE/tools/check_development_comparison.mjs` executes the checked-in
@@ -221,6 +264,10 @@ missing/duplicate rows, input guards, population/date mismatches and an
 Outliers-only run. It also checks four numeric field batches, actual contributing
 run IDs, overlapping batches, missing selected runs and repeated selection IDs.
 The same checker executes the categorical query across all
-seven metrics, definition differences, unavailable prerequisites and exception
-cases. Teradata parsing, permissions, query plans and actual results
+seven metrics, definition differences, unavailable prerequisites, MDT run 20
+selection and exception cases. The date query is exercised across four metrics
+for overall/monthly periods, rate tolerance, exact large counts, NULLs, missing
+and duplicate rows, population/snapshot mismatches, input/module guards,
+reporting switches and run/field-type isolation (our 18 versus MDT 21).
+Teradata parsing, permissions, deployed MDT date schema and actual results
 remain unverified until you run it in the lab.
