@@ -91,6 +91,6 @@ load-log row exists. Remove only the affected LOAD_ID's staged rows after
 investigation. A cleanup failure after a committed apply retains APPLIED with
 cleanup information. Never infer a request is abandoned from elapsed time alone.
 
-Optional isolated tests are listed in [tests/README.md](../tests/README.md).
-[Validation evidence](VALIDATION_EVIDENCE.md) distinguishes user-server reports
+Optional isolated tests are listed in [tests/README.md](https://github.com/shersun711-svg/Project-validation/blob/fe7fbe7b2691b5996c865ff878f61afb6009298f/DQ_ENGINE/tests/README.md).
+[Validation evidence](https://github.com/shersun711-svg/Project-validation/blob/fe7fbe7b2691b5996c865ff878f61afb6009298f/DQ_ENGINE/documentation/VALIDATION_EVIDENCE.md) distinguishes user-server reports
 from local checks; no live SAS/Teradata execution took place in this workspace.

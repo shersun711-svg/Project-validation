@@ -4,7 +4,7 @@ For configurable overall/monthly/yearly output, follow the current
 
 # Numeric Outliers
 
-See the [before/after precision-change review](OUTLIER_PRECISION_CHANGE_REVIEW.md)
+See the [before/after precision-change review](https://github.com/shersun711-svg/Project-validation/blob/fe7fbe7b2691b5996c865ff878f61afb6009298f/DQ_ENGINE/documentation/OUTLIER_PRECISION_CHANGE_REVIEW.md)
 for the exact code diff, behavioural effect and verification limits.
 
 Enable numeric_outliers=Y in sas/00_run_dq_engine.sas. It runs for every active
@@ -172,7 +172,7 @@ now has three helper/wrapper procedures, and file 12 uses bounded copies. Do not
 follow an older instruction to compile file 12 alone. No table migration is
 needed. Submit each procedure and its included grant separately.
 
-The optional [partition preflight](../tests/test_outlier_partition.sql) creates
+The optional [partition preflight](https://github.com/shersun711-svg/Project-validation/blob/fe7fbe7b2691b5996c865ff878f61afb6009298f/DQ_ENGINE/tests/test_outlier_partition.sql) creates
 an eight-row source and one small working table in an approved test schema.
 Verify names are unused first; stop on errors. Expected: TOTAL_ROWS=8,
 YEAR_KEYS=6, BAD_KEYS=0, DUPLICATE_ROWS=2. Confirm EXPLAIN partition elimination
@@ -196,7 +196,7 @@ VARCHAR(10) for PERIOD_VALUE, matching the result-table domains. Chunk keys
 also have explicit VARCHAR(10) widths. The duplicate-key guard is retained;
 no DISTINCT or deduplication is used to conceal collisions.
 
-Before another RDS run, execute [test_outlier_rollup.sql](../tests/test_outlier_rollup.sql)
+Before another RDS run, execute [test_outlier_rollup.sql](https://github.com/shersun711-svg/Project-validation/blob/fe7fbe7b2691b5996c865ff878f61afb6009298f/DQ_ENGINE/tests/test_outlier_rollup.sql)
 in a fresh SQL Assistant session. It uses five synthetic chunk rows and two
 volatile test tables, with no RDS reads or permanent engine changes. Expected
 summary: PERIOD_ROWS=10, UNIQUE_PERIOD_KEYS=10, BAD_ROWS=0. The detail output

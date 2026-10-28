@@ -176,10 +176,10 @@ that retired CSV-loader staging table. No deployed objects are dropped here.
 
 ## Validation and troubleshooting
 
-Optional validation is documented in [tests/README.md](../tests/README.md).
+Optional validation is documented in [tests/README.md](https://github.com/shersun711-svg/Project-validation/blob/fe7fbe7b2691b5996c865ff878f61afb6009298f/DQ_ENGINE/tests/README.md).
 Retain synthetic tests for regression checking; run them in an isolated test
 engine. Read-only RDS validation and performance checks are also available.
-[Validation evidence](VALIDATION_EVIDENCE.md) distinguishes local static checks
+[Validation evidence](https://github.com/shersun711-svg/Project-validation/blob/fe7fbe7b2691b5996c865ff878f61afb6009298f/DQ_ENGINE/documentation/VALIDATION_EVIDENCE.md) distinguishes local static checks
 from user-server observations. The user reported a successful Excel load and
 50-field numeric RDS run with sample results checked, followed by a successful
 65-field mixed RDS run (50 numeric, 9 categorical, 4 date, 2 identifier). These
@@ -225,7 +225,7 @@ mappings/counter. It deletes records, without dropping engine tables.
 
 Further details: [configuration](CONFIGURATION_GUIDE.md),
 [metric definitions](RESULTS_DICTIONARY.md), [performance](PERFORMANCE_NOTES.md)
-and [original input review](INPUT_REVIEW.md).
+and [original input review](https://github.com/shersun711-svg/Project-validation/blob/fe7fbe7b2691b5996c865ff878f61afb6009298f/DQ_ENGINE/documentation/INPUT_REVIEW.md).
 
 
 See [field selection and module switches](CONFIGURATION_GUIDE.md) to choose

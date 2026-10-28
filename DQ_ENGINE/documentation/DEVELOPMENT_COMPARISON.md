@@ -1,8 +1,8 @@
 # Compare the final review with development
 
-[Numeric comparison](../tests/compare_numeric_development.sql) and
-[categorical comparison](../tests/compare_categorical_development.sql) and
-[date comparison](../tests/compare_date_development.sql) use the same output
+[Numeric comparison](../comparisons/compare_numeric_development.sql) and
+[categorical comparison](../comparisons/compare_categorical_development.sql) and
+[date comparison](../comparisons/compare_date_development.sql) use the same output
 layout. Run categorical and date scripts separately to get separate result
 tables/grids; their rows are never combined. None reruns profiling or creates
 database objects.
@@ -13,7 +13,7 @@ database objects.
 | Categorical | 18 | 20 | `IRB_RDS_DQ_CATEGORICAL_PROFILE_RESULT` |
 | Date | 18 | 21 | `IRB_RDS_DQ_DATE_PROFILE_RESULT` |
 
-[compare_numeric_development.sql](../tests/compare_numeric_development.sql)
+[compare_numeric_development.sql](../comparisons/compare_numeric_development.sql)
 compares saved **DQ_BASIC_REVIEW** results with the development team's numeric
 result table, selecting MDT runs **12, 13, 14 and 15** together. It is read-only:
 no profiling rerun, source-data scan, new tables,
@@ -179,7 +179,7 @@ It cannot establish that either engine is correct merely because values match.
 
 ## Categorical comparison
 
-Use [compare_categorical_development.sql](../tests/compare_categorical_development.sql)
+Use [compare_categorical_development.sql](../comparisons/compare_categorical_development.sql)
 with the same schema replacement and run-number settings. Choose a successful
 engine run that **contains CATEGORICAL_BASIC results**; a numeric-only run will
 return NOT_EVALUATED. The default engine number is 18 and must be edited if
@@ -249,7 +249,7 @@ engine blank metric. No source data is read and no new objects are created.
 
 ## Date comparison
 
-Use [compare_date_development.sql](../tests/compare_date_development.sql) for
+Use [compare_date_development.sql](../comparisons/compare_date_development.sql) for
 our run **18** versus MDT date run **21**. Replace `DQ_DB` with
 `LAB_T_ORION_MVT`, then submit the complete statement separately from the
 categorical query. It reads `IRB_RDS_DQ_DATE_PROFILE_RESULT`, not the
