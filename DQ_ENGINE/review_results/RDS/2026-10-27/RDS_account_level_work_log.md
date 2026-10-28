@@ -69,5 +69,42 @@ from the analyst's supplied results; they were not independently rerun.
 Send the [findings report](RDS_account_level_findings.md) to CDAO for the
 recorded clarifications. Do not classify open observations as passed or as
 confirmed errors before receiving supporting explanations. The planned
-non-numeric review stage is complete with these limitations; numeric
-account-level testing remains outside this review and outstanding.
+non-numeric review stage is complete with these limitations. Numeric follow-up
+is recorded below.
+
+## Numeric account-level screening — 28 October 2026
+
+The analyst supplied `nuemric result.xlsx`: run 20, 3,570 monthly rows,
+14 numeric fields with 255 months each, January 2005–March 2026. There were
+14 NO_REFERENCE rows (first month) and 3,556 EVALUATED rows. Summary review
+does not establish the overall run-log status or validate every flagged event.
+Thresholds are provisional; utilisation and delinquency upstream scales remain
+unconfirmed. Month-counter resets and large numeric movements alone were not
+classified as data errors.
+
+December 2013 source follow-up used the supplied query joining full internal
+account IDs and then assigning anonymous REVIEW_ID values. The resulting
+387 rows cover 129 accounts and three months. All 129 had missing package
+repayment in December; 128 recovered in January. Package-ID patterns were
+127 PRESENT/PRESENT/PRESENT, one PRESENT/MISSING/PRESENT and one
+PRESENT/PRESENT/MISSING. The 43 temporary loan-to-income special-value
+events and 60 repayment-to-income events are within this group. All 43
+loan-to-income values returned exactly to the November value. All ratio
+specials in the initial flagged extract were -999993. These observations do
+not identify which underlying input or processing caused the gaps.
+
+The initial extract contained only account-ID suffixes; these were not treated
+as unique identifiers. Subsequent overlap conclusions above use the anonymous
+IDs assigned after full-ID matching, not suffix matching. No account-level
+extracts, monetary observations or identifier mappings have been published.
+
+The combined report also records the November 2016 savings-ratio special
+reversion cluster (914 events per field). Account overlap and the special
+codes involved have not been checked. Attestation comments provide general
+context, not a confirmed explanation for that cluster. February/May 2019
+numeric missingness is added to the existing population-exit clarification;
+cross-field account overlap remains unverified.
+
+At the analyst's direction, further root-cause investigation is left to CDAO.
+The report records evidence and requests explanations rather than asserting
+errors. Existing raw aggregate categorical evidence is retained unchanged.
