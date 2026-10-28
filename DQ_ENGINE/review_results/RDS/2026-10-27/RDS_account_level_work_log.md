@@ -160,3 +160,12 @@ which contains full account identifiers and individual values. Its remaining
 four sheets contain aggregate evidence and source metadata. The full workbook
 remains a downloadable internal artifact. Report observations are based on
 analyst-provided exports, not independently executed Teradata checks.
+
+## Workbook publication update — 28 October 2026
+
+The analyst requested that Numeric_Specific be retained and that the full
+workbook be uploaded to GitHub after being informed that it contains account
+IDs and individual financial values and that this repository is public. The
+repository workbook now matches the full five-sheet working copy, including
+Numeric_Specific (231 data rows). This supersedes the preceding description
+of the four-sheet public copy. No source values or formulas were changed.

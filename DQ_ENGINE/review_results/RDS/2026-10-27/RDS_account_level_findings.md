@@ -107,5 +107,5 @@ November 2018 explanation to the existing MoM clarification.
   were retained as screening results without exhaustive tracing.
 
 Working evidence: [combined review workbook](RDS_account_level_review_workbook.xlsx).
-Account-level extracts remain in internal working files. Detailed provenance is
+The workbook includes the supplied account-level extract. Detailed provenance is
 retained in the [working log](RDS_account_level_work_log.md).
