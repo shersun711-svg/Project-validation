@@ -1,111 +1,108 @@
-# RDS account-level data quality review
+# RDS account-level review: observations for CDAO
 
-28 October 2026 | January 2005–March 2026 | Categorical/date run 19; numeric run 20
+28 October 2026 | January 2005–March 2026
 
-The review covered nine selected categorical fields, one date field and 14
-numeric fields. Yellow rows in the working workbook are selected for review,
-not confirmed errors. The observations below request CDAO explanations; they
-do not assign root causes. Numeric movement limits are provisional screening
-settings, with upstream scales for utilisation and delinquency still unconfirmed.
+This report uses only the results in **RDS_account_level_review_workbook.xlsx**.
+It covers 14 numeric fields, nine categorical fields and one date field.
+Yellow rows identify selections for review, not confirmed errors. Counts below
+are account-month events unless otherwise stated. Percentages use each check's
+eligible population, not necessarily the full monthly population.
 
-## 1. Package-related missingness and balance movements
+## 1. Missing values across package-related fields
 
-The following fields became missing in February and May 2019:
+| Month | EVENT_DESCRIPTION | MV_PROP_POSTCODE_NM | PCKG_BOVO_VAL_AMT | PCKG_REPAY_AMT |
+|---|---:|---:|---:|---:|
+| February 2019 | 8,828 | 9,123 | 9,111 | 9,115 |
+| May 2019 | 12,208 | 12,710 | 12,690 | 12,660 |
+| February 2020 | 2,025 | 2,460 | 2,457 | 2,445 |
 
-| Field | February 2019 | May 2019 |
-|---|---:|---:|
-| EVENT_DESCRIPTION | 8,828 | 12,208 |
-| MV_PROP_POSTCODE_NM | 9,123 | 12,710 |
-| PCKG_BOVO_VAL_AMT | 9,111 | 12,690 |
-| PCKG_REPAY_AMT | 9,115 | 12,660 |
+These counts represent previously valid values becoming missing. In the
+February/May 2019 categorical extracts, missing package IDs were also present
+for 8,621/12,065 affected event-description records and all 9,123/12,710 affected
+property-classification records.
 
-In May 2019, 10.59% of eligible valid balance pairs also met the configured
-large-movement limits for `PCKG_BALANCE_AMT`.
+In May 2019, `PCKG_BALANCE_AMT` also had 12,599 large movements (10.59% of valid
+pairs), and `MV_PCKG_REPAY_TO_INC_RT` had 12,628 transitions to special values.
+The workbook does not establish whether these numeric and categorical changes
+involved the same accounts.
 
-Previous categorical follow-up found missing package IDs for 95.1–98.8% of
-affected event-description records and all affected property-classification
-records across five investigated months. Most affected records did not appear
-in the next snapshot. Similar categorical patterns occurred in February 2020,
-March 2022 and November 2024. The postcode attestation mentions the Glenbeigh
-sale in 2018/2019, but does not reconcile these specific populations or later
-dates. Overlap with the numeric populations and the direction of the balance
-jumps have not been established.
+Later categorical missingness was also selected: March 2022 had 1,311
+`EVENT_DESCRIPTION` and 1,821 `MV_PROP_POSTCODE_NM` transitions; November 2024
+had 989 and 1,506 respectively.
 
-**CDAO clarification:** Explain the affected dates and fields, confirm whether
-missingness and balance movements are expected around account exits or portfolio
-processing, and update the attestation with the relevant dates, sources and
-limitations. This extends the existing field-level MoM observation.
+**Question for CDAO:** What explains these dated gaps and movements? Please
+confirm whether they are expected, identify the affected sources or processing,
+and clarify any limitations on using these fields.
 
-## 2. December 2013: temporary repayment and ratio gaps
+*Evidence: Numeric_POU, Categorical_POU and Categorical_Specific.*
 
-Source follow-up identified 129 selected accounts with missing `PCKG_REPAY_AMT`
-in December; 128 recovered in January. Package IDs remained populated in December
-for 128 accounts. Within this group, 43 accounts had temporary `-999993` values
-in `MV_PCKG_LOAN_TO_INC_RT` and 60 in `MV_PCKG_REPAY_TO_INC_RT`.
-All 43 loan-to-income values returned exactly to their November value.
+## 2. December 2013: temporary missing and special values
 
-Separately, 111 accounts had `REPAY_TYPE_CD` values of `1 → missing → 1` across
-November–January. Overlap with the numeric group has not been checked.
+`Numeric_Specific` contains 128 `PCKG_REPAY_AMT` observations that were populated
+in November, missing in December and populated again in January. It also shows
+43 temporary `-999993` values in `MV_PCKG_LOAN_TO_INC_RT` and 60 in
+`MV_PCKG_REPAY_TO_INC_RT`. All 43 loan-to-income values returned exactly to their
+November value in January.
 
-**CDAO clarification:** Explain these temporary gaps and confirm whether they
-are expected or represent a data quality issue. Christmas payment arrangements
-have not been established as the explanation.
+Separately, `Categorical_POU` records 111 temporary missing `REPAY_TYPE_CD`
+events in December. It does not show their individual account sequences.
+
+**Question for CDAO:** What caused the one-month gaps in repayment, ratios and
+repayment type, and are they expected or a data quality issue?
+
+*Evidence: Numeric_Specific, Numeric_POU and Categorical_POU.*
 
 ## 3. Temporary special values in savings and payment ratios
 
-| Field | Month | Valid → special → valid events |
-|---|---|---:|
-| MV_PCKG_SAV_DEP_TO_BALANCE_RT | December 2013 | 908 |
-| MV_PCKG_SAV_DEP_TO_REPAY_RT | December 2013 | 1,013 |
-| Both savings-ratio fields above | November 2016 | 914 each |
-| Both savings-ratio fields above | November 2018 | 240 each |
-| MV_PCKG_AVG_PAY_TO_BAL_L6M_RT | December 2011 | 308 |
+| Field | December 2013 | November 2016 | November 2018 |
+|---|---:|---:|---:|
+| MV_PCKG_SAV_DEP_TO_BALANCE_RT | 908 | 914 | 240 |
+| MV_PCKG_SAV_DEP_TO_REPAY_RT | 1,013 | 914 | 240 |
 
-The attestation explains generally high savings-ratio special values where
-associated savings are unavailable; it does not establish the explanation for
-these temporary patterns. Equal counts do not establish account overlap.
+These are valid → special → valid events. In November 2018, each savings ratio
+also had 10,209 valid-to-special transitions, approximately 14.60% of its
+eligible reference pairs. `CHQ_LMT_UTIL_AVG_BAL_6M` had 2,324 valid-to-missing
+transitions in the same month (10.77%).
 
-**CDAO clarification:** Explain the temporary special values and confirm whether
-they reflect expected input availability or processing. December 2011 is lower
-priority because of its smaller affected population.
+The selected December 2011 row for `MV_PCKG_AVG_PAY_TO_BAL_L6M_RT` contains
+308 temporary special-value events. It is a lower-volume observation.
 
-## 4. Historical transitions and November 2018 missingness
+**Question for CDAO:** What explains these temporary special values and the
+November 2018 changes? Please identify the special codes and relevant input
+availability or processing changes. Account overlap is not established here.
 
-- **November 2007, CHQ_LMT_UTIL_AVG_BAL_6M:** 133,607 valid-to-special
-  transitions (81.00% of eligible reference pairs) and 11,257 numeric jumps
+*Evidence: Numeric_POU; account-level special-code extracts are not included.*
+
+## 4. Large historical movements
+
+- **November 2007 — CHQ_LMT_UTIL_AVG_BAL_6M:** 133,607 values became special
+  (81.00% of eligible reference pairs); 11,257 met the numeric-jump limits
   (35.92% of valid pairs).
-- **January 2006, CUST_ALL_C_PYMTS_CR_AVG_L6M_AMT:** 47,179 numeric jumps
-  (35.15% of valid pairs). Direction and underlying values have not been traced.
-- **November 2018, CHQ_LMT_UTIL_AVG_BAL_6M:** 2,324 valid-to-missing
-  transitions (10.77% of eligible reference pairs).
+- **January 2006 — CUST_ALL_C_PYMTS_CR_AVG_L6M_AMT:** 47,179 values met the
+  numeric-jump limits (35.15% of valid pairs).
 
-The attestation describes historical source limitations and specifically links
-2018/2019 utilisation nulls to portfolio-sale cutover/migration periods. These
-provide context, but do not establish the explanation for every selected month.
+**Question for CDAO:** Do these movements reflect changes in source coverage,
+field population or processing? Please explain the affected months. Direction
+and underlying values have not been established from the summaries.
 
-**CDAO clarification:** Confirm which documented source or portfolio events
-explain these transitions, with dates and affected populations. Link the
-November 2018 explanation to the existing MoM clarification.
+*Evidence: Numeric_POU.*
 
-## Lower-priority categorical observations and completed checks
+## Lower-priority categorical observations
 
-- **Repayment type:** 654 one-month category reversions, mainly `3 → 1 → 3`
-  (441) and `2 → 1 → 2` (63). Please confirm whether these represent genuine
-  arrangements or processing effects. These are events, not distinct accounts.
-- **Occupation fields:** 639 and 4,298 became-missing events in second/highest
-  income occupation respectively, mostly before 2010. Please confirm whether
-  the documented legacy capture limitations explain these transitions.
-- **IO_IND:** All 613 reviewed reversion windows followed the documented
-  repayment-type mapping. No mapping discrepancy was identified.
-- **MV_EXDAY_PAYREV:** All 30 sampled observations agreed with exposed inputs;
-  no issue was identified in those samples. This was not population-wide testing.
-- **Property classification:** 64 June 2007 reversions remain a low-priority
-  observation; no error was established.
-- No movements were flagged for `IO_AT_ORIGINATION_IND`, `CUTOVER_DT` or
-  `PCKG_FTB_CALC_IND` under the checks applied. This does not establish complete
-  accuracy. Low-volume numeric reversions and legitimate-looking counter resets
-  were retained as screening results without exhaustive tracing.
+- `REPAY_TYPE_CD` has 654 category reversions, mainly `3 → 1 → 3` (441)
+  and `2 → 1 → 2` (63). Please confirm whether these are genuine temporary
+  arrangements or processing effects.
+- `PCKG_2ND_INC_OCC_DESC` and `PCKG_HI_INC_OCC_DESC` have 639 and 4,298
+  transitions to missing. The selected monthly examples are in 2005/2007.
+  Please explain whether these reflect expected historical availability.
 
-Working evidence: [combined review workbook](RDS_account_level_review_workbook.xlsx).
-The workbook includes the supplied account-level extract. Detailed provenance is
-retained in the [working log](RDS_account_level_work_log.md).
+*Evidence: Categorical_Overall, Categorical_POU and Categorical_Specific.*
+
+`IO_IND` and `MV_EXDAY_PAYREV` reversions are retained as review selections.
+The workbook contains their pattern counts, but not checks against the
+underlying factors, so this report does not conclude that those checks passed.
+The 64 June 2007 property-classification reversions remain a lower-priority
+observation. No flags were recorded for `IO_AT_ORIGINATION_IND`, `CUTOVER_DT`
+or `PCKG_FTB_CALC_IND` in Categorical_Overall; this is not a full accuracy check.
+
+[Working workbook](RDS_account_level_review_workbook.xlsx)

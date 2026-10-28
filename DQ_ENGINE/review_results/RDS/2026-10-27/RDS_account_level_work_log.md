@@ -169,3 +169,16 @@ IDs and individual financial values and that this repository is public. The
 repository workbook now matches the full five-sheet working copy, including
 Numeric_Specific (231 data rows). This supersedes the preceding description
 of the four-sheet public copy. No source values or formulas were changed.
+
+## Report evidence boundary revised — 28 October 2026
+
+At the analyst's request the findings report was rewritten using only the current
+five-sheet combined workbook. Earlier correspondence remains in this working log
+as history, but is not treated as evidence included in that workbook. Package-ID
+status for December 2013, next-month account-presence conclusions, passed mapping
+checks and attestation-based explanations were removed from the report unless
+supported by the current file. The report now includes the May 2019 repayment-
+to-income special transitions and November 2018 savings special transitions
+visible in the selected numeric rows. It leaves the workbook data unchanged.
+See RDS_account_level_evidence_needed.md for the supporting outputs to add if
+those earlier conclusions are to be included. No new Teradata queries were run.
