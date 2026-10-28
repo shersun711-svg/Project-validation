@@ -182,3 +182,13 @@ to-income special transitions and November 2018 savings special transitions
 visible in the selected numeric rows. It leaves the workbook data unchanged.
 See RDS_account_level_evidence_needed.md for the supporting outputs to add if
 those earlier conclusions are to be included. No new Teradata queries were run.
+
+## MV_EXDAY_PAYREV sample query supplied — 28 October 2026
+
+The analyst reports adding IO_IND evidence to their local workbook; the revised
+file has not yet been supplied or verified here. check_mv_exday_payrev_sample.sql
+combines the earlier five early-period events and five later opposite-pattern
+events, with anonymous event IDs and explicit expected/observed comparison.
+The expected CASE is from the supplied attestation field logic, applied to the
+verified final-view aliases. No source queries were executed here. Expected
+coverage is 10 event windows / 30 rows if all three snapshots remain present.
