@@ -1,16 +1,17 @@
 /* Separate post-RDS account-level review. Does not call file 00.
-   Open/run 01_dq_controller.sas and 07_account_checks.sas in the same session.
-   Deploy setup/22 and results/96 once before using persistent results.
+   Open/run 02_load_controller.sas and 02_define_account_checks.sas in the same session.
+   Run 01_install_account_results.sql once before using persistent results.
    No server engine_root path is required when files are opened directly. */
 %let td_server=dwhprod;
 %let td_authdomain=TeraAuth;
 %let dq_database=LAB_T_ORION_MVT;
 
-/* Upload config/DQ_RDS_account_fields.xlsx to a SAS-accessible server folder.
+/* Upload account_fields.xlsx to a SAS-accessible server folder.
    Edit its AccountFields sheet, not the main profiling workbook.
    The workbook retains all 24 fields. The nine categorical fields and
    CUTOVER_DT are active; numeric fields/settings are retained but paused.
    Missing limits on active numeric fields stop before source testing. */
+%let account_project=RDS; /* Set to the project loaded in engine configuration. */
 %let account_fields_file=;
 %let account_start_date=2005-01-01;
 %let account_end_date=2026-03-31;
@@ -25,7 +26,7 @@
   delete dq_account_fields dq_account_summary dq_account_detail _dq_account_excel;
  quit;
  %if not %sysmacexist(run_dq_account_checks) %then %do;
-  %let dq_account_error=Open and run 07_account_checks.sas first.;
+  %let dq_account_error=Open and run 02_define_account_checks.sas first.;
   %goto invalid;
  %end;
  %if %length(%superq(account_fields_file))=0 %then %do;
@@ -73,7 +74,7 @@
   %goto invalid;
  %end;
  %run_dq_account_checks(
-   project=RDS,fields=work.dq_account_fields,
+   project=&account_project,fields=work.dq_account_fields,
    start_date=&account_start_date,end_date=&account_end_date,
    max_details=&account_max_details
  );

@@ -1,3 +1,7 @@
+/* Optional MoM/YoY view: install once after basic_profiling/01_install_engine.sql.
+   Replace DQ_DB; submit the complete REPLACE VIEW and then its GRANT.
+   Querying it needs saved monthly profiling results. See ../README.md. */
+
 /* Synchronized with the user-supplied deployed view definition, 2026-10-20.
    Replace DQ_DB with the approved schema in a deployment copy.
    Reads saved monthly profiling results only; no profiling rerun required.

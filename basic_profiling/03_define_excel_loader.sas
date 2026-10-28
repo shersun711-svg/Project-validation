@@ -2,7 +2,7 @@
    phase: the user edits the approved workbook, then runs this loader.
    Project, Fields, Settings and optional SpecialValues are small configuration.
    The database merges the three tables in one transaction; no profiling runs.
-   Requires 01_dq_controller.sas connection macros in the same SAS session. */
+   Requires 02_load_controller.sas connection macros in the same SAS session. */
 %macro load_dq_config(config_workbook=);
     %local _rc _load_id _status _load_sql _has_special _settings_dsid _close_rc
         _has_overall _has_monthly _has_yearly;
@@ -14,7 +14,7 @@
     quit;
     %if not %sysmacexist(dq_connect) or not %sysmacexist(dq_validate_context)
         or not %sysmacexist(dq_check_sql) %then %do;
-        %put ERROR: Open/run 01_dq_controller.sas first.; %return;
+        %put ERROR: Open/run 02_load_controller.sas first.; %return;
     %end;
     /* This checks connection settings, not workbook contents. */
     %dq_validate_context;

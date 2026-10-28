@@ -1,4 +1,4 @@
-/* Standalone post-RDS account checks. Load 01_dq_controller.sas first.
+/* Standalone post-RDS account checks. Load 02_load_controller.sas first.
    All program text is ASCII for LATIN9 sessions. Account results persist in TD.
    One field at a time: a session-local evaluated table is dropped after use. */
 %global dq_account_controller_version;
@@ -199,7 +199,7 @@ execute (
   delete dq_account_summary dq_account_detail _dq_at_summary _dq_at_detail;
  quit;
  %if not %sysmacexist(dq_validate_context) %then %do;
-  %let dq_account_error=Run 01_dq_controller.sas first.; %goto fail;
+  %let dq_account_error=Run 02_load_controller.sas first.; %goto fail;
  %end;
  %dq_validate_context;
  %if &dq_context_ok=0 %then %do;

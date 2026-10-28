@@ -13,7 +13,7 @@
    Previous values/counts are reconstructed from current minus saved MOM_CHANGE.
    No change threshold is reapplied and June 2009 is not excluded or explained
    automatically. No account-level/customer records are read or exported.
-   See documentation/MOM_MANUAL_REVIEW.md for export and review instructions. */
+   See ../README.md for export and review instructions. */
 
 /* 01: MISSING_RATE. Excel tab: 01_MISSING_RATE. */
 SELECT C.RUN_NUMBER,C.PROJECT_ID,C.FIELD_NAME,C.FIELD_TYPE,

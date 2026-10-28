@@ -1,7 +1,7 @@
 /* ============================= */
 /* DATA QUALITY ENGINE SETTINGS  */
 /* ============================= */
-/* EG server session: open/run 01_dq_controller.sas first.
+/* EG server session: open/run 02_load_controller.sas first.
    Leave blank for that workflow; set a SAS SERVER path only if uploaded. */
 %let engine_root = ;
 %let td_server = dwhprod;
@@ -31,10 +31,10 @@ options nomprint nomlogic nosymbolgen; /* Authentication is resolved by SAS. */
 %macro dq_start;
     %if not %sysmacexist(run_dq_engine) %then %do;
         %if %length(%superq(engine_root))=0 %then %do;
-            %put ERROR: Open and run 01_dq_controller.sas in this EG server session first, then rerun this program.;
+            %put ERROR: Open and run 02_load_controller.sas in this EG server session first, then rerun this program.;
             %return;
         %end;
-        %include "&engine_root/sas/01_dq_controller.sas";
+        %include "&engine_root/basic_profiling/02_load_controller.sas";
     %end;
     %if not %sysmacexist(run_dq_engine) %then %do;
         %put ERROR: Controller not loaded. Check the SAS server engine_root path and SAS log.;
