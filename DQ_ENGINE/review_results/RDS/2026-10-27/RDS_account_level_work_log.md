@@ -108,3 +108,55 @@ cross-field account overlap remains unverified.
 At the analyst's direction, further root-cause investigation is left to CDAO.
 The report records evidence and requests explanations rather than asserting
 errors. Existing raw aggregate categorical evidence is retained unchanged.
+
+## Combined working workbook — 28 October 2026
+
+The analyst supplied Account-level result.xlsx. Original values, formulas and
+sheet contents were preserved in the downloadable internal copy. Numeric_POU
+and its existing selection were left unchanged. Yellow means selected for review,
+including reviewed patterns with no discrepancy; it does not mean confirmed error.
+No review-note columns were added.
+
+Seven nonzero categorical overall rows were selected (including IO_IND and
+MV_EXDAY_PAYREV, whose targeted checks were satisfactory). Twenty-two monthly
+rows were selected for missingness clusters, repayment-type changes, sample
+windows already checked and the occupation-field concentrations. These are
+review examples, not a claim that all other months passed.
+
+| Sheet | Excel row | Field | Month |
+|---|---:|---|---|
+| Categorical_Overall | 3 | EVENT_DESCRIPTION | Overall |
+| Categorical_Overall | 5 | IO_IND | Overall |
+| Categorical_Overall | 6 | MV_EXDAY_PAYREV | Overall |
+| Categorical_Overall | 7 | MV_PROP_POSTCODE_NM | Overall |
+| Categorical_Overall | 8 | PCKG_2ND_INC_OCC_DESC | Overall |
+| Categorical_Overall | 10 | PCKG_HI_INC_OCC_DESC | Overall |
+| Categorical_Overall | 11 | REPAY_TYPE_CD | Overall |
+| Categorical_POU | 169 | EVENT_DESCRIPTION | 2019-02-28 |
+| Categorical_POU | 172 | EVENT_DESCRIPTION | 2019-05-31 |
+| Categorical_POU | 181 | EVENT_DESCRIPTION | 2020-02-29 |
+| Categorical_POU | 206 | EVENT_DESCRIPTION | 2022-03-31 |
+| Categorical_POU | 238 | EVENT_DESCRIPTION | 2024-11-30 |
+| Categorical_POU | 260 | IO_IND | 2006-03-31 |
+| Categorical_POU | 306 | IO_IND | 2011-08-31 |
+| Categorical_POU | 404 | MV_EXDAY_PAYREV | 2005-02-28 |
+| Categorical_POU | 583 | MV_EXDAY_PAYREV | 2020-01-31 |
+| Categorical_POU | 681 | MV_PROP_POSTCODE_NM | 2007-06-30 |
+| Categorical_POU | 821 | MV_PROP_POSTCODE_NM | 2019-02-28 |
+| Categorical_POU | 824 | MV_PROP_POSTCODE_NM | 2019-05-31 |
+| Categorical_POU | 833 | MV_PROP_POSTCODE_NM | 2020-02-29 |
+| Categorical_POU | 858 | MV_PROP_POSTCODE_NM | 2022-03-31 |
+| Categorical_POU | 890 | MV_PROP_POSTCODE_NM | 2024-11-30 |
+| Categorical_POU | 910 | PCKG_2ND_INC_OCC_DESC | 2005-05-31 |
+| Categorical_POU | 932 | PCKG_2ND_INC_OCC_DESC | 2007-03-31 |
+| Categorical_POU | 982 | PCKG_HI_INC_OCC_DESC | 2005-05-31 |
+| Categorical_POU | 986 | PCKG_HI_INC_OCC_DESC | 2005-09-30 |
+| Categorical_POU | 1081 | REPAY_TYPE_CD | 2006-03-31 |
+| Categorical_POU | 1130 | REPAY_TYPE_CD | 2011-08-31 |
+| Categorical_POU | 1158 | REPAY_TYPE_CD | 2013-12-31 |
+
+The public RDS_account_level_review_workbook.xlsx excludes Numeric_Specific,
+which contains full account identifiers and individual values. Its remaining
+four sheets contain aggregate evidence and source metadata. The full workbook
+remains a downloadable internal artifact. Report observations are based on
+analyst-provided exports, not independently executed Teradata checks.
