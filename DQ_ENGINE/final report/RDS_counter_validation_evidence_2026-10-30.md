@@ -17,7 +17,7 @@ The assessment covers two fields:
 The uploaded results cover January 2005-March 2026: 255 months per field and
 510 field/month summary rows. Account-month comparisons are not unique accounts.
 
-Implementation: [RDS_counter_progression_review.sql](../../../teradata/review/RDS_counter_progression_review.sql).
+Implementation: [RDS_counter_progression_review.sql](../teradata/review/RDS_counter_progression_review.sql).
 The final decrease-split version is pinned to commit
 [`0e4d66a69e3607b9fba2c141d5ab331a11341ec6`](https://github.com/shersun711-svg/Project-validation/blob/0e4d66a69e3607b9fba2c141d5ab331a11341ec6/DQ_ENGINE/teradata/review/RDS_counter_progression_review.sql).
 The output contains 23 columns, including `TOTAL_COUNT`.
