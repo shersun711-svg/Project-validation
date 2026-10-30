@@ -20,9 +20,11 @@
    The three recovery counts sum to their respective temporary-state total.
    There are no monthly missing/special population-total columns.
 
-   Compact output: field/month/status, valid pairs/triples, +1 progression,
+   Compact output: field/month/status, total count, valid pairs/triples, +1 progression,
    zero unchanged, positive unchanged, decreases, jump/reversion counts,
-   transitions, temporary-state totals and six recovery counts (21 columns).
+   transitions, temporary-state totals and six recovery counts (22 columns).
+   TOTAL_COUNT includes all source account observations for that field/month,
+   including valid, missing and special values.
    No rates or technical diagnostics are displayed. Integrity checks remain
    active internally and are surfaced through REVIEW_STATUS. Exact whole-month
    comparisons assume integer counters; CHECK_COUNTER_PRECISION needs review.
@@ -191,7 +193,7 @@ SELECT FIELD_NAME,POU_DT,
             WHEN WINDOW_BAD_GRAIN_ROWS>0 THEN 'CHECK_SOURCE_GRAIN'
             WHEN NONINTEGER_COUNT>0 THEN 'CHECK_COUNTER_PRECISION'
             ELSE 'EVALUATED' END AS REVIEW_STATUS,
-       VALID_PAIR_COUNT,VALID_TRIPLE_COUNT,
+       TOTAL_COUNT,VALID_PAIR_COUNT,VALID_TRIPLE_COUNT,
        EXPECTED_PLUS1_COUNT,ZERO_UNCHANGED_COUNT,POSITIVE_UNCHANGED_COUNT,
        DECREASE_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_JUMPS END AS COUNTER_JUMP_COUNT,
