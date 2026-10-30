@@ -20,23 +20,20 @@
    The three recovery counts sum to their respective temporary-state total.
    There are no monthly missing/special population-total columns.
 
-   Context counts distinguish +1, zero unchanged, positive unchanged,
-   negative unchanged (unexpected valid negative counters), decreases and
-   other small positive increases. Negative values are not implicitly special:
-   only captured special codes are excluded. Inspect NONINTEGER_COUNT because
-   exact whole-month comparisons assume integer counters.
-
-   Denominators: numeric jumps=VALID_PAIR_COUNT; numeric reversions=
-   VALID_TRIPLE_COUNT; transitions=VALID_REFERENCE_PAIR_COUNT (prior valid,
-   current any state); temporary states=VALID_NEIGHBOUR_TRIPLE_COUNT (both
-   neighbours valid, middle any state). Rates are fractions, not percentages.
+   Compact output: field/month/status, valid pairs/triples, +1 progression,
+   zero unchanged, positive unchanged, decreases, jump/reversion counts,
+   transitions, temporary-state totals and six recovery counts (21 columns).
+   No rates or technical diagnostics are displayed. Integrity checks remain
+   active internally and are surfaced through REVIEW_STATUS. Exact whole-month
+   comparisons assume integer counters; CHECK_COUNTER_PRECISION needs review.
+   EVALUATED means checks were evaluated, not an automatic field-level pass.
 
    Edit first-of-month REPORT_START and REPORT_END_EXCLUSIVE below.
    Defaults Jan 2005-Mar 2026; one surrounding month is read on each side
    where available. Missing references never become artificial transitions.
    Flag counts/rates are NULL if reference run is missing/ambiguous or any
    scanned account/month grain is invalid. Resolve REVIEW_STATUS warnings.
-   Reference checks and source-integrity diagnostics remain in the output.
+   REVIEW_STATUS exposes reference, source-grain and precision warnings.
    Full-history Teradata runtime/spool and compilation require lab verification.
 */
 WITH params AS
@@ -189,17 +186,14 @@ WITH params AS
                  THEN 1 ELSE 0 END AS PUBLISH_FLAGS
   FROM monthly M
 )
-SELECT FIELD_NAME,POU_DT,REFERENCE_RUN_COUNT,
+SELECT FIELD_NAME,POU_DT,
        CASE WHEN REFERENCE_RUN_COUNT<>1 THEN 'CHECK_RUN20_SPECIAL_REFERENCE'
             WHEN WINDOW_BAD_GRAIN_ROWS>0 THEN 'CHECK_SOURCE_GRAIN'
             WHEN NONINTEGER_COUNT>0 THEN 'CHECK_COUNTER_PRECISION'
             ELSE 'EVALUATED' END AS REVIEW_STATUS,
-       TOTAL_COUNT,BAD_GRAIN_ROWS,WINDOW_BAD_GRAIN_ROWS,
        VALID_PAIR_COUNT,VALID_TRIPLE_COUNT,
-       VALID_REFERENCE_PAIR_COUNT,VALID_NEIGHBOUR_TRIPLE_COUNT,
-       UNVERIFIED_COUNT,NONINTEGER_COUNT,
        EXPECTED_PLUS1_COUNT,ZERO_UNCHANGED_COUNT,POSITIVE_UNCHANGED_COUNT,
-       NEGATIVE_UNCHANGED_COUNT,DECREASE_COUNT,OTHER_SMALL_INCREASE_COUNT,
+       DECREASE_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_JUMPS END AS COUNTER_JUMP_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_REVERSIONS END AS COUNTER_REVERSION_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_TO_MISSING END AS JUMP_TO_MISSING_COUNT,
@@ -211,18 +205,6 @@ SELECT FIELD_NAME,POU_DT,REFERENCE_RUN_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_MISSING_BELOW END AS MISSING_RECOVERY_BELOW_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_SPECIAL_EXPECTED END AS SPECIAL_RECOVERY_EXPECTED_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_SPECIAL_ABOVE END AS SPECIAL_RECOVERY_ABOVE_COUNT,
-       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_SPECIAL_BELOW END AS SPECIAL_RECOVERY_BELOW_COUNT,
-       CASE WHEN PUBLISH_FLAGS=1
-            THEN CAST(RAW_JUMPS AS FLOAT)/NULLIFZERO(VALID_PAIR_COUNT) END AS COUNTER_JUMP_RATE,
-       CASE WHEN PUBLISH_FLAGS=1
-            THEN CAST(RAW_REVERSIONS AS FLOAT)/NULLIFZERO(VALID_TRIPLE_COUNT) END AS COUNTER_REVERSION_RATE,
-       CASE WHEN PUBLISH_FLAGS=1
-            THEN CAST(RAW_TO_MISSING AS FLOAT)/NULLIFZERO(VALID_REFERENCE_PAIR_COUNT) END AS JUMP_TO_MISSING_RATE,
-       CASE WHEN PUBLISH_FLAGS=1
-            THEN CAST(RAW_TO_SPECIAL AS FLOAT)/NULLIFZERO(VALID_REFERENCE_PAIR_COUNT) END AS JUMP_TO_SPECIAL_RATE,
-       CASE WHEN PUBLISH_FLAGS=1
-            THEN CAST(RAW_TEMP_MISSING AS FLOAT)/NULLIFZERO(VALID_NEIGHBOUR_TRIPLE_COUNT) END AS TEMP_MISSING_RATE,
-       CASE WHEN PUBLISH_FLAGS=1
-            THEN CAST(RAW_TEMP_SPECIAL AS FLOAT)/NULLIFZERO(VALID_NEIGHBOUR_TRIPLE_COUNT) END AS TEMP_SPECIAL_RATE
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_SPECIAL_BELOW END AS SPECIAL_RECOVERY_BELOW_COUNT
 FROM checked
 ORDER BY FIELD_NAME,POU_DT;
