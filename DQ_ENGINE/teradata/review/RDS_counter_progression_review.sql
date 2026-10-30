@@ -21,8 +21,15 @@
    There are no monthly missing/special population-total columns.
 
    Compact output: field/month/status, total count, valid pairs/triples, +1 progression,
-   zero unchanged, positive unchanged, decreases, jump/reversion counts,
-   transitions, temporary-state totals and six recovery counts (22 columns).
+   zero unchanged, positive unchanged, decreases to zero/positive values,
+   jump/reversion counts, transitions, temporary-state totals and six recovery
+   counts (23 columns). Decreases to zero are consistent with a reset at this
+   screening level. Decreases to positive values are review exceptions;
+   they may reflect a corrected event date or changed linked-account scope.
+   Do not conclude a progression pass using ALL decreases. For non-negative
+   whole-month counters, the accepted-pattern reconciliation is:
+   EXPECTED_PLUS1_COUNT + ZERO_UNCHANGED_COUNT + DECREASE_TO_ZERO_COUNT
+   = VALID_PAIR_COUNT. Review other flags and REVIEW_STATUS separately.
    TOTAL_COUNT includes all source account observations for that field/month,
    including valid, missing and special values.
    No rates or technical diagnostics are displayed. Integrity checks remain
@@ -160,6 +167,10 @@ WITH params AS
          SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE=0 AND NUMBER_VALUE<0
                   THEN 1 ELSE 0 END) AS NEGATIVE_UNCHANGED_COUNT,
          SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE<0 THEN 1 ELSE 0 END) AS DECREASE_COUNT,
+         SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE<0 AND NUMBER_VALUE=0
+                  THEN 1 ELSE 0 END) AS DECREASE_TO_ZERO_COUNT,
+         SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE<0 AND NUMBER_VALUE>0
+                  THEN 1 ELSE 0 END) AS RAW_DECREASE_POSITIVE,
          SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE>0 AND CHANGE_VALUE<2 AND CHANGE_VALUE<>1
                   THEN 1 ELSE 0 END) AS OTHER_SMALL_INCREASE_COUNT,
          SUM(CASE WHEN VALUE_STATE='VALID' AND NUMBER_VALUE<>FLOOR(NUMBER_VALUE)
@@ -195,7 +206,8 @@ SELECT FIELD_NAME,POU_DT,
             ELSE 'EVALUATED' END AS REVIEW_STATUS,
        TOTAL_COUNT,VALID_PAIR_COUNT,VALID_TRIPLE_COUNT,
        EXPECTED_PLUS1_COUNT,ZERO_UNCHANGED_COUNT,POSITIVE_UNCHANGED_COUNT,
-       DECREASE_COUNT,
+       DECREASE_TO_ZERO_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_DECREASE_POSITIVE END AS DECREASE_TO_POSITIVE_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_JUMPS END AS COUNTER_JUMP_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_REVERSIONS END AS COUNTER_REVERSION_COUNT,
        CASE WHEN PUBLISH_FLAGS=1 THEN RAW_TO_MISSING END AS JUMP_TO_MISSING_COUNT,
