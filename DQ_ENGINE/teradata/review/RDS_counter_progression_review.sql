@@ -1,25 +1,43 @@
 /* Counter-specific monthly review: run the whole SELECT in SQL Assistant.
-   Read-only; does not change the production account runner or saved results.
-   Source: current RDS view. Uses run 20's captured NUMERIC special list.
+   Read-only; production account runner and saved results are unchanged.
+   Current source data; special classification uses run 20's captured list.
 
-   Agreed rule: +1 is expected; a jump is an INCREASE >=2 months.
-   Decreases and unchanged values are context counts, not numeric jump flags.
-   A reversion requires a qualifying upward jump, a downward next movement,
-   and NEXT_VALUE = PREVIOUS_VALUE + 2, over three consecutive valid months.
-   Example 10 -> 30 -> 12 flags; 10 -> 30 -> 0 does not flag reversion.
-   Exact comparisons assume whole-month counters; verify source precision.
-   Missing/special transitions need their existing separate checks.
+   NUMERIC: valid consecutive values, upward change >=2 only. A numeric
+   reversion ALSO requires three valid consecutive months, a downward second
+   movement, and final value <= starting value +1. Thus 10->30->12 is jump
+   only; 10->30->11 or 10->30->0 is jump AND numeric reversion.
 
-   Edit REPORT_START and REPORT_END_EXCLUSIVE below; use first-of-month dates.
-   Defaults cover Jan 2005 through Mar 2026. One surrounding month is read
-   on each side if available. Absent boundary months are not invented.
-   Whole-history execution/spool use has not been verified on Teradata.
+   TRANSITIONS: valid->missing and valid->special are separate flags.
+   TEMPORARY STATES: valid->missing/special->valid in consecutive months.
+   Split each temporary-state total into three mutually exclusive recoveries:
+     EXPECTED: final = starting +2; ABOVE: final > starting +2;
+     BELOW: final < starting +2. Example 10->NULL->12 is expected recovery;
+     10->NULL->13 is above expected. All three flag the temporary state.
+   A below-expected recovery may reflect a legitimate reset, not an error.
 
-   REQUIRE REFERENCE_RUN_COUNT=1 and BAD_GRAIN_ROWS=0 before interpreting flags.
-   NULL/blank account keys or duplicate account/months invalidate that month's
-   published counts: jump/reversion counts and rates become NULL. Resolve any
-   bad grain across the selected window before relying on the report.
-   Counter jump rule is fixed at >=2; no relative or return tolerance applies.
+   Flags belong to the current/middle month. Numeric reversions overlap jumps;
+   temporary-state flags overlap transitions. Do not sum these as unique events.
+   The three recovery counts sum to their respective temporary-state total.
+   There are no monthly missing/special population-total columns.
+
+   Context counts distinguish +1, zero unchanged, positive unchanged,
+   negative unchanged (unexpected valid negative counters), decreases and
+   other small positive increases. Negative values are not implicitly special:
+   only captured special codes are excluded. Inspect NONINTEGER_COUNT because
+   exact whole-month comparisons assume integer counters.
+
+   Denominators: numeric jumps=VALID_PAIR_COUNT; numeric reversions=
+   VALID_TRIPLE_COUNT; transitions=VALID_REFERENCE_PAIR_COUNT (prior valid,
+   current any state); temporary states=VALID_NEIGHBOUR_TRIPLE_COUNT (both
+   neighbours valid, middle any state). Rates are fractions, not percentages.
+
+   Edit first-of-month REPORT_START and REPORT_END_EXCLUSIVE below.
+   Defaults Jan 2005-Mar 2026; one surrounding month is read on each side
+   where available. Missing references never become artificial transitions.
+   Flag counts/rates are NULL if reference run is missing/ambiguous or any
+   scanned account/month grain is invalid. Resolve REVIEW_STATUS warnings.
+   Reference checks and source-integrity diagnostics remain in the output.
+   Full-history Teradata runtime/spool and compilation require lab verification.
 */
 WITH params AS
 (
@@ -91,46 +109,84 @@ WITH params AS
          CASE WHEN AGMT_ID IS NOT NULL AND TRIM(CAST(AGMT_ID AS VARCHAR(128)))<>''
                     AND KEY_COUNT=1 AND PREVIOUS_KEY_COUNT=1
                     AND MONTH_KEY-PREVIOUS_MONTH=1
-                    AND VALUE_STATE='VALID' AND PREVIOUS_STATE='VALID'
-              THEN 1 ELSE 0 END AS VALID_PAIR,
+                    AND PREVIOUS_STATE='VALID'
+              THEN 1 ELSE 0 END AS VALID_REFERENCE_PAIR,
          CASE WHEN AGMT_ID IS NOT NULL AND TRIM(CAST(AGMT_ID AS VARCHAR(128)))<>''
                     AND KEY_COUNT=1 AND PREVIOUS_KEY_COUNT=1 AND NEXT_KEY_COUNT=1
                     AND MONTH_KEY-PREVIOUS_MONTH=1 AND NEXT_MONTH-MONTH_KEY=1
-                    AND VALUE_STATE='VALID' AND PREVIOUS_STATE='VALID' AND NEXT_STATE='VALID'
-              THEN 1 ELSE 0 END AS VALID_TRIPLE,
+                    AND PREVIOUS_STATE='VALID' AND NEXT_STATE='VALID'
+              THEN 1 ELSE 0 END AS VALID_NEIGHBOUR_TRIPLE,
          NUMBER_VALUE-PREVIOUS_VALUE AS CHANGE_VALUE
   FROM neighbours N
+), eligibility AS
+(
+  SELECT E.*,
+         CASE WHEN VALID_REFERENCE_PAIR=1 AND VALUE_STATE='VALID'
+              THEN 1 ELSE 0 END AS VALID_PAIR,
+         CASE WHEN VALID_NEIGHBOUR_TRIPLE=1 AND VALUE_STATE='VALID'
+              THEN 1 ELSE 0 END AS VALID_TRIPLE,
+         SUM(BAD_GRAIN) OVER () AS WINDOW_BAD_GRAIN_ROWS
+  FROM eligible E
 ), flags AS
 (
   SELECT E.*,
          CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE>=2 THEN 1 ELSE 0 END AS COUNTER_JUMP,
          CASE WHEN VALID_TRIPLE=1 AND CHANGE_VALUE>=2
-                    AND NEXT_VALUE<NUMBER_VALUE AND NEXT_VALUE=PREVIOUS_VALUE+2
-              THEN 1 ELSE 0 END AS COUNTER_REVERSION
-  FROM eligible E
+                    AND NEXT_VALUE<NUMBER_VALUE AND NEXT_VALUE<=PREVIOUS_VALUE+1
+              THEN 1 ELSE 0 END AS COUNTER_REVERSION,
+         CASE WHEN VALID_REFERENCE_PAIR=1 AND VALUE_STATE='MISSING'
+              THEN 1 ELSE 0 END AS TO_MISSING,
+         CASE WHEN VALID_REFERENCE_PAIR=1 AND VALUE_STATE='SPECIAL'
+              THEN 1 ELSE 0 END AS TO_SPECIAL,
+         CASE WHEN VALID_NEIGHBOUR_TRIPLE=1 AND VALUE_STATE='MISSING'
+              THEN 1 ELSE 0 END AS TEMP_MISSING,
+         CASE WHEN VALID_NEIGHBOUR_TRIPLE=1 AND VALUE_STATE='SPECIAL'
+              THEN 1 ELSE 0 END AS TEMP_SPECIAL
+  FROM eligibility E
 ), monthly AS
 (
   SELECT FIELD_NAME,MONTH_KEY,MAX(POU_DT) AS POU_DT,
          MAX(REFERENCE_RUN_COUNT) AS REFERENCE_RUN_COUNT,
          COUNT(*) AS TOTAL_COUNT,SUM(BAD_GRAIN) AS BAD_GRAIN_ROWS,
+         MAX(WINDOW_BAD_GRAIN_ROWS) AS WINDOW_BAD_GRAIN_ROWS,
          SUM(VALID_PAIR) AS VALID_PAIR_COUNT,SUM(VALID_TRIPLE) AS VALID_TRIPLE_COUNT,
-         SUM(CASE WHEN VALUE_STATE='MISSING' THEN 1 ELSE 0 END) AS MISSING_COUNT,
-         SUM(CASE WHEN VALUE_STATE='SPECIAL' THEN 1 ELSE 0 END) AS SPECIAL_COUNT,
+         SUM(VALID_REFERENCE_PAIR) AS VALID_REFERENCE_PAIR_COUNT,
+         SUM(VALID_NEIGHBOUR_TRIPLE) AS VALID_NEIGHBOUR_TRIPLE_COUNT,
          SUM(CASE WHEN VALUE_STATE='UNVERIFIED' THEN 1 ELSE 0 END) AS UNVERIFIED_COUNT,
          SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE=1 THEN 1 ELSE 0 END) AS EXPECTED_PLUS1_COUNT,
-         SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE=0 THEN 1 ELSE 0 END) AS UNCHANGED_COUNT,
+         SUM(CASE WHEN VALID_PAIR=1 AND PREVIOUS_VALUE=0 AND NUMBER_VALUE=0
+                  THEN 1 ELSE 0 END) AS ZERO_UNCHANGED_COUNT,
+         SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE=0 AND NUMBER_VALUE>0
+                  THEN 1 ELSE 0 END) AS POSITIVE_UNCHANGED_COUNT,
+         SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE=0 AND NUMBER_VALUE<0
+                  THEN 1 ELSE 0 END) AS NEGATIVE_UNCHANGED_COUNT,
          SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE<0 THEN 1 ELSE 0 END) AS DECREASE_COUNT,
          SUM(CASE WHEN VALID_PAIR=1 AND CHANGE_VALUE>0 AND CHANGE_VALUE<2 AND CHANGE_VALUE<>1
                   THEN 1 ELSE 0 END) AS OTHER_SMALL_INCREASE_COUNT,
          SUM(CASE WHEN VALUE_STATE='VALID' AND NUMBER_VALUE<>FLOOR(NUMBER_VALUE)
                   THEN 1 ELSE 0 END) AS NONINTEGER_COUNT,
-         SUM(COUNTER_JUMP) AS RAW_JUMPS,SUM(COUNTER_REVERSION) AS RAW_REVERSIONS
+         SUM(COUNTER_JUMP) AS RAW_JUMPS,SUM(COUNTER_REVERSION) AS RAW_REVERSIONS,
+         SUM(TO_MISSING) AS RAW_TO_MISSING,SUM(TO_SPECIAL) AS RAW_TO_SPECIAL,
+         SUM(TEMP_MISSING) AS RAW_TEMP_MISSING,SUM(TEMP_SPECIAL) AS RAW_TEMP_SPECIAL,
+         SUM(CASE WHEN TEMP_MISSING=1 AND NEXT_VALUE=PREVIOUS_VALUE+2
+                  THEN 1 ELSE 0 END) AS RAW_MISSING_EXPECTED,
+         SUM(CASE WHEN TEMP_MISSING=1 AND NEXT_VALUE>PREVIOUS_VALUE+2
+                  THEN 1 ELSE 0 END) AS RAW_MISSING_ABOVE,
+         SUM(CASE WHEN TEMP_MISSING=1 AND NEXT_VALUE<PREVIOUS_VALUE+2
+                  THEN 1 ELSE 0 END) AS RAW_MISSING_BELOW,
+         SUM(CASE WHEN TEMP_SPECIAL=1 AND NEXT_VALUE=PREVIOUS_VALUE+2
+                  THEN 1 ELSE 0 END) AS RAW_SPECIAL_EXPECTED,
+         SUM(CASE WHEN TEMP_SPECIAL=1 AND NEXT_VALUE>PREVIOUS_VALUE+2
+                  THEN 1 ELSE 0 END) AS RAW_SPECIAL_ABOVE,
+         SUM(CASE WHEN TEMP_SPECIAL=1 AND NEXT_VALUE<PREVIOUS_VALUE+2
+                  THEN 1 ELSE 0 END) AS RAW_SPECIAL_BELOW
   FROM flags CROSS JOIN params P
   WHERE POU_DT>=P.REPORT_START AND POU_DT<P.REPORT_END_EXCLUSIVE
   GROUP BY FIELD_NAME,MONTH_KEY
 ), checked AS
 (
-  SELECT M.*,SUM(BAD_GRAIN_ROWS) OVER () AS WINDOW_BAD_GRAIN_ROWS
+  SELECT M.*,CASE WHEN REFERENCE_RUN_COUNT=1 AND WINDOW_BAD_GRAIN_ROWS=0
+                 THEN 1 ELSE 0 END AS PUBLISH_FLAGS
   FROM monthly M
 )
 SELECT FIELD_NAME,POU_DT,REFERENCE_RUN_COUNT,
@@ -140,15 +196,33 @@ SELECT FIELD_NAME,POU_DT,REFERENCE_RUN_COUNT,
             ELSE 'EVALUATED' END AS REVIEW_STATUS,
        TOTAL_COUNT,BAD_GRAIN_ROWS,WINDOW_BAD_GRAIN_ROWS,
        VALID_PAIR_COUNT,VALID_TRIPLE_COUNT,
-       MISSING_COUNT,SPECIAL_COUNT,UNVERIFIED_COUNT,NONINTEGER_COUNT,
-       EXPECTED_PLUS1_COUNT,UNCHANGED_COUNT,DECREASE_COUNT,OTHER_SMALL_INCREASE_COUNT,
-       CASE WHEN REFERENCE_RUN_COUNT=1 AND WINDOW_BAD_GRAIN_ROWS=0
-            THEN RAW_JUMPS END AS COUNTER_JUMP_COUNT,
-       CASE WHEN REFERENCE_RUN_COUNT=1 AND WINDOW_BAD_GRAIN_ROWS=0
-            THEN RAW_REVERSIONS END AS COUNTER_REVERSION_COUNT,
-       CASE WHEN REFERENCE_RUN_COUNT=1 AND WINDOW_BAD_GRAIN_ROWS=0
+       VALID_REFERENCE_PAIR_COUNT,VALID_NEIGHBOUR_TRIPLE_COUNT,
+       UNVERIFIED_COUNT,NONINTEGER_COUNT,
+       EXPECTED_PLUS1_COUNT,ZERO_UNCHANGED_COUNT,POSITIVE_UNCHANGED_COUNT,
+       NEGATIVE_UNCHANGED_COUNT,DECREASE_COUNT,OTHER_SMALL_INCREASE_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_JUMPS END AS COUNTER_JUMP_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_REVERSIONS END AS COUNTER_REVERSION_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_TO_MISSING END AS JUMP_TO_MISSING_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_TO_SPECIAL END AS JUMP_TO_SPECIAL_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_TEMP_MISSING END AS TEMP_MISSING_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_TEMP_SPECIAL END AS TEMP_SPECIAL_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_MISSING_EXPECTED END AS MISSING_RECOVERY_EXPECTED_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_MISSING_ABOVE END AS MISSING_RECOVERY_ABOVE_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_MISSING_BELOW END AS MISSING_RECOVERY_BELOW_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_SPECIAL_EXPECTED END AS SPECIAL_RECOVERY_EXPECTED_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_SPECIAL_ABOVE END AS SPECIAL_RECOVERY_ABOVE_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1 THEN RAW_SPECIAL_BELOW END AS SPECIAL_RECOVERY_BELOW_COUNT,
+       CASE WHEN PUBLISH_FLAGS=1
             THEN CAST(RAW_JUMPS AS FLOAT)/NULLIFZERO(VALID_PAIR_COUNT) END AS COUNTER_JUMP_RATE,
-       CASE WHEN REFERENCE_RUN_COUNT=1 AND WINDOW_BAD_GRAIN_ROWS=0
-            THEN CAST(RAW_REVERSIONS AS FLOAT)/NULLIFZERO(VALID_TRIPLE_COUNT) END AS COUNTER_REVERSION_RATE
+       CASE WHEN PUBLISH_FLAGS=1
+            THEN CAST(RAW_REVERSIONS AS FLOAT)/NULLIFZERO(VALID_TRIPLE_COUNT) END AS COUNTER_REVERSION_RATE,
+       CASE WHEN PUBLISH_FLAGS=1
+            THEN CAST(RAW_TO_MISSING AS FLOAT)/NULLIFZERO(VALID_REFERENCE_PAIR_COUNT) END AS JUMP_TO_MISSING_RATE,
+       CASE WHEN PUBLISH_FLAGS=1
+            THEN CAST(RAW_TO_SPECIAL AS FLOAT)/NULLIFZERO(VALID_REFERENCE_PAIR_COUNT) END AS JUMP_TO_SPECIAL_RATE,
+       CASE WHEN PUBLISH_FLAGS=1
+            THEN CAST(RAW_TEMP_MISSING AS FLOAT)/NULLIFZERO(VALID_NEIGHBOUR_TRIPLE_COUNT) END AS TEMP_MISSING_RATE,
+       CASE WHEN PUBLISH_FLAGS=1
+            THEN CAST(RAW_TEMP_SPECIAL AS FLOAT)/NULLIFZERO(VALID_NEIGHBOUR_TRIPLE_COUNT) END AS TEMP_SPECIAL_RATE
 FROM checked
 ORDER BY FIELD_NAME,POU_DT;
