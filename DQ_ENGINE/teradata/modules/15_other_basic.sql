@@ -1,0 +1,373 @@
+/* Shared batched implementation for CATEGORICAL, IDENTIFIER and DATE.
+   Deploy before the three public wrappers. Invoked only inside an active run.
+   Categorical: five metrics including special count/rate; identifier: three.
+   Categorical distinct counts exclude configured specials. No frequencies.
+   Date: total/non-missing/missing counts and missing percentage only.
+   Each batch aggregates fields together. Distinct modules execute only the
+   enabled explicit period queries separately; DATE retains GROUPING SETS.
+   Persistence reads the small volatile aggregate, not the source. */
+REPLACE PROCEDURE DQ_DB.SP_DQ_OTHER_BASIC
+    (IN P_RUN_ID CHAR(36), IN P_PROJECT_ID VARCHAR(30), IN P_TYPE VARCHAR(16))
+SQL SECURITY INVOKER
+main: BEGIN
+    DECLARE V_MODULE VARCHAR(32);
+    DECLARE V_DB VARCHAR(128);
+    DECLARE V_SOURCE VARCHAR(128);
+    DECLARE V_DATE VARCHAR(128);
+    DECLARE V_SIZE INTEGER;
+    DECLARE V_PROFILE_OVERALL CHAR(1);
+    DECLARE V_PROFILE_MONTHLY CHAR(1);
+    DECLARE V_PROFILE_YEARLY CHAR(1);
+    DECLARE V_ATTEMPT INTEGER;
+    DECLARE V_COUNT INTEGER;
+    DECLARE V_METRICS INTEGER DEFAULT 3;
+    DECLARE V_FIELDS INTEGER;
+    DECLARE V_FIRST INTEGER DEFAULT 1;
+    DECLARE V_LAST INTEGER;
+    DECLARE V_BATCH INTEGER DEFAULT 0;
+    DECLARE V_PASS INTEGER;
+    DECLARE V_MAX_FIELD_LENGTH INTEGER;
+    DECLARE V_OWNED INTEGER DEFAULT 0;
+    DECLARE V_VT_EXISTS INTEGER DEFAULT 0;
+    DECLARE V_GROUPS VARCHAR(200);
+    DECLARE V_GROUP_CLAUSE VARCHAR(300);
+    DECLARE V_TIME_SELECT VARCHAR(500);
+    DECLARE V_SQL VARCHAR(32000);
+    DECLARE V_SELECT VARCHAR(8000);
+    DECLARE V_METRIC_INSERT VARCHAR(30000);
+    DECLARE V_AVAIL_INSERT VARCHAR(30000);
+    DECLARE V_PROJECTION VARCHAR(18000);
+    DECLARE V_SOURCE_PROJECTION VARCHAR(12000);
+    /* Bounded parts also bound SPL's inferred concatenation expression size.
+       Repeating large bounded variables in one expression can fail
+       compilation even when the actual generated query is below 32,000. */
+    DECLARE V_PERIOD_QUERY VARCHAR(30500);
+    DECLARE V_OVERALL VARCHAR(30000);
+    DECLARE V_YEARLY VARCHAR(30000);
+    DECLARE V_MONTHLY VARCHAR(30000);
+    DECLARE V_SUFFIX VARCHAR(12);
+    DECLARE V_FIELD VARCHAR(260);
+    DECLARE V_DISTINCT VARCHAR(260);
+    DECLARE V_SPECIAL_LIST VARCHAR(8000);
+    DECLARE V_EXTRA_CASE VARCHAR(2000);
+    DECLARE V_NUMERATOR VARCHAR(1000);
+    DECLARE V_DENOMINATOR VARCHAR(300);
+    DECLARE V_PERIOD_LEVEL VARCHAR(200);
+    DECLARE V_PERIOD_VALUE VARCHAR(1000);
+    DECLARE V_ERROR VARCHAR(2048) CHARACTER SET UNICODE;
+    DECLARE V_ERROR_CODE INTEGER;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        GET DIAGNOSTICS EXCEPTION 1 V_ERROR = MESSAGE_TEXT;
+        SET V_ERROR_CODE = SQLCODE;
+        IF V_OWNED=1 THEN
+            UPDATE DQ_DB.DQ_MODULE_LOG
+               SET STATUS='FAILED',END_TIME=CURRENT_TIMESTAMP(6),
+                   ERROR_CODE=V_ERROR_CODE,ERROR_INFORMATION=V_ERROR
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE
+               AND ATTEMPT_NO=V_ATTEMPT AND STATUS='RUNNING';
+        END IF;
+        /* Cleanup failures must not replace the original module exception. */
+        IF V_VT_EXISTS=1 THEN
+            BEGIN
+                DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET V_VT_EXISTS=0;
+                CALL DBC.SysExecSQL('DROP TABLE DQ_OB_AGG');
+            END;
+        END IF;
+        RESIGNAL; /* Orchestrator removes ALL partial result types. */
+    END;
+    IF P_TYPE IS NULL OR P_TYPE NOT IN ('CATEGORICAL','IDENTIFIER','DATE') THEN
+        SIGNAL SQLSTATE 'U0020' SET MESSAGE_TEXT = 'Unsupported basic field type';
+    END IF;
+    SET V_MODULE=P_TYPE || '_BASIC';
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_LOG
+     WHERE RUN_ID=P_RUN_ID AND PROJECT_ID=P_PROJECT_ID AND STATUS='RUNNING';
+    IF V_COUNT<>1 THEN
+        SIGNAL SQLSTATE 'U0002' SET MESSAGE_TEXT = 'Module requires an active basic engine run';
+    END IF;
+    SELECT SOURCE_DATABASE,SOURCE_TABLE,REPORTING_DATE_FIELD,SQL_BATCH_SIZE,ATTEMPT_NO
+      INTO V_DB,V_SOURCE,V_DATE,V_SIZE,V_ATTEMPT FROM DQ_DB.DQ_RUN_LOG
+     WHERE RUN_ID=P_RUN_ID;
+    SELECT PROFILE_OVERALL,PROFILE_MONTHLY,PROFILE_YEARLY
+      INTO V_PROFILE_OVERALL,V_PROFILE_MONTHLY,V_PROFILE_YEARLY
+      FROM DQ_DB.DQ_RUN_LOG WHERE RUN_ID=P_RUN_ID;
+    INSERT INTO DQ_DB.DQ_MODULE_LOG
+      (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS)
+    VALUES (P_RUN_ID,V_MODULE,V_ATTEMPT,0,CURRENT_TIMESTAMP(6),'RUNNING');
+    SET V_OWNED=1;
+    /* Bound concurrent DISTINCT expressions. Period statements are separate,
+       so their combined length no longer forces eight-field category batches. */
+    IF P_TYPE<>'DATE' THEN
+        SET V_SIZE=LEAST(V_SIZE,20);
+    END IF;
+    SELECT COUNT(*) INTO V_FIELDS FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+     WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE=P_TYPE;
+    IF V_FIELDS=0 THEN
+        SIGNAL SQLSTATE 'U0009' SET MESSAGE_TEXT = 'Selected basic module has no eligible fields';
+    END IF;
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+     WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE=P_TYPE
+       AND REGEXP_SIMILAR(FIELD_NAME,'^[A-Za-z_][A-Za-z0-9_]*$','c')<>1;
+    IF V_COUNT>0 THEN
+        SIGNAL SQLSTATE 'U0011' SET MESSAGE_TEXT = 'Captured field identifier invalid';
+    END IF;
+    IF P_TYPE='CATEGORICAL' THEN
+        SET V_METRICS=5;
+        CALL DQ_DB.SP_DQ_SPECIAL_LIST(P_RUN_ID,P_TYPE,V_SPECIAL_LIST);
+        SELECT MAX(CHARACTER_LENGTH(FIELD_NAME)) INTO V_MAX_FIELD_LENGTH
+          FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+         WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE=P_TYPE;
+        /* Each field occurs three times in the source projection. The margin
+           covers quotes, aliases, SQL syntax and up to 12 ordinal digits.
+           Reduce width for long identifiers/lists before building any text. */
+        SET V_SIZE=LEAST(V_SIZE,CAST(FLOOR(11740.0/
+          (3*V_MAX_FIELD_LENGTH+CHARACTER_LENGTH(V_SPECIAL_LIST)+220)) AS INTEGER));
+        IF V_SIZE<1 THEN
+            SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Categorical projection cannot fit even one field';
+        END IF;
+    END IF;
+    IF P_TYPE='DATE' THEN
+        SET V_METRICS=4;
+    END IF;
+    SELECT COUNT(*) INTO V_COUNT FROM DQ_DB.DQ_METRIC_DEFINITION
+     WHERE MODULE_NAME=V_MODULE AND METRIC_ORDINAL BETWEEN 1 AND V_METRICS;
+    IF V_COUNT<>V_METRICS THEN
+        SIGNAL SQLSTATE 'U0010' SET MESSAGE_TEXT = 'Basic metric definitions incomplete';
+    END IF;
+    /* Period expressions are shared by all result inserts. UNKNOWN represents
+       an actual NULL reporting date, not a rolled-up grouping row. */
+    SET V_PERIOD_LEVEL='CASE WHEN A.GY=1 THEN ''OVERALL'' WHEN A.GM=1 THEN ''YEARLY'' ELSE ''MONTHLY'' END';
+    SET V_PERIOD_VALUE='CASE WHEN A.GY=1 THEN ''ALL'' WHEN A.DQ_YEAR IS NULL THEN ''UNKNOWN'' '
+      || 'WHEN A.GM=1 THEN TRIM(CAST(A.DQ_YEAR AS CHAR(4))) ELSE '
+      || 'TRIM(CAST(A.DQ_YEAR AS CHAR(4)))||''-''||SUBSTR(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))),'
+      || 'CHARACTER_LENGTH(''00''||TRIM(CAST(A.DQ_MONTH AS VARCHAR(2))))-1,2) END';
+    /* Only selected grouping sets enter the source aggregation. */
+    SET V_GROUPS='';
+    IF V_PROFILE_OVERALL='Y' THEN SET V_GROUPS='()'; END IF;
+    IF V_PROFILE_YEARLY='Y' THEN
+        IF CHARACTER_LENGTH(V_GROUPS)>0 THEN SET V_GROUPS=V_GROUPS || ','; END IF;
+        SET V_GROUPS=V_GROUPS || '(EXTRACT(YEAR FROM S.DQ_DT))';
+    END IF;
+    IF V_PROFILE_MONTHLY='Y' THEN
+        IF CHARACTER_LENGTH(V_GROUPS)>0 THEN SET V_GROUPS=V_GROUPS || ','; END IF;
+        SET V_GROUPS=V_GROUPS || '(EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT))';
+    END IF;
+    IF V_PROFILE_YEARLY='Y' OR V_PROFILE_MONTHLY='Y' THEN
+        SET V_TIME_SELECT='EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,GROUPING(EXTRACT(YEAR FROM S.DQ_DT)) AS GY,';
+        SET V_GROUP_CLAUSE=' GROUP BY GROUPING SETS (' || V_GROUPS || ')';
+    ELSE
+        SET V_TIME_SELECT='CAST(NULL AS INTEGER) AS DQ_YEAR,1 AS GY,';
+        SET V_GROUP_CLAUSE='';
+    END IF;
+    IF V_PROFILE_MONTHLY='Y' THEN
+        SET V_TIME_SELECT=V_TIME_SELECT || 'EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,GROUPING(EXTRACT(MONTH FROM S.DQ_DT)) AS GM,';
+    ELSE
+        SET V_TIME_SELECT=V_TIME_SELECT || 'CAST(NULL AS INTEGER) AS DQ_MONTH,1 AS GM,';
+    END IF;
+    WHILE V_FIRST<=V_FIELDS DO
+        SET V_BATCH=V_BATCH+1;
+        SET V_LAST=LEAST(V_FIRST+V_SIZE-1,V_FIELDS);
+        INSERT INTO DQ_DB.DQ_MODULE_LOG
+          (RUN_ID,MODULE_NAME,ATTEMPT_NO,BATCH_ID,START_TIME,STATUS,FIELD_COUNT)
+        VALUES (P_RUN_ID,V_MODULE,V_ATTEMPT,V_BATCH,CURRENT_TIMESTAMP(6),'RUNNING',V_LAST-V_FIRST+1);
+        SET V_PROJECTION='';
+        SET V_SOURCE_PROJECTION='"' || V_DATE || '" AS DQ_DT';
+        FOR F AS FIELDS_CURSOR CURSOR FOR
+            SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+             WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE=P_TYPE
+               AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST
+             ORDER BY FIELD_ORDINAL
+        DO
+            SET V_SUFFIX=TRIM(CAST(F.FIELD_ORDINAL AS VARCHAR(12)));
+            SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION || ',"' || TRIM(F.FIELD_NAME)
+              || '" AS DQ_F' || V_SUFFIX;
+            SET V_FIELD='S.DQ_F' || V_SUFFIX;
+            SET V_DISTINCT=V_FIELD;
+            IF P_TYPE='CATEGORICAL' THEN
+                IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_SPECIAL_LIST)
+                   +2*CHARACTER_LENGTH(TRIM(F.FIELD_NAME))+150>12000 THEN
+                    SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Categorical SQL too long; reduce SQL_BATCH_SIZE or special list';
+                END IF;
+                SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION
+                  || ',CASE WHEN UPPER(TRIM("' || TRIM(F.FIELD_NAME) || '")) IN ' || V_SPECIAL_LIST
+                  || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
+                SET V_DISTINCT='S.DQ_C' || V_SUFFIX;
+                SET V_PROJECTION=V_PROJECTION
+                  || ',COALESCE(SUM(CAST(CASE WHEN ' || V_DISTINCT || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS V' || V_SUFFIX;
+            END IF;
+            IF P_TYPE='DATE' THEN
+                SET V_PROJECTION=V_PROJECTION
+                  || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
+             || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
+             || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
+            ELSE
+                SET V_PROJECTION=V_PROJECTION
+                  || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
+                  || ',CAST(COUNT(DISTINCT ' || V_DISTINCT || ') AS BIGINT) AS D' || V_SUFFIX
+             || ',MIN(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS FA' || V_SUFFIX
+             || ',MAX(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN CAST(S.DQ_DT AS DATE) END) AS LA' || V_SUFFIX;
+            END IF;
+        END FOR;
+        IF P_TYPE='DATE' THEN
+            SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS ('
+          || 'SELECT ' || V_TIME_SELECT || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
+          || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
+          || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+          || V_GROUP_CLAUSE
+          || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
+        ELSE
+            /* The user's Teradata DISTINCT/GROUPING SETS query returned
+               duplicate period rows with every GROUPING flag equal to 1.
+               Ordinary GROUP BY and literal flags keep periods unambiguous.
+               Each enabled level has one source reference per batch; no raw source
+               staging, arbitrary deduplication or relaxed uniqueness index. */
+            /* Guard before assigning bounded parts; never truncate query text.
+               Separate period requests avoid one oversized DISTINCT/UNION plan. */
+            IF CHARACTER_LENGTH(V_PROJECTION)+CHARACTER_LENGTH(V_SOURCE_PROJECTION)
+               +CHARACTER_LENGTH(V_DB)+CHARACTER_LENGTH(V_SOURCE)+600>30000 THEN
+                SIGNAL SQLSTATE 'U0023' SET MESSAGE_TEXT = 'Period SQL part too long; reduce SQL_BATCH_SIZE';
+            END IF;
+            SET V_OVERALL='SELECT CAST(NULL AS INTEGER) AS DQ_YEAR,CAST(NULL AS INTEGER) AS DQ_MONTH,'
+              || '1 AS GY,1 AS GM,COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
+              || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
+              || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S';
+            SET V_YEARLY='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
+              || 'CAST(NULL AS INTEGER) AS DQ_MONTH,0 AS GY,1 AS GM,'
+              || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
+              || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
+              || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+              || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT)';
+            SET V_MONTHLY='SELECT EXTRACT(YEAR FROM S.DQ_DT) AS DQ_YEAR,'
+              || 'EXTRACT(MONTH FROM S.DQ_DT) AS DQ_MONTH,0 AS GY,0 AS GM,'
+              || 'COALESCE(SUM(CAST(1 AS BIGINT)),0) AS TOTAL_N,MAX(CAST(S.DQ_DT AS DATE)) AS POU_DT'
+              || V_PROJECTION || ' FROM (SELECT ' || V_SOURCE_PROJECTION
+              || ' FROM "' || V_DB || '"."' || V_SOURCE || '") S'
+              || ' GROUP BY EXTRACT(YEAR FROM S.DQ_DT),EXTRACT(MONTH FROM S.DQ_DT)';
+            /* Empty disabled branches before composing the UNION. */
+            IF V_PROFILE_OVERALL='N' THEN SET V_OVERALL=''; END IF;
+            IF V_PROFILE_YEARLY='N' THEN SET V_YEARLY=''; END IF;
+            IF V_PROFILE_MONTHLY='N' THEN SET V_MONTHLY=''; END IF;
+        END IF;
+        /* DATE still uses one GROUPING SETS request. For distinct modules,
+           create the small aggregate from the first enabled period, then
+           append each remaining period. No raw source working table is made. */
+        IF P_TYPE='DATE' THEN
+            UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+             WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE
+               AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+            CALL DBC.SysExecSQL(V_SQL);
+            SET V_VT_EXISTS=1;
+        ELSE
+            SET V_PASS=1;
+            WHILE V_PASS<=3 DO
+                IF V_PASS=1 THEN SET V_PERIOD_QUERY=V_OVERALL;
+                ELSEIF V_PASS=2 THEN SET V_PERIOD_QUERY=V_YEARLY;
+                ELSE SET V_PERIOD_QUERY=V_MONTHLY;
+                END IF;
+                IF CHARACTER_LENGTH(V_PERIOD_QUERY)>0 THEN
+                    IF V_VT_EXISTS=0 THEN
+                        SET V_SQL='CREATE VOLATILE TABLE DQ_OB_AGG AS (' || V_PERIOD_QUERY
+                          || ') WITH DATA PRIMARY INDEX (DQ_YEAR) ON COMMIT PRESERVE ROWS';
+                    ELSE
+                        SET V_SQL='INSERT INTO DQ_OB_AGG ' || V_PERIOD_QUERY;
+                    END IF;
+                    UPDATE DQ_DB.DQ_MODULE_LOG SET SQL_TEXT=V_SQL
+                     WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE
+                       AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+                    CALL DBC.SysExecSQL(V_SQL);
+                    SET V_VT_EXISTS=1;
+                END IF;
+                SET V_PASS=V_PASS+1;
+            END WHILE;
+        END IF;
+        SET V_METRIC_INSERT='';
+        SET V_AVAIL_INSERT='';
+        FOR R AS RESULTS_CURSOR CURSOR FOR
+            SELECT FIELD_NAME,FIELD_ORDINAL FROM DQ_DB.DQ_RUN_FIELD_CONFIG
+             WHERE RUN_ID=P_RUN_ID AND FIELD_TYPE=P_TYPE
+               AND FIELD_ORDINAL BETWEEN V_FIRST AND V_LAST
+             ORDER BY FIELD_ORDINAL
+        DO
+            SET V_SUFFIX=TRIM(CAST(R.FIELD_ORDINAL AS VARCHAR(12)));
+            IF P_TYPE='DATE' THEN
+                SET V_SQL='INSERT INTO DQ_DB.DQ_METRIC_RESULT '
+                  || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,'
+                  || 'METRIC_NAME,METRIC_VALUE,IS_PERCENTAGE,RATE_NUMERATOR,RATE_DENOMINATOR,POU_DT,EXECUTION_TIMESTAMP) '
+                  || 'SELECT ''' || P_RUN_ID || ''',''' || P_PROJECT_ID || ''',CAST(''' || TRIM(R.FIELD_NAME)
+                  || ''' AS VARCHAR(128)),''DATE'',''DATE_BASIC'',' || V_PERIOD_LEVEL || ',' || V_PERIOD_VALUE
+                  || ',M.METRIC_NAME,CASE M.METRIC_ORDINAL '
+                  || 'WHEN 1 THEN CAST(A.TOTAL_N AS DECIMAL(38,10))'
+                  || ' WHEN 2 THEN CAST(A.N' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                  || ' WHEN 3 THEN CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                  || ' WHEN 4 THEN CAST(100.0*CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))'
+                  || ' END,M.IS_PERCENTAGE,CASE WHEN M.METRIC_ORDINAL=4 THEN A.TOTAL_N-A.N' || V_SUFFIX || ' ELSE NULL END,'
+                  || 'CASE WHEN M.METRIC_ORDINAL=4 THEN A.TOTAL_N ELSE NULL END,'
+                  || 'CASE WHEN A.GY=1 THEN CAST(NULL AS DATE) ELSE A.POU_DT END,CURRENT_TIMESTAMP(6) FROM DQ_OB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
+                  || 'WHERE M.MODULE_NAME=''DATE_BASIC'' AND M.METRIC_ORDINAL BETWEEN 1 AND 4';
+            ELSE
+                SET V_EXTRA_CASE='';
+                SET V_NUMERATOR='CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N-A.N' || V_SUFFIX || ' ELSE NULL END,';
+                SET V_DENOMINATOR='CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N ELSE NULL END,';
+                IF P_TYPE='CATEGORICAL' THEN
+                    SET V_EXTRA_CASE=' WHEN 4 THEN CAST(A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                      || ' WHEN 5 THEN CAST(100.0*CAST(A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))';
+                    SET V_NUMERATOR='CASE WHEN M.METRIC_ORDINAL=2 THEN A.TOTAL_N-A.N' || V_SUFFIX
+                      || ' WHEN M.METRIC_ORDINAL=5 THEN A.N' || V_SUFFIX || '-A.V' || V_SUFFIX || ' ELSE NULL END,';
+                    SET V_DENOMINATOR='CASE WHEN M.METRIC_ORDINAL IN (2,5) THEN A.TOTAL_N ELSE NULL END,';
+                END IF;
+                SET V_SQL='INSERT INTO DQ_DB.DQ_METRIC_RESULT '
+                  || '(RUN_ID,PROJECT_ID,FIELD_NAME,FIELD_TYPE,MODULE_NAME,PERIOD_LEVEL,PERIOD_VALUE,'
+                  || 'METRIC_NAME,METRIC_VALUE,IS_PERCENTAGE,RATE_NUMERATOR,RATE_DENOMINATOR,POU_DT,EXECUTION_TIMESTAMP) '
+                  || 'SELECT ''' || P_RUN_ID || ''',''' || P_PROJECT_ID || ''',CAST(''' || TRIM(R.FIELD_NAME)
+                  || ''' AS VARCHAR(128)),''' || P_TYPE || ''',''' || V_MODULE || ''',' || V_PERIOD_LEVEL || ',' || V_PERIOD_VALUE
+                  || ',M.METRIC_NAME,CASE M.METRIC_ORDINAL '
+                  || 'WHEN 1 THEN CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                  || ' WHEN 2 THEN CAST(100.0*CAST(A.TOTAL_N-A.N' || V_SUFFIX || ' AS FLOAT)/NULLIF(A.TOTAL_N,0) AS DECIMAL(38,10))'
+                  || ' WHEN 3 THEN CAST(A.D' || V_SUFFIX || ' AS DECIMAL(38,10))'
+                  || V_EXTRA_CASE || ' END,M.IS_PERCENTAGE,' || V_NUMERATOR || V_DENOMINATOR
+                  || 'CASE WHEN A.GY=1 THEN CAST(NULL AS DATE) ELSE A.POU_DT END,CURRENT_TIMESTAMP(6) FROM DQ_OB_AGG A CROSS JOIN DQ_DB.DQ_METRIC_DEFINITION M '
+                  || 'WHERE M.MODULE_NAME=''' || V_MODULE || ''' AND M.METRIC_ORDINAL BETWEEN 1 AND ' || TRIM(CAST(V_METRICS AS VARCHAR(2)));
+            END IF;
+            SET V_SELECT=SUBSTR(V_SQL,POSITION(' SELECT ' IN V_SQL)+1);
+            IF CHARACTER_LENGTH(V_METRIC_INSERT)>0
+               AND CHARACTER_LENGTH(V_METRIC_INSERT)+CHARACTER_LENGTH(V_SELECT)+11>30000 THEN
+                CALL DBC.SysExecSQL(V_METRIC_INSERT);
+                SET V_METRIC_INSERT='';
+            END IF;
+            IF CHARACTER_LENGTH(V_METRIC_INSERT)=0 THEN
+                SET V_METRIC_INSERT=V_SQL;
+            ELSE
+                SET V_METRIC_INSERT=V_METRIC_INSERT || ' UNION ALL ' || V_SELECT;
+            END IF;
+            SET V_SQL='INSERT INTO DQ_DB.DQ_FIELD_AVAILABILITY '
+              || '(RUN_ID,PROJECT_ID,FIELD_NAME,EARLIEST_DATE,LATEST_DATE) SELECT ''' || P_RUN_ID || ''','''
+              || P_PROJECT_ID || ''',CAST(''' || TRIM(R.FIELD_NAME) || ''' AS VARCHAR(128)),MIN(A.FA' || V_SUFFIX || '),MAX(A.LA' || V_SUFFIX || ')'
+              || ' FROM DQ_OB_AGG A';
+            SET V_SELECT=SUBSTR(V_SQL,POSITION(' SELECT ' IN V_SQL)+1);
+            IF CHARACTER_LENGTH(V_AVAIL_INSERT)>0
+               AND CHARACTER_LENGTH(V_AVAIL_INSERT)+CHARACTER_LENGTH(V_SELECT)+11>30000 THEN
+                CALL DBC.SysExecSQL(V_AVAIL_INSERT);
+                SET V_AVAIL_INSERT='';
+            END IF;
+            IF CHARACTER_LENGTH(V_AVAIL_INSERT)=0 THEN
+                SET V_AVAIL_INSERT=V_SQL;
+            ELSE
+                SET V_AVAIL_INSERT=V_AVAIL_INSERT || ' UNION ALL ' || V_SELECT;
+            END IF;
+        END FOR;
+        IF CHARACTER_LENGTH(V_METRIC_INSERT)>0 THEN CALL DBC.SysExecSQL(V_METRIC_INSERT); END IF;
+        IF CHARACTER_LENGTH(V_AVAIL_INSERT)>0 THEN CALL DBC.SysExecSQL(V_AVAIL_INSERT); END IF;
+        CALL DBC.SysExecSQL('DROP TABLE DQ_OB_AGG');
+        SET V_VT_EXISTS=0;
+        UPDATE DQ_DB.DQ_MODULE_LOG SET STATUS='SUCCEEDED',END_TIME=CURRENT_TIMESTAMP(6)
+         WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE
+           AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=V_BATCH;
+        SET V_FIRST=V_LAST+1;
+    END WHILE;
+    UPDATE DQ_DB.DQ_MODULE_LOG
+       SET STATUS='SUCCEEDED',END_TIME=CURRENT_TIMESTAMP(6),FIELD_COUNT=V_FIELDS
+     WHERE RUN_ID=P_RUN_ID AND MODULE_NAME=V_MODULE AND ATTEMPT_NO=V_ATTEMPT AND BATCH_ID=0;
+END main;
+
+/* Execute after compiling the procedure. Replace DQ_DB in ON and TO. */
+GRANT EXECUTE PROCEDURE ON DQ_DB.SP_DQ_OTHER_BASIC TO DQ_DB;
