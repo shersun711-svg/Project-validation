@@ -175,8 +175,9 @@
   set work.dq_jump_scenarios;
   length sql_branch $1500;
   sql_branch=catx(' ',"SELECT CAST(",quote(trim(scenario_id),"'"),
-   "AS VARCHAR(16)) AS SCENARIO_ID,",put(abs_min,best32.),"AS ABS_MIN,",
-   put(rel_min,best32.),"AS REL_MIN FROM SEED");
+   "AS VARCHAR(16)) AS SCENARIO_ID, CAST(",put(abs_min,best32.),
+   "AS FLOAT) AS ABS_MIN, CAST(",put(rel_min,best32.),
+   "AS FLOAT) AS REL_MIN FROM SEED");
  run;
  %if &syserr>4 %then %goto local_fail;
  %do _i=1 %to &_n;
