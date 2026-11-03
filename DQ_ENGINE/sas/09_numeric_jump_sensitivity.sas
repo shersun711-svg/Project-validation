@@ -343,6 +343,15 @@
   plan_note='Three provisional aligned scenarios. Upstream utilisation/delinquency scales and conflicting balance-ratio description need confirmation.';
   created=datetime();format created datetime20.;
  run;
+ /* Keep each field/month's three scenarios together in the workbook. */
+ proc sort data=work.dq_jump_monthly;
+  by field_name pou_dt scenario_id;
+ run;
+ %if &syserr>4 %then %goto local_fail;
+ proc sort data=work.dq_jump_totals;
+  by field_name scenario_id;
+ run;
+ %if &syserr>4 %then %goto local_fail;
  libname _dqsxlsx xlsx "%superq(jump_output_file)";
  %if %sysfunc(libref(_dqsxlsx)) ne 0 %then %goto local_fail;
  data _dqsxlsx.Baseline;
@@ -355,11 +364,11 @@
  data _dqsxlsx.Monthly;
   retain field_name pou_dt scenario_id abs_min rel_min total_count valid_pair_count
          jump_count jump_rate baseline_jump_count jump_difference jump_added
-         jump_removed saved_jump_count reference_status;
+         jump_removed;
   set work.dq_jump_monthly;
   keep field_name pou_dt scenario_id abs_min rel_min total_count valid_pair_count
        jump_count jump_rate baseline_jump_count jump_difference jump_added
-       jump_removed saved_jump_count reference_status;
+       jump_removed;
  run;
  %if &syserr>4 %then %goto export_fail;
  data _dqsxlsx.Totals;set work.dq_jump_totals;run;
