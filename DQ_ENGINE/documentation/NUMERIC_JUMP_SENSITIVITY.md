@@ -88,7 +88,7 @@ coverage versus saved run 20 stop completion.
 |---|---|
 | Baseline | Original settings, field group/unit notes and source/window provenance |
 | Scenarios | The 36 explicit absolute/relative threshold pairs |
-| Monthly | 15 review columns: field/month/scenario, thresholds, total/eligible counts, jump count/rate, original count, difference, added/removed events, saved count and reference status |
+| Monthly | 13 review columns: field/month/scenario, thresholds, total/eligible counts, jump count/rate, original count, difference and added/removed events; sorted by FIELD_NAME, POU_DT, SCENARIO_ID |
 | Totals | 36 field/scenario summaries, pooled eligible-pair rates and reference-warning months |
 | Manifest | Assessment UUID, completion, baseline reference and scope |
 
@@ -99,7 +99,7 @@ only valid consecutive comparisons. Rates are fractions, not percentage points.
 Totals pool numerator/denominator across months; they do not average monthly rates.
 
 `BASELINE_JUMP_COUNT`/`original_jumps` are recalculated using ORIGINAL settings
-on the same staged source. `SAVED_JUMP_COUNT` is the historical run-20 count.
+on the same staged source. The historical run-20 count and per-month reference status are retained internally in `WORK.DQ_JUMP_MONTHLY`, but omitted from the exported Monthly sheet.
 `JUMP_DIFFERENCE = JUMP_ADDED - JUMP_REMOVED` relative to the recalculated
 original. Added/removed counts compare individual account-month flags, not
 just aggregate volumes. They are events, not unique accounts.
@@ -108,12 +108,12 @@ The lower scenario must have at least as many flags as original; the higher
 scenario must have no more. Original must add/remove zero flags. All scenarios
 for a field/month have the same eligible population.
 
-Reference statuses compare monthly dates, total/eligible counts and original
+Internal reference statuses compare monthly dates, total/eligible counts and original
 jump counts against saved run 20. `MATCHED_SUMMARY` means these controls agree;
 it does not prove identical source records. Other statuses are
 `DIFFERENT_SUMMARY`, `DIFFERENT_SNAPSHOT`, `INCOMPLETE_REFERENCE` and
 `NO_SAVED_REFERENCE`. Review warnings before attributing differences from the
-historical run to tolerance choices. Do not sum warning months across scenarios.
+historical run to tolerance choices. Totals retains `reference_warning_months`; if nonzero, inspect the internal Monthly reference status in SAS. Do not sum warning months across scenarios.
 
 For review, start with Totals, then identify months whose jump count/rate
 changes most. Assess whether previously important clusters remain evident and
