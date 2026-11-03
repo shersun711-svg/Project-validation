@@ -78,6 +78,43 @@ Agreed follow-up:
 
 If examples remain unexplained or suggest a common problem, raise a specific clarification supported by the examples and affected scope. Until then, record this as an open review candidate, not a confirmed finding or a pass. This follow-up has been agreed but has not yet been performed.
 
+## 4. MV_PCKG_AVG_PAY_TO_BAL_L6M_RT — February/May 2019
+
+### Follow-up supplied by Siqi
+
+The targeted query reproduced the sensitivity populations and flags:
+
+| Month | Valid pairs | Original jumps | Higher jumps | Increases | Package ID became missing among original jumps |
+|---|---:|---:|---:|---:|---:|
+| February 2019 | 127,443 | 9,196 | 9,031 | 9,036 | 8,637 (93.92%) |
+| May 2019 | 118,447 | 12,950 | 12,815 | 12,759 | 12,453 (96.16%) |
+
+These are overlapping characteristics, not counts to add together. In the ten sampled increases, current-month payments were large, average payments increased sharply, lagged average balances remained substantial, current package balances were zero and package IDs became missing. Through-time IDs stayed unchanged in those examples. No adjacent following-month records were available for the sampled increases, so their numeric reversion could not be assessed.
+
+The ratio has a plausible mechanical explanation: a payment close to the outstanding balance raises its six-month payment average by roughly balance/6, while the denominator remains the preceding six-month average balance, giving a ratio around 100/6 = 16.67%. The sampled ratios around 16–18% are consistent with this mechanism. This supports a settlement/redemption/portfolio-exit hypothesis; transaction reasons and population-wide cause remain unconfirmed.
+
+### Agreed disposition
+
+Include this as supporting evidence under account-level Issue 1, "Missing values across package-related fields", rather than creating a separate confirmed ratio-calculation issue. The follow-up establishes direct overlap between this ratio's jumps and package IDs becoming missing. It does not yet establish that the same accounts underlie all other fields in Issue 1.
+
+CDAO clarification should cover whether large payments, zero balances and missing package IDs reflect expected settlement/portfolio-exit processing and appropriate modelling treatment. The attestation specifically links May 2019 balance zeros to Glenbeigh but does not reconcile these accounts or establish February's cause.
+
+April/October 2006 remain separate review candidates. Their payment-input movements and six-month separation suggest checking the rolling payment windows, but no explanation is agreed yet.
+
+## 5. MV_PCKG_BAL_AMT_L6M_TO_L7T12M_RT — numeric-jump review passed
+
+Siqi agreed to record a pass for the numeric-jump review, with no data issue raised from this assessment. Original flags total 6,584 (0.0209%); lower/higher totals are 36,127 (0.1149%) and 1,744 (0.0055%). Monthly concentrations are small compared with the major fields reviewed.
+
+Scope: this is the agreed numeric-jump disposition, not a pass for every possible data-quality check or a separate reversion assessment. The confirmed formula compares two six-month balance averages; the conflicting balance/income narrative remains a documentation correction. No universal pass threshold is established by this decision.
+
+## 6. MV_PCKG_LOAN_TO_INC_RT — May 2019 targeted review
+
+May 2019 is the agreed focus: 3,831 original jumps (3.2510% of 117,841 valid pairs), versus 8,926 lower and 465 higher. February has 549 original jumps (0.4325%) and remains lower priority.
+
+Status: open review candidate, not a confirmed issue or pass. Check up to ten May examples with original loan numerator, selected top-two-borrower income denominator, package IDs and the next-month ratio. Determine whether package/input changes explain the movements before linking this field to Issue 1. Same-month coincidence alone is insufficient.
+
+Follow-up script: [RDS_loan_to_income_May2019_follow_up.sql](../teradata/review/RDS_loan_to_income_May2019_follow_up.sql). It is prepared with local synthetic checks; live Teradata execution and returned examples remain pending. Counts are account-month events, not unique accounts.
+
 ## Review principle
 
 There is no agreed fixed jump count or population-rate cutoff for raising an issue. Thresholds identify review candidates; escalation depends on evidence of incorrect data, a common unexplained mechanism, temporary anomalous patterns or potential modelling impact. Retention under higher thresholds supports robustness to the tested settings, not proof of error.
