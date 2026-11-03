@@ -62,18 +62,28 @@
   %dq_connect; %dq_check_sql(dbms=N);
   %if &dq_sql_failed %then %goto sql_fail;
   %let _connected=1;
+  %put NOTE: DQ JUMP STEP: READ_BASELINE_SETTINGS;
   create table work._jump_fields as select * from connection to dq
-  (SELECT DISTINCT R.RUN_ID,R.FIELD_NAME,R.FIELD_TYPE,R.SOURCE_DATABASE,
-     R.SOURCE_TABLE,R.REPORTING_DATE_FIELD,R.ACCOUNT_ID_FIELD,
+  (SELECT DISTINCT CAST(R.RUN_ID AS VARCHAR(36)) AS RUN_ID,
+     CAST(R.FIELD_NAME AS VARCHAR(128)) AS FIELD_NAME,
+     CAST(R.FIELD_TYPE AS VARCHAR(16)) AS FIELD_TYPE,
+     CAST(R.SOURCE_DATABASE AS VARCHAR(128)) AS SOURCE_DATABASE,
+     CAST(R.SOURCE_TABLE AS VARCHAR(128)) AS SOURCE_TABLE,
+     CAST(R.REPORTING_DATE_FIELD AS VARCHAR(128)) AS REPORTING_DATE_FIELD,
+     CAST(R.ACCOUNT_ID_FIELD AS VARCHAR(128)) AS ACCOUNT_ID_FIELD,
      CAST(CAST(R.WINDOW_START AS DATE FORMAT 'YYYY-MM-DD') AS CHAR(10)) AS START_ISO,
      CAST(CAST(R.WINDOW_END AS DATE FORMAT 'YYYY-MM-DD') AS CHAR(10)) AS END_ISO,
-     R.ABS_CHANGE_MIN,R.REL_CHANGE_MIN,R.RETURN_ABS_TOL,R.RETURN_REL_TOL
+     CAST(R.ABS_CHANGE_MIN AS FLOAT) AS ABS_CHANGE_MIN,
+     CAST(R.REL_CHANGE_MIN AS FLOAT) AS REL_CHANGE_MIN,
+     CAST(R.RETURN_ABS_TOL AS FLOAT) AS RETURN_ABS_TOL,
+     CAST(R.RETURN_REL_TOL AS FLOAT) AS RETURN_REL_TOL
    FROM &dq_database..DQ_ACCOUNT_REVIEW R
    WHERE R.PROJECT_ID=&_project_sql AND R.RUN_NUMBER=&jump_baseline_run
      AND R.FIELD_TYPE='NUMERIC');
   %dq_check_sql; %if &dq_sql_failed %then %goto sql_fail;
+  %put NOTE: DQ JUMP STEP: CHECK_SAVED_MONTH_KEYS;
   create table work._jump_checks as select * from connection to dq
-  (SELECT COUNT(*) AS DUPLICATE_KEYS FROM
+  (SELECT CAST(COUNT(*) AS DECIMAL(18,0)) AS DUPLICATE_KEYS FROM
     (SELECT FIELD_NAME,EXTRACT(YEAR FROM POU_DT) AS YY,
        EXTRACT(MONTH FROM POU_DT) AS MM
      FROM &dq_database..DQ_ACCOUNT_REVIEW
@@ -199,26 +209,30 @@
    %dq_connect; %dq_check_sql(dbms=N);
    %if &dq_sql_failed %then %goto sql_fail;
    %let _connected=1;
+   %put NOTE: DQ JUMP STEP: READ_SAVED_MONTH_COUNT;
    select N into :_saved_months trimmed from connection to dq
-    (SELECT COUNT(*) AS N FROM &dq_database..DQ_ACCOUNT_REVIEW
+    (SELECT CAST(COUNT(*) AS DECIMAL(18,0)) AS N FROM &dq_database..DQ_ACCOUNT_REVIEW
      WHERE RUN_ID=&_check_sql AND PROJECT_ID=&_project_sql AND FIELD_NAME=&_field_sql);
    %dq_check_sql; %if &dq_sql_failed %then %goto sql_fail;
+   %put NOTE: DQ JUMP STEP: BUILD_FIELD_HISTORY;
    %dq_at_create; /* Production helper: source/history is built only once per field. */
    %dq_check_sql; %if &dq_sql_failed %then %goto sql_fail;
    %let _created=1;
+   %put NOTE: DQ JUMP STEP: CHECK_FIELD_HISTORY;
    select N,BAD_KEYS,BAD_VALUES into :_rows trimmed,:_bad_keys trimmed,:_bad_values trimmed
     from connection to dq
-    (SELECT COUNT(*) AS N,
-      COALESCE(SUM(CASE WHEN ACCOUNT_KEY IS NULL
+    (SELECT CAST(COUNT(*) AS DECIMAL(18,0)) AS N,
+      CAST(COALESCE(SUM(CASE WHEN ACCOUNT_KEY IS NULL
         OR TRIM(CAST(ACCOUNT_KEY AS VARCHAR(128)))='' OR KEY_COUNT<>1
-        THEN 1 ELSE 0 END),0) AS BAD_KEYS,
-      COALESCE(SUM(CASE WHEN VALUE_LENGTH>512 OR ACCOUNT_LENGTH>128
-        THEN 1 ELSE 0 END),0) AS BAD_VALUES FROM DQ_AT_CHECK);
+        THEN 1 ELSE 0 END),0) AS DECIMAL(18,0)) AS BAD_KEYS,
+      CAST(COALESCE(SUM(CASE WHEN VALUE_LENGTH>512 OR ACCOUNT_LENGTH>128
+        THEN 1 ELSE 0 END),0) AS DECIMAL(18,0)) AS BAD_VALUES FROM DQ_AT_CHECK);
    %dq_check_sql; %if &dq_sql_failed %then %goto sql_fail;
    %if &_rows=0 or &_bad_keys>0 or &_bad_values>0 %then %do;
     %let dq_jump_error=Empty source or invalid account-month grain/value lengths. Field &_field.;
     %goto sql_cleanup;
    %end;
+   %put NOTE: DQ JUMP STEP: READ_MONTHLY_SCENARIO_RESULTS;
    create table work._jump_one as select * from connection to dq
    (
     WITH SEED AS (SELECT COUNT(*) AS N FROM &dq_database..DQ_RUN_NUMBER),
@@ -244,8 +258,18 @@
        SUM(CASE WHEN S_JUMP=0 AND NUMERIC_JUMP=1 THEN 1 ELSE 0 END) AS JUMP_REMOVED
      FROM EVALUATED GROUP BY 1,2,3,4,5
     )
-    SELECT CAST(&_field_sql AS VARCHAR(128)) AS FIELD_NAME,M.*,
-      R.NUMERIC_JUMP_COUNT AS SAVED_JUMP_COUNT,
+    SELECT CAST(&_field_sql AS VARCHAR(128)) AS FIELD_NAME,
+      CAST(M.SCENARIO_ID AS VARCHAR(16)) AS SCENARIO_ID,
+      CAST(M.ABS_MIN AS FLOAT) AS ABS_MIN,CAST(M.REL_MIN AS FLOAT) AS REL_MIN,
+      CAST(M.YY AS INTEGER) AS YY,CAST(M.MM AS INTEGER) AS MM,
+      CAST(M.POU_DT AS DATE) AS POU_DT,
+      CAST(M.TOTAL_COUNT AS DECIMAL(18,0)) AS TOTAL_COUNT,
+      CAST(M.VALID_PAIR_COUNT AS DECIMAL(18,0)) AS VALID_PAIR_COUNT,
+      CAST(M.JUMP_COUNT AS DECIMAL(18,0)) AS JUMP_COUNT,
+      CAST(M.BASELINE_JUMP_COUNT AS DECIMAL(18,0)) AS BASELINE_JUMP_COUNT,
+      CAST(M.JUMP_ADDED AS DECIMAL(18,0)) AS JUMP_ADDED,
+      CAST(M.JUMP_REMOVED AS DECIMAL(18,0)) AS JUMP_REMOVED,
+      CAST(R.NUMERIC_JUMP_COUNT AS DECIMAL(18,0)) AS SAVED_JUMP_COUNT,
       CAST(CASE WHEN R.RUN_ID IS NULL THEN 'NO_SAVED_REFERENCE'
         WHEN R.TOTAL_COUNT IS NULL OR R.VALID_PAIR_COUNT IS NULL
           OR R.NUMERIC_JUMP_COUNT IS NULL THEN 'INCOMPLETE_REFERENCE'
