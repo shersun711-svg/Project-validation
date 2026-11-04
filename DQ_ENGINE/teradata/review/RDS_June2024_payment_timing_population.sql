@@ -1,49 +1,26 @@
-/* MoM Issue 4: full-population corroboration of CDAO's June 2024 timing explanation.
-   Read-only Teradata SQL Assistant; run Query 1 and Query 2 SEPARATELY and
-   export both result sets. No account IDs, samples, permanent objects or
-   engine runs are produced. Only approved points 1 and 2 are assessed here.
+/* MoM Issue 4: compact full-population evidence, no sampling.
+   Run Query 1 and Query 2 SEPARATELY in Teradata SQL Assistant.
+   Q1: Are June zero payments concentrated in due days 1-3?
+   Q2: Among those June-zero accounts, how many paid more in May than July?
 
-   BILL_DAY is defined as the repayment due day in Data_Attestation_Log row 24.
-   PROBE_CNP_AMT is current-month net payment (row 49), not receipt-date data.
-   Both queries anchor on ALL accounts observed in JUNE 2024, including June
-   missing/special payments. May-only/July-only accounts do not enter this fixed
-   cohort. Missing adjacent records are not zero payments and are shown separately.
+   Same logic/reference/source as the original detailed checks. Both use the
+   fixed June 2024 population; missing May/July records are not treated as zero.
+   Q1 zero rate uses valid June payments; missing/special payments are excluded
+   from that denominator. Q2 MATCHED_ACCOUNT_COUNT requires valid observed
+   payments in all three months. Its share uses that matched count, not all
+   June-zero accounts. Rates/shares are fractions: 0.97 means 97%.
+   Missing/invalid bill-day groups are retained if present.
 
-   QUERY 1: June cohort split into due days 1, 2, 3, 4-31, missing and invalid.
-   Compare May/June/July zero counts and valid-payment zero rates. Rates use
-   each month's valid payments WITHIN the same June bill-day group. Groups
-   are defined by June BILL_DAY; bill-day changes are exposed for interpretation.
-   Summed June counts should reproduce 97129 accounts and 12916 zero payments
-   if source scope matches the report. May/July totals need not match the report,
-   because those figures are restricted to the fixed June cohort here.
-
-   QUERY 2: June payment groups ZERO / POSITIVE / NEGATIVE / MISSING / SPECIAL,
-   split into due days 1-3 versus 4-31 (and missing/invalid). Compare June-zero
-   due-day 1-3 accounts with other groups. Amount means and May-vs-July patterns
-   use only accounts with valid payments observed in ALL THREE months, including
-   legitimate zeros. Coverage losses and invalid adjacent values are visible.
-   MAY_GT_JULY is descriptive, not proof that a payment moved across month-end.
-   Stable-bill-day columns isolate accounts with unchanged valid BILL_DAY in
-   May, June and July. Means can be influenced by large payments; use the
-   accompanying account-pattern counts rather than amounts alone.
-
-   Classification uses the shared NUMERIC special list captured for successful
-   RDS account run 20 (previously confirmed equal to the profiling special list).
-   REQUIRE EVALUATED status. Duplicate/null/blank account keys anywhere in the
-   scanned May-July window, or a missing/ambiguous reference, suppress results.
-   No records are silently removed for missing/special payments. Each account
-   must have no more than one row per calendar month. Source must remain fixed
-   across the two queries. All rates/shares are FRACTIONS (0.25 means 25%).
-
-   Supporting pattern: June zeros concentrate in due days 1-3, May payments
-   exceed July for a substantial portion of the same accounts, and July is
-   populated again. No arbitrary amount/rate pass threshold is imposed.
-   These checks cannot verify receipt on specific late-May dates or distinguish
-   early receipts from other payment causes; transaction dates are needed for
-   that. No derived-special-value reconciliation or full closure verdict here.
+   Shared special list: successful RDS account run 20 snapshot. Source must be
+   fixed across queries. Reference and account/month integrity checks remain
+   internal; NULL output counts mean a control failed and MUST NOT be treated
+   as zero or used to close the finding. No permanent objects/data are changed.
+   BILL_DAY is the attested repayment due day. These results corroborate a
+   timing explanation; they do not verify exact receipt dates or special-value
+   propagation. No new materiality threshold or automatic pass is imposed.
 */
 
-/* QUERY 1: bill-day distribution on the June population. */
+/* QUERY 1: June zero payments by due-day group (four columns). */
 WITH reference_runs AS
 (
  SELECT DISTINCT RUN_ID FROM LAB_T_ORION_MVT.DQ_ACCOUNT_REVIEW
@@ -131,46 +108,20 @@ WITH reference_runs AS
              THEN 1 ELSE 0 END AS STABLE_BILL_DAY
  FROM account_months A WHERE JUNE_OBSERVED=1
 )
- , distribution AS
+ , due_day_summary AS
 (
- SELECT BILL_DAY_DETAIL,MAX(REVIEW_STATUS) AS REVIEW_STATUS,
-        MAX(PUBLISH_RESULTS) AS PUBLISH_RESULTS,
-        COUNT(*) AS JUNE_COHORT_COUNT,
-        SUM(MAY_OBSERVED) AS MAY_OBSERVED_COUNT,
-        SUM(CASE WHEN MAY_STATE='VALID' THEN 1 ELSE 0 END) AS MAY_VALID_COUNT,
-        SUM(CASE WHEN MAY_STATE='VALID' AND MAY_PAYMENT=0 THEN 1 ELSE 0 END) AS MAY_ZERO_COUNT,
-        SUM(CASE WHEN JUNE_STATE='VALID' THEN 1 ELSE 0 END) AS JUNE_VALID_COUNT,
-        SUM(CASE WHEN JUNE_STATE='VALID' AND JUNE_PAYMENT=0 THEN 1 ELSE 0 END) AS JUNE_ZERO_COUNT,
-        SUM(JULY_OBSERVED) AS JULY_OBSERVED_COUNT,
-        SUM(CASE WHEN JULY_STATE='VALID' THEN 1 ELSE 0 END) AS JULY_VALID_COUNT,
-        SUM(CASE WHEN JULY_STATE='VALID' AND JULY_PAYMENT=0 THEN 1 ELSE 0 END) AS JULY_ZERO_COUNT,
-        SUM(CASE WHEN MAY_BILL_DAY<>JUNE_BILL_DAY THEN 1 ELSE 0 END) AS MAY_BILL_DAY_CHANGED,
-        SUM(CASE WHEN JULY_BILL_DAY<>JUNE_BILL_DAY THEN 1 ELSE 0 END) AS JULY_BILL_DAY_CHANGED
- FROM june_cohort GROUP BY BILL_DAY_DETAIL
-), final_distribution AS
-(
- SELECT D.*,SUM(JUNE_ZERO_COUNT) OVER () AS ALL_JUNE_ZEROS
- FROM distribution D
+ SELECT BILL_DAY_GROUP,MAX(PUBLISH_RESULTS) AS PUBLISH_RESULTS,
+        SUM(CASE WHEN JUNE_STATE='VALID' THEN 1 ELSE 0 END) AS VALID_JUNE_COUNT,
+        SUM(CASE WHEN JUNE_STATE='VALID' AND JUNE_PAYMENT=0 THEN 1 ELSE 0 END) AS JUNE_ZERO_COUNT
+ FROM june_cohort GROUP BY BILL_DAY_GROUP
 )
-SELECT BILL_DAY_DETAIL,REVIEW_STATUS,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JUNE_COHORT_COUNT END AS JUNE_COHORT_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_OBSERVED_COUNT END AS MAY_OBSERVED_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_VALID_COUNT END AS MAY_VALID_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_ZERO_COUNT END AS MAY_ZERO_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN CAST(MAY_ZERO_COUNT AS FLOAT)/NULLIFZERO(MAY_VALID_COUNT) END AS MAY_ZERO_RATE,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JUNE_VALID_COUNT END AS JUNE_VALID_COUNT,
+SELECT BILL_DAY_GROUP,
+       CASE WHEN PUBLISH_RESULTS=1 THEN VALID_JUNE_COUNT END AS VALID_JUNE_COUNT,
        CASE WHEN PUBLISH_RESULTS=1 THEN JUNE_ZERO_COUNT END AS JUNE_ZERO_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN CAST(JUNE_ZERO_COUNT AS FLOAT)/NULLIFZERO(JUNE_VALID_COUNT) END AS JUNE_ZERO_RATE,
-       CASE WHEN PUBLISH_RESULTS=1 THEN CAST(JUNE_ZERO_COUNT AS FLOAT)/NULLIFZERO(ALL_JUNE_ZEROS) END AS SHARE_OF_JUNE_ZEROS,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JULY_OBSERVED_COUNT END AS JULY_OBSERVED_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JULY_VALID_COUNT END AS JULY_VALID_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JULY_ZERO_COUNT END AS JULY_ZERO_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN CAST(JULY_ZERO_COUNT AS FLOAT)/NULLIFZERO(JULY_VALID_COUNT) END AS JULY_ZERO_RATE,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_BILL_DAY_CHANGED END AS MAY_BILL_DAY_CHANGED,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JULY_BILL_DAY_CHANGED END AS JULY_BILL_DAY_CHANGED
-FROM final_distribution ORDER BY 1;
+       CASE WHEN PUBLISH_RESULTS=1 THEN CAST(JUNE_ZERO_COUNT AS FLOAT)/NULLIFZERO(VALID_JUNE_COUNT) END AS JUNE_ZERO_RATE
+FROM due_day_summary ORDER BY 1;
 
-/* QUERY 2: matched May-June-July payment patterns, no sampling. */
+/* QUERY 2: May versus July for June-zero accounts (five columns). */
 WITH reference_runs AS
 (
  SELECT DISTINCT RUN_ID FROM LAB_T_ORION_MVT.DQ_ACCOUNT_REVIEW
@@ -258,45 +209,19 @@ WITH reference_runs AS
              THEN 1 ELSE 0 END AS STABLE_BILL_DAY
  FROM account_months A WHERE JUNE_OBSERVED=1
 )
- , pattern_summary AS
+ , payment_pattern_summary AS
 (
- SELECT BILL_DAY_GROUP,PAYMENT_GROUP,MAX(REVIEW_STATUS) AS REVIEW_STATUS,
-        MAX(PUBLISH_RESULTS) AS PUBLISH_RESULTS,
-        COUNT(*) AS JUNE_COHORT_COUNT,
-        SUM(CASE WHEN MAY_OBSERVED=0 THEN 1 ELSE 0 END) AS NO_MAY_RECORD_COUNT,
-        SUM(CASE WHEN JULY_OBSERVED=0 THEN 1 ELSE 0 END) AS NO_JULY_RECORD_COUNT,
-        SUM(CASE WHEN MAY_OBSERVED=1 AND MAY_STATE<>'VALID' THEN 1 ELSE 0 END) AS MAY_INVALID_PAYMENT_COUNT,
-        SUM(CASE WHEN JULY_OBSERVED=1 AND JULY_STATE<>'VALID' THEN 1 ELSE 0 END) AS JULY_INVALID_PAYMENT_COUNT,
-        SUM(COMPLETE_VALID) AS COMPLETE_VALID_COUNT,
-        SUM(CASE WHEN COMPLETE_VALID=1 AND STABLE_BILL_DAY=1 THEN 1 ELSE 0 END) AS COMPLETE_STABLE_BILL_COUNT,
-        SUM(CASE WHEN COMPLETE_VALID=1 THEN MAY_PAYMENT END) AS MAY_PAYMENT_SUM,
-        SUM(CASE WHEN COMPLETE_VALID=1 THEN JUNE_PAYMENT END) AS JUNE_PAYMENT_SUM,
-        SUM(CASE WHEN COMPLETE_VALID=1 THEN JULY_PAYMENT END) AS JULY_PAYMENT_SUM,
-        SUM(CASE WHEN COMPLETE_VALID=1 AND MAY_PAYMENT>JULY_PAYMENT THEN 1 ELSE 0 END) AS MAY_GT_JULY_COUNT,
-        SUM(CASE WHEN COMPLETE_VALID=1 AND MAY_PAYMENT=JULY_PAYMENT THEN 1 ELSE 0 END) AS MAY_EQ_JULY_COUNT,
-        SUM(CASE WHEN COMPLETE_VALID=1 AND MAY_PAYMENT<JULY_PAYMENT THEN 1 ELSE 0 END) AS MAY_LT_JULY_COUNT,
-        SUM(CASE WHEN COMPLETE_VALID=1 AND MAY_PAYMENT>0 AND JULY_PAYMENT>0
-                 THEN 1 ELSE 0 END) AS MAY_JULY_POSITIVE_COUNT,
-        SUM(CASE WHEN COMPLETE_VALID=1 AND STABLE_BILL_DAY=1 AND MAY_PAYMENT>JULY_PAYMENT
-                 THEN 1 ELSE 0 END) AS STABLE_BILL_MAY_GT_JULY_COUNT
- FROM june_cohort GROUP BY BILL_DAY_GROUP,PAYMENT_GROUP
+ SELECT BILL_DAY_GROUP,MAX(PUBLISH_RESULTS) AS PUBLISH_RESULTS,
+        COUNT(*) AS JUNE_ZERO_COUNT,
+        SUM(COMPLETE_VALID) AS MATCHED_ACCOUNT_COUNT,
+        SUM(CASE WHEN COMPLETE_VALID=1 AND MAY_PAYMENT>JULY_PAYMENT
+                 THEN 1 ELSE 0 END) AS MAY_GT_JULY_COUNT
+ FROM june_cohort WHERE PAYMENT_GROUP='JUNE_ZERO'
+ GROUP BY BILL_DAY_GROUP
 )
-SELECT BILL_DAY_GROUP,PAYMENT_GROUP,REVIEW_STATUS,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JUNE_COHORT_COUNT END AS JUNE_COHORT_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN NO_MAY_RECORD_COUNT END AS NO_MAY_RECORD_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN NO_JULY_RECORD_COUNT END AS NO_JULY_RECORD_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_INVALID_PAYMENT_COUNT END AS MAY_INVALID_PAYMENT_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JULY_INVALID_PAYMENT_COUNT END AS JULY_INVALID_PAYMENT_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN COMPLETE_VALID_COUNT END AS COMPLETE_VALID_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN COMPLETE_STABLE_BILL_COUNT END AS COMPLETE_STABLE_BILL_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_PAYMENT_SUM/NULLIFZERO(COMPLETE_VALID_COUNT) END AS MAY_AVG_PAYMENT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JUNE_PAYMENT_SUM/NULLIFZERO(COMPLETE_VALID_COUNT) END AS JUNE_AVG_PAYMENT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN JULY_PAYMENT_SUM/NULLIFZERO(COMPLETE_VALID_COUNT) END AS JULY_AVG_PAYMENT,
+SELECT BILL_DAY_GROUP,
+       CASE WHEN PUBLISH_RESULTS=1 THEN JUNE_ZERO_COUNT END AS JUNE_ZERO_COUNT,
+       CASE WHEN PUBLISH_RESULTS=1 THEN MATCHED_ACCOUNT_COUNT END AS MATCHED_ACCOUNT_COUNT,
        CASE WHEN PUBLISH_RESULTS=1 THEN MAY_GT_JULY_COUNT END AS MAY_GT_JULY_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_EQ_JULY_COUNT END AS MAY_EQ_JULY_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_LT_JULY_COUNT END AS MAY_LT_JULY_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN MAY_JULY_POSITIVE_COUNT END AS MAY_JULY_POSITIVE_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN STABLE_BILL_MAY_GT_JULY_COUNT END AS STABLE_BILL_MAY_GT_JULY_COUNT,
-       CASE WHEN PUBLISH_RESULTS=1 THEN CAST(MAY_GT_JULY_COUNT AS FLOAT)/NULLIFZERO(COMPLETE_VALID_COUNT) END AS MAY_GT_JULY_SHARE,
-       CASE WHEN PUBLISH_RESULTS=1 THEN CAST(STABLE_BILL_MAY_GT_JULY_COUNT AS FLOAT)/NULLIFZERO(COMPLETE_STABLE_BILL_COUNT) END AS STABLE_BILL_MAY_GT_JULY_SHARE
-FROM pattern_summary ORDER BY 1,2;
+       CASE WHEN PUBLISH_RESULTS=1 THEN CAST(MAY_GT_JULY_COUNT AS FLOAT)/NULLIFZERO(MATCHED_ACCOUNT_COUNT) END AS MAY_GT_JULY_SHARE
+FROM payment_pattern_summary ORDER BY 1;
