@@ -1,16 +1,17 @@
-/* Three remaining calendar scenarios: compact full-population checks.
+/* Four calendar scenarios together: compact full-population checks.
    Teradata SQL Assistant: run Query 1 and Query 2 separately; export both.
-   June 2024 was already checked and is NOT repeated here.
+   Includes June 2024 for direct comparison with the other three cases.
 
    Target        Non-working start      Compared due days    Previous / next
    Nov 2008      Sat 1 / Sun 2           1-2 versus 3-31     Oct / Dec 2008
+   Jun 2024      Sat 1 / Sun 2 / hol 3   1-3 versus 4-31     May / Jul 2024
    Sep 2024      Sun 1                   1 versus 2-31       Aug / Oct 2024
    Jun 2025      Sun 1 / bank hol Mon 2  1-2 versus 3-31     May / Jul 2025
 
    QUERY 1 (5 columns): target month, due-day group, valid target accounts,
    target zero-payment count and zero rate. Rate excludes missing/special
    payments. Missing/invalid bill-day groups stay visible if present.
-   Original profiling zero counts: Nov 2008=27262, Sep 2024=7546,
+   Original profiling zero counts: Nov 2008=27262, Jun 2024=12916, Sep 2024=7546,
    Jun 2025=10115; current-source results can differ if data has changed.
 
    QUERY 2 (6 columns): target month, due-day group, target-zero accounts,
@@ -25,7 +26,7 @@
    adjacent records and missing/special values are never treated as zero.
    Groups use the TARGET month bill day; no assumption of unchanged bill days.
    The two queries must use a fixed source and the same target date list.
-   Calendar grouping is configured specifically for these three cases.
+   Calendar grouping is configured specifically for these four cases.
 
    Shared specials come from successful RDS account run 20, previously
    confirmed equal to the profiling list. Reference and account/month grain
@@ -43,7 +44,7 @@ WITH targets AS
  /* Edit this same date list in BOTH queries. Use first-of-month dates. */
  SELECT CALENDAR_DATE AS TARGET_MONTH
  FROM SYS_CALENDAR.CALENDAR
- WHERE CALENDAR_DATE IN (DATE '2008-11-01', DATE '2024-09-01', DATE '2025-06-01')
+ WHERE CALENDAR_DATE IN (DATE '2008-11-01', DATE '2024-06-01', DATE '2024-09-01', DATE '2025-06-01')
 ), reference_runs AS
 (
  SELECT DISTINCT RUN_ID FROM LAB_T_ORION_MVT.DQ_ACCOUNT_REVIEW
@@ -105,6 +106,8 @@ WITH targets AS
         CASE WHEN REFERENCE_RUN_COUNT=1 AND WINDOW_BAD_KEYS=0 THEN 1 ELSE 0 END AS PUBLISH_RESULTS,
         CASE WHEN TARGET_BILL_DAY IS NULL OR TARGET_BILL_DAY<1 OR TARGET_BILL_DAY>31
                        OR TARGET_BILL_DAY<>FLOOR(TARGET_BILL_DAY) THEN 'MISSING_OR_INVALID'
+             WHEN TARGET_MONTH=DATE '2024-06-01' AND TARGET_BILL_DAY IN (1,2,3) THEN 'DAYS_01_03'
+             WHEN TARGET_MONTH=DATE '2024-06-01' THEN 'DAYS_04_31'
              WHEN TARGET_MONTH=DATE '2024-09-01' AND TARGET_BILL_DAY=1 THEN 'DAY_01'
              WHEN TARGET_MONTH=DATE '2024-09-01' THEN 'DAYS_02_31'
              WHEN TARGET_BILL_DAY IN (1,2) THEN 'DAYS_01_02'
@@ -133,7 +136,7 @@ WITH targets AS
  /* Edit this same date list in BOTH queries. Use first-of-month dates. */
  SELECT CALENDAR_DATE AS TARGET_MONTH
  FROM SYS_CALENDAR.CALENDAR
- WHERE CALENDAR_DATE IN (DATE '2008-11-01', DATE '2024-09-01', DATE '2025-06-01')
+ WHERE CALENDAR_DATE IN (DATE '2008-11-01', DATE '2024-06-01', DATE '2024-09-01', DATE '2025-06-01')
 ), reference_runs AS
 (
  SELECT DISTINCT RUN_ID FROM LAB_T_ORION_MVT.DQ_ACCOUNT_REVIEW
@@ -195,6 +198,8 @@ WITH targets AS
         CASE WHEN REFERENCE_RUN_COUNT=1 AND WINDOW_BAD_KEYS=0 THEN 1 ELSE 0 END AS PUBLISH_RESULTS,
         CASE WHEN TARGET_BILL_DAY IS NULL OR TARGET_BILL_DAY<1 OR TARGET_BILL_DAY>31
                        OR TARGET_BILL_DAY<>FLOOR(TARGET_BILL_DAY) THEN 'MISSING_OR_INVALID'
+             WHEN TARGET_MONTH=DATE '2024-06-01' AND TARGET_BILL_DAY IN (1,2,3) THEN 'DAYS_01_03'
+             WHEN TARGET_MONTH=DATE '2024-06-01' THEN 'DAYS_04_31'
              WHEN TARGET_MONTH=DATE '2024-09-01' AND TARGET_BILL_DAY=1 THEN 'DAY_01'
              WHEN TARGET_MONTH=DATE '2024-09-01' THEN 'DAYS_02_31'
              WHEN TARGET_BILL_DAY IN (1,2) THEN 'DAYS_01_02'
