@@ -15,10 +15,11 @@ rejected automatically. Input validity must be assessed separately.
 Formula tolerance: account savings/balance max(0.0051, abs(ratio)*1E-9) for
 rounding; others max(1E-6, abs(ratio)*1E-9). FLOAT casts precede arithmetic.
 REVIEW_STATUS must be RECONCILED before claiming full input reconciliation.
-MEAN_WITHOUT_SMALL is diagnostic only. ABS_RATIO_CONTRIB_SHARE is a fraction
-of total absolute ratio magnitude, not a share of errors or model impact.
-SMALL_DENOM_SHARE is a fraction of VALID_COUNT; display enough decimal places
-in Excel so small nonzero proportions do not appear as zero.
+Output has eight columns: FIELD_NAME, POU_DT, DENOM_CUTOFF, VALID_COUNT,
+SMALL_DENOM_COUNT, MEAN_ALL, MEAN_WITHOUT_SMALL, REVIEW_STATUS.
+MEAN_WITHOUT_SMALL is diagnostic only; this does not recommend removing records.
+Contribution and reconciliation calculations remain internal; only the review
+status is shown alongside the counts and means.
 Counts are agreement-level observations (packages/customers can be repeated).
 Duplicate/null keys suppress outputs. Missing requested months return no rows.
 Compare MEAN_ALL and VALID_COUNT to saved profiling first; keep source fixed.
@@ -114,17 +115,13 @@ SELECT CAST('MV_PCKG_BAL_AMT_L6M_TO_L7T12M_RT' AS VARCHAR(64)) AS FIELD_NAME, AG
  GROUP BY FIELD_NAME, POU_DT, DENOM_CUTOFF
 )
 SELECT FIELD_NAME, POU_DT, DENOM_CUTOFF,
+ CASE WHEN BAD_KEYS=0 THEN VALID_COUNT END AS VALID_COUNT,
+ CASE WHEN BAD_KEYS=0 THEN SMALL_DENOM_COUNT END AS SMALL_DENOM_COUNT,
+ CASE WHEN BAD_KEYS=0 THEN MEAN_ALL END AS MEAN_ALL,
+ CASE WHEN BAD_KEYS=0 THEN MEAN_WITHOUT_SMALL END AS MEAN_WITHOUT_SMALL,
  CASE WHEN BAD_KEYS>0 THEN 'CHECK_SOURCE_GRAIN'
       WHEN VALID_COUNT=0 THEN 'NO_VALID_RATIOS'
       WHEN RECONCILED_COUNT<>VALID_COUNT THEN 'CHECK_INPUT_RECONCILIATION'
-      ELSE 'RECONCILED' END AS REVIEW_STATUS,
- CASE WHEN BAD_KEYS=0 THEN VALID_COUNT END AS VALID_COUNT,
- CASE WHEN BAD_KEYS=0 THEN RECONCILED_COUNT END AS RECONCILED_COUNT,
- CASE WHEN BAD_KEYS=0 THEN MEAN_ALL END AS MEAN_ALL,
- CASE WHEN BAD_KEYS=0 THEN SMALL_DENOM_COUNT END AS SMALL_DENOM_COUNT,
- CASE WHEN BAD_KEYS=0 THEN CAST(SMALL_DENOM_COUNT AS FLOAT)/NULLIFZERO(CAST(VALID_COUNT AS FLOAT)) END AS SMALL_DENOM_SHARE,
- CASE WHEN BAD_KEYS=0 THEN SMALL_ABS_RATIO_SUM/NULLIFZERO(ALL_ABS_RATIO_SUM) END AS ABS_RATIO_CONTRIB_SHARE,
- CASE WHEN BAD_KEYS=0 THEN MEAN_WITHOUT_SMALL END AS MEAN_WITHOUT_SMALL,
- CASE WHEN BAD_KEYS=0 THEN MIN_POS_DENOM END AS MIN_POS_DENOM
+      ELSE 'RECONCILED' END AS REVIEW_STATUS
 FROM aggregated
 ORDER BY FIELD_NAME, POU_DT, DENOM_CUTOFF;
