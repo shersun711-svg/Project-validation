@@ -14,14 +14,15 @@ Numeric inputs equal to those codes may be genuine amounts, so they are not
 rejected automatically. Input validity must be assessed separately.
 Formula tolerance: account savings/balance max(0.0051, abs(ratio)*1E-9) for
 rounding; others max(1E-6, abs(ratio)*1E-9). FLOAT casts precede arithmetic.
-REVIEW_STATUS must be RECONCILED before claiming full input reconciliation.
-Output has eight columns: FIELD_NAME, POU_DT, DENOM_CUTOFF, VALID_COUNT,
-SMALL_DENOM_COUNT, MEAN_ALL, MEAN_WITHOUT_SMALL, REVIEW_STATUS.
+Output has seven columns: FIELD_NAME, POU_DT, DENOM_CUTOFF, VALID_COUNT,
+SMALL_DENOM_COUNT, MEAN_ALL, MEAN_WITHOUT_SMALL.
 MEAN_WITHOUT_SMALL is diagnostic only; this does not recommend removing records.
-Contribution and reconciliation calculations remain internal; only the review
-status is shown alongside the counts and means.
+Contribution and reconciliation calculations remain internal; the displayed
+counts and means describe concentration, not proof that inputs are correct.
 Counts are agreement-level observations (packages/customers can be repeated).
-Duplicate/null keys suppress outputs. Missing requested months return no rows.
+Duplicate/null keys suppress numeric outputs as NULL; these are not passed results.
+Missing requested months return no rows.
+Cutoff UNION branches reference a one-row seed to avoid Teradata error 3888.
 Compare MEAN_ALL and VALID_COUNT to saved profiling first; keep source fixed.
 Arithmetic reconciliation does not validate underlying amounts or model treatment.
 Delinquency is excluded: originating related-account inputs are still required.
@@ -94,11 +95,14 @@ SELECT CAST('MV_PCKG_BAL_AMT_L6M_TO_L7T12M_RT' AS VARCHAR(64)) AS FIELD_NAME, AG
        <= CASE WHEN FIELD_NAME='MV_TOT_DEP_SAV_TO_ACC_BAL_RT' AND ABS(RATIO_VALUE)*1E-9<0.0051 THEN 0.0051 WHEN ABS(RATIO_VALUE)*1E-9>1E-6 THEN ABS(RATIO_VALUE)*1E-9 ELSE 1E-6 END
   THEN 1 ELSE 0 END AS FORMULA_MATCH
  FROM marked M
+), cutoff_seed AS
+(
+ SELECT COUNT(*) AS SEED_COUNT FROM source_values
 ), cutoffs AS
 (
- SELECT CAST(10 AS FLOAT) AS DENOM_CUTOFF
- UNION ALL SELECT CAST(500 AS FLOAT)
- UNION ALL SELECT CAST(100 AS FLOAT)
+ SELECT CAST(10 AS FLOAT) AS DENOM_CUTOFF FROM cutoff_seed
+ UNION ALL SELECT CAST(100 AS FLOAT) FROM cutoff_seed
+ UNION ALL SELECT CAST(500 AS FLOAT) FROM cutoff_seed
 ), aggregated AS
 (
  SELECT FIELD_NAME, POU_DT, DENOM_CUTOFF,
@@ -118,10 +122,6 @@ SELECT FIELD_NAME, POU_DT, DENOM_CUTOFF,
  CASE WHEN BAD_KEYS=0 THEN VALID_COUNT END AS VALID_COUNT,
  CASE WHEN BAD_KEYS=0 THEN SMALL_DENOM_COUNT END AS SMALL_DENOM_COUNT,
  CASE WHEN BAD_KEYS=0 THEN MEAN_ALL END AS MEAN_ALL,
- CASE WHEN BAD_KEYS=0 THEN MEAN_WITHOUT_SMALL END AS MEAN_WITHOUT_SMALL,
- CASE WHEN BAD_KEYS>0 THEN 'CHECK_SOURCE_GRAIN'
-      WHEN VALID_COUNT=0 THEN 'NO_VALID_RATIOS'
-      WHEN RECONCILED_COUNT<>VALID_COUNT THEN 'CHECK_INPUT_RECONCILIATION'
-      ELSE 'RECONCILED' END AS REVIEW_STATUS
+ CASE WHEN BAD_KEYS=0 THEN MEAN_WITHOUT_SMALL END AS MEAN_WITHOUT_SMALL
 FROM aggregated
 ORDER BY FIELD_NAME, POU_DT, DENOM_CUTOFF;
