@@ -1,10 +1,10 @@
-/* Numeric REVERSION return-tolerance sensitivity: 12 non-counter fields.
+/* Numeric REVERSION sensitivity: 3 jump settings x 3 return settings: 12 non-counter fields.
 Run SAS 01 then 07 in the SAME session, then this file. Do not run file 06/08/09.
 Set reversion_output_file to a NEW SAS SERVER XLSX path. No customer details export.
 Baseline account run 20 supplies source, special snapshot, jump and return settings.
-Jump thresholds stay fixed at their original values in every setting. Only one
-return tolerance changes at a time. OR/MAX return logic is retained.
-Five settings per field = 60 comparisons. Two domain-specific counters excluded.
+Jump absolute factors 0.5/1/2; jump relative factors 0.5/1/1.5.
+Both return tolerances scale together by 0.5/1/2, retaining the OR/MAX rule.
+Nine settings per field = 108 comparisons. Two domain-specific counters excluded.
 Uses only session-volatile TD history; no permanent config, results or logs changed.
 Require SUCCEEDED status and complete Manifest before interpreting results.
 Live SAS/Teradata execution is still required; do not treat this as a completed test.
@@ -153,29 +153,42 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
   %goto fail;
  %end;
  proc sort data=work.dq_rev_fields; by field_name; run;
- /* Original return settings plus four one-at-a-time tolerance changes. */
+ /* Full 3 x 3 grid; both return tolerances use the SAME scale factor. */
  data work.dq_rev_scenarios;
   set work.dq_rev_fields;
-  length scenario_id $16 baseline_ind $1;
-  do a=1 to 5;
-   abs_min=abs_change_min;rel_min=rel_change_min;
-   return_abs=return_abs_tol;return_rel=return_rel_tol;
-   if a=1 then scenario_id='ORIGINAL';
-   if a=2 then do;scenario_id='ABS_LOWER';return_abs=return_abs_tol*0.5;end;
-   if a=3 then do;scenario_id='ABS_HIGHER';return_abs=return_abs_tol*2;end;
-   if a=4 then do;scenario_id='REL_LOWER';return_rel=return_rel_tol*0.5;end;
-   if a=5 then do;scenario_id='REL_HIGHER';return_rel=return_rel_tol*2;end;
-   baseline_ind=ifc(a=1,'Y','N');output;
+  length scenario_id $16 baseline_ind $1 jump_setting return_setting $8;
+  array jump_abs_factors[3] _temporary_ (0.5 1 2);
+  array jump_rel_factors[3] _temporary_ (0.5 1 1.5);
+  array return_factors[3] _temporary_ (0.5 1 2);
+  do jump_level=1 to 3;
+   if jump_level=1 then jump_setting='LOWER';
+   if jump_level=2 then jump_setting='ORIGINAL';
+   if jump_level=3 then jump_setting='HIGHER';
+   do return_level=1 to 3;
+    if return_level=1 then return_setting='TIGHTER';
+    if return_level=2 then return_setting='ORIGINAL';
+    if return_level=3 then return_setting='WIDER';
+    abs_min=abs_change_min*jump_abs_factors[jump_level];
+    rel_min=rel_change_min*jump_rel_factors[jump_level];
+    return_abs=return_abs_tol*return_factors[return_level];
+    return_rel=return_rel_tol*return_factors[return_level];
+    if jump_level=2 and return_level=2 then scenario_id='ORIGINAL';
+    else scenario_id=catx('_',jump_setting,return_setting);
+    baseline_ind=ifc(jump_level=2 and return_level=2,'Y','N');
+    output;
+   end;
   end;
-  keep field_name field_group unit_note scenario_id baseline_ind abs_min rel_min
-       return_abs return_rel;
+  keep field_name field_group unit_note scenario_id baseline_ind jump_level
+       return_level jump_setting return_setting abs_min rel_min return_abs return_rel;
  run;
  %if &syserr>4 %then %goto local_fail;
  data work._rev_sql;
   set work.dq_rev_scenarios;
   length sql_branch $1500;
   sql_branch=catx(' ',"SELECT CAST(",quote(trim(scenario_id),"'"),
-   "AS VARCHAR(16)) AS SCENARIO_ID, CAST(",put(abs_min,best32.),
+   "AS VARCHAR(16)) AS SCENARIO_ID, CAST(",put(jump_level,best32.),
+   "AS INTEGER) AS JUMP_LEVEL, CAST(",put(return_level,best32.),
+   "AS INTEGER) AS RETURN_LEVEL, CAST(",put(abs_min,best32.),
    "AS FLOAT) AS ABS_MIN, CAST(",put(rel_min,best32.),
    "AS FLOAT) AS REL_MIN, CAST(",put(return_abs,best32.),
    "AS FLOAT) AS RETURN_ABS, CAST(",put(return_rel,best32.),
@@ -245,7 +258,8 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
      SELECT E.POU_DT,E.PAIR_ELIGIBLE,E.TRIPLE_ELIGIBLE,
       E.PREVIOUS_STATE,E.VALUE_STATE,E.NEXT_STATE,
       E.NUMERIC_JUMP,E.NUMERIC_REVERSION,
-      C.SCENARIO_ID,C.RETURN_ABS,C.RETURN_REL,
+      C.SCENARIO_ID,C.JUMP_LEVEL,C.RETURN_LEVEL,C.ABS_MIN,C.REL_MIN,
+      C.RETURN_ABS,C.RETURN_REL,
       CASE WHEN PAIR_ELIGIBLE=1 AND PREVIOUS_STATE='VALID' AND VALUE_STATE='VALID'
          AND ABS(CHANGE_VALUE)>=C.ABS_MIN
          AND (PREVIOUS_NUMBER=0 OR ABS(RELATIVE_CHANGE)>=C.REL_MIN)
@@ -265,7 +279,7 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
      FROM JUMP_FLAGS J
     ), MONTHLY AS
     (
-     SELECT SCENARIO_ID,RETURN_ABS,RETURN_REL,
+     SELECT SCENARIO_ID,JUMP_LEVEL,RETURN_LEVEL,ABS_MIN,REL_MIN,RETURN_ABS,RETURN_REL,
        EXTRACT(YEAR FROM POU_DT) AS YY,EXTRACT(MONTH FROM POU_DT) AS MM,
        MAX(POU_DT) AS POU_DT,COUNT(*) AS TOTAL_COUNT,
        SUM(CASE WHEN PAIR_ELIGIBLE=1 AND PREVIOUS_STATE='VALID'
@@ -277,10 +291,13 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
        SUM(NUMERIC_REVERSION) AS BASELINE_REVERSION_COUNT,
        SUM(CASE WHEN S_REVERSION=1 AND NUMERIC_REVERSION=0 THEN 1 ELSE 0 END) AS REVERSION_ADDED,
        SUM(CASE WHEN S_REVERSION=0 AND NUMERIC_REVERSION=1 THEN 1 ELSE 0 END) AS REVERSION_REMOVED
-     FROM EVALUATED GROUP BY 1,2,3,4,5
+     FROM EVALUATED GROUP BY 1,2,3,4,5,6,7,8,9
     )
     SELECT CAST(&_field_sql AS VARCHAR(128)) AS FIELD_NAME,
       CAST(M.SCENARIO_ID AS VARCHAR(16)) AS SCENARIO_ID,
+      CAST(M.JUMP_LEVEL AS INTEGER) AS JUMP_LEVEL,
+      CAST(M.RETURN_LEVEL AS INTEGER) AS RETURN_LEVEL,
+      CAST(M.ABS_MIN AS FLOAT) AS ABS_MIN,CAST(M.REL_MIN AS FLOAT) AS REL_MIN,
       CAST(M.RETURN_ABS AS FLOAT) AS RETURN_ABS,
       CAST(M.RETURN_REL AS FLOAT) AS RETURN_REL,
       CAST(M.YY AS INTEGER) AS YY,CAST(M.MM AS INTEGER) AS MM,
@@ -326,13 +343,28 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
    select count(*) into :_bad_values trimmed from work._rev_one
     where reference_status ne 'MATCHED_SUMMARY'
        or (scenario_id='ORIGINAL' and reversion_count ne baseline_reversion_count)
-       or (scenario_id in ('ABS_LOWER','REL_LOWER') and reversion_added ne 0)
-       or (scenario_id in ('ABS_HIGHER','REL_HIGHER') and reversion_removed ne 0)
-       or jump_count ne baseline_jump_count;
+       or (jump_level>=2 and return_level<=2 and reversion_added ne 0)
+       or (jump_level<=2 and return_level>=2 and reversion_removed ne 0)
+       or (jump_level=2 and jump_count ne baseline_jump_count)
+       or (jump_level=1 and jump_count<baseline_jump_count)
+       or (jump_level=3 and jump_count>baseline_jump_count)
+       or reversion_count>jump_count or reversion_count>valid_triple_count;
   quit;
   %if &sqlrc ne 0 %then %goto local_fail;
   %if &_bad_values>0 %then %do;
    %let dq_rev_error=Baseline/source reconciliation or scenario nesting failed. Field &_field.;
+   %goto fail;
+  %end;
+  proc sql noprint;
+   select count(*) into :_bad_values trimmed
+   from work._rev_one A inner join work._rev_one B
+    on A.pou_dt=B.pou_dt
+    and A.jump_level<=B.jump_level and A.return_level>=B.return_level
+   where A.reversion_count<B.reversion_count;
+  quit;
+  %if &sqlrc ne 0 %then %goto local_fail;
+  %if &_bad_values>0 %then %do;
+   %let dq_rev_error=Grid monotonicity failed. Field &_field.;
    %goto fail;
   %end;
   data work._rev_one;
@@ -351,7 +383,7 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
  %end;
  proc sql;
   create table work.dq_rev_totals as
-   select field_name,scenario_id,return_abs,return_rel,
+   select field_name,scenario_id,jump_level,return_level,abs_min,rel_min,return_abs,return_rel,
     count(*) as months_evaluated,sum(valid_triple_count) as eligible_triples,
     sum(jump_count) as jumps,
     sum(reversion_count) as reversions,
@@ -361,7 +393,7 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
     sum(reversion_difference) as reversion_difference,
     sum(reversion_added) as reversion_added,sum(reversion_removed) as reversion_removed
    from work.dq_rev_monthly
-   group by field_name,scenario_id,return_abs,return_rel;
+   group by field_name,scenario_id,jump_level,return_level,abs_min,rel_min,return_abs,return_rel;
  quit;
  %if &sqlrc ne 0 %then %goto local_fail;
  proc sql noprint;
@@ -369,7 +401,7 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
   select count(*) into :_actual_configs trimmed from work.dq_rev_totals;
  quit;
  %if &sqlrc ne 0 %then %goto local_fail;
- %if &_planned_configs ne 60 or &_planned_configs ne &_actual_configs %then %do;
+ %if &_planned_configs ne 108 or &_planned_configs ne &_actual_configs %then %do;
   %let dq_rev_error=Not every planned field/scenario produced a summary.; %goto fail;
  %end;
  data work.dq_rev_manifest;
@@ -378,17 +410,17 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
   baseline_run=&reversion_baseline_run;fields=12;field_scenarios=&_planned_configs;status='COMPLETE';
   source_note='Current source recalculated with historical special-value snapshot. MATCHED_SUMMARY is not proof of identical source records.';
   length scope $40 plan_note $160;
-  scope='NUMERIC_REVERSION_RETURN_ONLY';
-  plan_note='Fixed original jump thresholds; original returns plus four one-at-a-time tolerance changes. OR/MAX retained. Two counters excluded.';
+  scope='NUMERIC_REVERSION_3X3';
+  plan_note='3 jump settings x 3 paired return scales. OR/MAX retained. Original/original baseline. Two counters excluded.';
   created=datetime();format created datetime20.;
  run;
- /* Keep each field/month's three scenarios together in the workbook. */
+ /* Keep each field/month together; jump level first, then return tolerance. */
  proc sort data=work.dq_rev_monthly;
-  by field_name pou_dt scenario_id;
+  by field_name pou_dt jump_level return_level;
  run;
  %if &syserr>4 %then %goto local_fail;
  proc sort data=work.dq_rev_totals;
-  by field_name scenario_id;
+  by field_name jump_level return_level;
  run;
  %if &syserr>4 %then %goto local_fail;
  libname _dqsxlsx xlsx "%superq(reversion_output_file)";
@@ -400,16 +432,16 @@ Live SAS/Teradata execution is still required; do not treat this as a completed 
  data _dqsxlsx.Scenarios;set work.dq_rev_scenarios;run;
  %if &syserr>4 %then %goto export_fail;
  data _dqsxlsx.Monthly;
-  retain field_name pou_dt scenario_id return_abs return_rel total_count valid_triple_count
+  retain field_name pou_dt scenario_id abs_min rel_min return_abs return_rel total_count valid_triple_count
          jump_count reversion_count reversion_rate baseline_reversion_count
          reversion_difference reversion_added reversion_removed;
   set work.dq_rev_monthly;
-  keep field_name pou_dt scenario_id return_abs return_rel total_count valid_triple_count
+  keep field_name pou_dt scenario_id abs_min rel_min return_abs return_rel total_count valid_triple_count
        jump_count reversion_count reversion_rate baseline_reversion_count
        reversion_difference reversion_added reversion_removed;
  run;
  %if &syserr>4 %then %goto export_fail;
- data _dqsxlsx.Totals;set work.dq_rev_totals;run;
+ data _dqsxlsx.Totals;set work.dq_rev_totals;drop jump_level return_level;run;
  %if &syserr>4 %then %goto export_fail;
  data _dqsxlsx.Manifest;set work.dq_rev_manifest;run;
  %if &syserr>4 %then %goto export_fail;
