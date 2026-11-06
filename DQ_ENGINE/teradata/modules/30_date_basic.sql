@@ -1,0 +1,7 @@
+/* Date counts and missing percentage only; no date extrema or distinct count. */
+REPLACE PROCEDURE DQ_DB.SP_DQ_DATE_BASIC
+    (IN P_RUN_ID CHAR(36), IN P_PROJECT_ID VARCHAR(30))
+SQL SECURITY INVOKER
+BEGIN
+    CALL DQ_DB.SP_DQ_OTHER_BASIC(P_RUN_ID,P_PROJECT_ID,'DATE');
+END;

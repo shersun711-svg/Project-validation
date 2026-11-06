@@ -1,0 +1,89 @@
+Numeric reversion sensitivity: SAS file 10 -- agreed 3 x 3 plan
+
+Purpose: assess numeric reversion across both the initial-jump screen and the
+permitted distance of the following value from the starting value. These are
+sensitivity results, not automatic error labels or approved business thresholds.
+This covers the same 12 non-counter fields as the completed jump exercise.
+The two month counters retain their separate, agreed domain-specific checks.
+No report conclusions have been changed as part of this preparation.
+
+Jump level (factors applied to each field's captured original limits):
+LOWER: absolute x0.5; relative x0.5.
+ORIGINAL: absolute x1; relative x1.
+HIGHER: absolute x2; relative x1.5.
+Both jump gates apply, except that previous=0 uses the absolute jump gate only.
+
+Return level (BOTH tolerances use the same factor):
+TIGHTER: absolute x0.5; relative x0.5.
+ORIGINAL: absolute x1; relative x1.
+WIDER: absolute x2; relative x2.
+
+All nine combinations are evaluated for each field:
+                     TIGHTER            ORIGINAL             WIDER
+LOWER jump           LOWER_TIGHTER      LOWER_ORIGINAL       LOWER_WIDER
+ORIGINAL jump        ORIGINAL_TIGHTER   ORIGINAL             ORIGINAL_WIDER
+HIGHER jump          HIGHER_TIGHTER     HIGHER_ORIGINAL      HIGHER_WIDER
+
+The middle cell, ORIGINAL, is the unchanged jump-and-return baseline.
+Nine settings x 12 fields = 108 field/scenario comparisons in ONE runner.
+These are not 108 new engine runs. The source history is staged once per field.
+
+Return rule remains:
+ABS(next value - previous value) <= MAX(absolute return tolerance,
+                                      ABS(previous value)*relative return tolerance)
+This is the agreed OR rule: either return-distance limit may be satisfied.
+The first leg must qualify as a jump, the next leg must reverse direction, and
+all three numeric values must be valid in consecutive calendar months.
+Flags belong to the middle month. Returning to the exact starting value is not
+required. Scaling both return limits together scales this effective MAX allowance.
+Missing/special-value recoveries do not use these numeric tolerances; their counts
+are not retested here. Missing/special values are excluded from numeric reversion.
+
+Run order (same SAS session):
+1. Run 01_dq_controller.sas.
+2. Run 07_account_checks.sas to load the macros.
+3. Open 10_numeric_reversion_sensitivity.sas. Set reversion_output_file to a NEW
+   XLSX path accessible to the SAS SERVER. Confirm server/auth/schema settings.
+4. Run file 10 once. Do not run the ordinary 06 runner or the older file 08.
+   File 09 need not be rerun; file 10 assesses reversion for the full agreed grid.
+5. Require dq_rev_status=SUCCEEDED and a COMPLETE Manifest. Retain all sheets.
+
+Run 20 must remain available. Its captured source, window, thresholds and special
+snapshot are read. No AccountFields edits, new engine run ID, permanent results
+or configuration changes are made. The source must remain fixed across fields;
+a frozen build is preferred. Matching baseline aggregates is a control, not proof
+that every underlying record is identical to the original build.
+
+Output sheets: Baseline, Scenarios, Monthly, Totals, Manifest.
+Monthly is ordered by FIELD_NAME, POU_DT, jump level, return level.
+Totals is ordered by FIELD_NAME, jump level, return level.
+The Scenarios sheet provides actual field-specific jump and return settings.
+If each field has 255 months, expect 27,540 Monthly rows and 108 Totals rows.
+Monthly reversion rates use VALID_TRIPLE_COUNT. JUMP_COUNT uses valid pairs and
+can include observations without an eligible next month. It is not the reversion
+rate denominator. Baseline counts, additions/removals and changes are relative
+to the unchanged original/original cell, not to adjacent rows in the grid.
+Do not sum across scenarios: they evaluate the same source history repeatedly.
+No account identifiers or individual amounts are exported.
+
+How to read the grid:
+Compare return columns at a fixed jump level to isolate return tolerance effects.
+Compare jump rows at a fixed return level to isolate initial-jump selection.
+Tighter return limits cannot add reversions at fixed jump limits; wider limits
+cannot remove them. Higher jump limits cannot add reversions at fixed returns.
+Opposite corners combine opposing effects and can add some records while removing
+others. Their count difference alone does not establish identical event sets.
+
+Controls:
+Null/duplicate keys and invalid histories stop the assessment. Baseline population,
+eligible pairs/triples, jumps and reversions must match saved monthly summaries.
+Original/original results must reproduce the baseline. Baseline-relative event
+nesting and whole-grid count ordering are checked. No complete output is published
+if these controls fail. Reject any partial workbook after an export failure.
+
+Verification completed locally:
+Embedded SQL was executed on synthetic boundary cases using SQLite adaptations.
+Tests cover all nine cells, paired return scales, OR/MAX dominance and inclusive
+boundaries, zero starts, month gaps, missing/special eligibility, direction,
+added/removed records, grid ordering and baseline mismatch detection.
+Live SAS/Teradata execution is pending. Full-source runtime/spool is unmeasured.
