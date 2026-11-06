@@ -1,0 +1,57 @@
+Numeric reversion sensitivity: SAS file 10
+
+Purpose: finish account-level numeric reversion sensitivity before further report
+conclusions. No report wording has been changed as part of this preparation.
+This covers the same 12 non-counter numeric fields as the completed jump exercise.
+The two month counters retain their separate, agreed domain-specific checks.
+
+Five settings per field (60 field/settings; no new engine runs):
+ORIGINAL: original jump limits and original return tolerances.
+ABS_LOWER: original jumps; absolute return tolerance x0.5; original relative return.
+ABS_HIGHER: original jumps; absolute return tolerance x2; original relative return.
+REL_LOWER: original jumps; relative return tolerance x0.5; original absolute return.
+REL_HIGHER: original jumps; relative return tolerance x2; original absolute return.
+
+Return condition remains:
+ABS(next value - previous value) <= MAX(absolute return tolerance,
+                                      ABS(previous value)*relative return tolerance)
+The first leg must qualify as a jump, the next leg must reverse direction, and all
+three calendar months and all three numeric values must be valid and consecutive.
+A lower return tolerance is tighter, so it can remove reversion flags; a higher
+return tolerance is looser, so it can add them. The other OR/MAX tolerance may
+dominate, producing no change; this is an interpretable outcome.
+Missing/special-value recovery counts do not depend on these numeric tolerances
+and are not changed by this runner.
+
+Run order (same SAS session):
+1. Run 01_dq_controller.sas.
+2. Run 07_account_checks.sas to load the macros.
+3. Open 10_numeric_reversion_sensitivity.sas; set reversion_output_file to a NEW
+   XLSX path accessible to the SAS SERVER. Confirm server/auth/schema settings.
+4. Run file 10 once. Do not run the normal 06 runner or old sensitivity file 08.
+5. Require dq_rev_status=SUCCEEDED and a COMPLETE Manifest. Retain all sheets.
+
+No AccountFields edits, new engine run ID, permanent results or configuration
+changes are required. Source history is staged once per field, then five settings
+are evaluated on it. The source must remain fixed throughout the assessment.
+The saved run-20 special-value snapshot and captured original settings are used.
+Run 20 must remain available. A frozen source is preferred. Matching aggregate
+baseline summaries is a control, not proof of identical underlying source records.
+
+Sheets: Baseline, Scenarios, Monthly, Totals, Manifest.
+Monthly is ordered by FIELD_NAME, POU_DT, SCENARIO_ID. If each field has 255 months,
+expect 15,300 Monthly rows and 60 Totals rows. Rates use VALID_TRIPLE_COUNT;
+JUMP_COUNT includes valid pairs and is a separate count, not the rate denominator.
+Do not add totals across scenarios; they re-evaluate the same history.
+No account identifiers or individual amounts are exported.
+
+Controls: null/duplicate keys and invalid history stop the assessment. Baseline
+population, eligible pairs/triples, jump count and numeric-reversion count must
+match saved monthly results. Scenario nesting and fixed jump counts in return-only
+settings are checked before publishing a complete output workbook.
+
+Verification completed locally: the embedded SQL was executed on synthetic boundary
+cases using SQLite adaptations. Cases cover absolute/relative dominance, zero
+starts, month gaps, invalid next values, direction changes, tighter/looser returns,
+fixed jump gates and baseline mismatches. Live SAS/Teradata execution is pending.
+Runtime and spool requirements on the full source have not been measured.
