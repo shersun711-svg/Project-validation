@@ -1,11 +1,12 @@
-/* READ ONLY. May 2019 package-balance follow-up. Run the entire SELECT once.
-Uses the SAME April/May account pairs as the four-field overlap check.
+/* READ ONLY. February and May 2019 package-balance follow-up. Run the entire SELECT once.
+Uses January/February pairs and April/May pairs for the same-account overlap check.
 Reads original balance jump limits from account run 20 (expected 10000 / 0.50).
 A jump requires both limits; previous zero bypasses the relative gate only.
 Valid numeric zero is retained; missing/special balances are excluded.
-Expected baseline BALANCE_JUMPS=12599 on the original source version.
+Expected original BALANCE_JUMPS: February 8861; May 12599. Two output rows.
 Overlap counts are subsets of balance jumps; they must not be added together.
-FIELD_COUNT=4 means all four OTHER fields valid in April and missing in May.
+FIELD_COUNT=4 means all four OTHER fields valid in the preceding month and missing
+in the reporting month. Each month is evaluated separately; same columns retained.
 NULL counts mean failed controls, not zero events. An absent row is not a pass.
 Current missing package IDs do not establish cause or that the ID became missing.
 Full population; no account details, permanent objects or saved-result changes.
@@ -54,7 +55,7 @@ WITH reference_runs AS
  NULLIF(TRIM(CAST(PCKG_ID AS VARCHAR(128))),'') AS PACKAGE_ID,
  COUNT(*) OVER (PARTITION BY AGMT_ID,EXTRACT(YEAR FROM FACT_DT),EXTRACT(MONTH FROM FACT_DT)) AS KEY_COUNT
  FROM LAB_T_ORION_MVT.VW_RDS_PHASE2_FACT
- WHERE CAST(FACT_DT AS DATE) IN (DATE '2019-04-30',DATE '2019-05-31')
+ WHERE CAST(FACT_DT AS DATE) IN (DATE '2019-01-31',DATE '2019-02-28',DATE '2019-04-30',DATE '2019-05-31')
 ), key_control AS
 (
  SELECT SUM(CASE WHEN AGMT_ID IS NULL OR TRIM(CAST(AGMT_ID AS VARCHAR(128)))='' OR KEY_COUNT<>1 THEN 1 ELSE 0 END) AS BAD_KEYS
@@ -80,7 +81,7 @@ WITH reference_runs AS
  LEFT JOIN num_special BS1 ON P.BALANCE_VALUE=BS1.SPECIAL_KEY
  LEFT JOIN num_special BS2 ON C.BALANCE_VALUE=BS2.SPECIAL_KEY
  CROSS JOIN balance_limits L
- WHERE C.POU_DT=DATE '2019-05-31'
+ WHERE C.POU_DT IN (DATE '2019-02-28',DATE '2019-05-31')
 ), overlap_values AS
 (
  SELECT F.*,EVENT_MISSING+POSTCODE_MISSING+BOVO_MISSING+REPAY_MISSING AS FIELD_COUNT
