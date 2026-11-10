@@ -1,3 +1,10 @@
+/* Reconciliation precision: the documented formula converts the quotient to
+DECIMAL(18,6) BEFORE x100. Allow 0.000101 percentage points (one quotient unit
+of 0.000001 x100 plus float margin), not the earlier 0.000001 allowance.
+This is an arithmetic diagnostic allowance, not a jump/business threshold.
+A NULL numerator maps to zero via the documented ZEROIFNULL expression; negative
+numerators or quotients above 10 would instead require the documented special code.
+Changed-input counts and jump/overlap logic are unchanged. */
 /* READ ONLY Teradata SQL Assistant. Run each numbered SELECT separately.
 Full populations, no account sample; no permanent tables/config/run changes.
 Uses the analyst-confirmed numeric special list. Counts are account-month events.
@@ -51,5 +58,5 @@ SELECT POU_DT,SCENARIO,
  CASE WHEN MAX(BAD)=0 THEN SUM(CASE WHEN PKG IS NULL THEN 1 ELSE 0 END) END AS CURRENT_PKG_MISSING,
  CASE WHEN MAX(BAD)=0 THEN SUM(CASE WHEN PKG<>P_PKG THEN 1 ELSE 0 END) END AS POPULATED_PKG_CHANGED,
  CASE WHEN MAX(BAD)=0 THEN SUM(CASE WHEN THRU<>P_THRU THEN 1 ELSE 0 END) END AS POPULATED_THRU_CHANGED,
- CASE WHEN MAX(BAD)=0 THEN SUM(CASE WHEN NUM IS NULL OR DEN IS NULL OR DEN<=0 THEN 1 WHEN ABS(V-100*NUM/NULLIFZERO(DEN))>GREATEST(CAST(0.000001 AS FLOAT),ABS(V)*0.000001) THEN 1 ELSE 0 END) END AS INPUT_NOT_RECONCILED
+ CASE WHEN MAX(BAD)=0 THEN SUM(CASE WHEN DEN IS NULL OR DEN<=0 THEN 1 WHEN NUM<0 OR NUM/NULLIFZERO(DEN)>10 THEN 1 WHEN ABS(V-100*COALESCE(NUM,CAST(0 AS FLOAT))/NULLIFZERO(DEN))>GREATEST(CAST(0.000101 AS FLOAT),ABS(V)*CAST(0.000000001 AS FLOAT)) THEN 1 ELSE 0 END) END AS INPUT_NOT_RECONCILED
 FROM f CROSS JOIN control GROUP BY POU_DT,SCENARIO ORDER BY POU_DT,SCENARIO;
