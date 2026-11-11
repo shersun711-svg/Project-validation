@@ -1,4 +1,27 @@
-# DQ Engine — start here
+# Pre-RDS project
+
+Working branch: **pre-rds-project**. MVT.
+
+This branch starts from `release/dq-engine-team-reuse-2026-10-28`
+(commit `7082bd8946539031c881aa46c29180568dc2a24b`).
+The reusable engine scripts are unchanged.
+
+## Start with the source setup
+
+The first source database is **LAB_P_HOLMES_LIVE**.
+Open [the project guidance](pre_rds/LAB_P_HOLMES_LIVE/README.txt), then run the
+two SELECTs in [01_source_metadata.sql](pre_rds/LAB_P_HOLMES_LIVE/01_source_metadata.sql).
+The metadata SQL covers the fields in the supplied completeness extract.
+A separate detailed field-inventory upload is pending authorization.
+
+The supplied extract contains completeness results. Accuracy and uniqueness
+are separate review areas. Source reporting dates, populations and special-value
+rules are not yet confirmed; no pre-RDS profiling run has been performed.
+The existing input workbooks still contain RDS examples. Prepare separate
+pre-RDS configurations before running profiling; do not overwrite the RDS project.
+All subsequent pre-RDS project files should be added to this branch.
+
+# Reusable DQ engine — execution guide
 
 Choose a folder by task. The numbered files show the run order.
 
@@ -9,8 +32,8 @@ Choose a folder by task. The numbered files show the run order.
 | [mom_yoy](mom_yoy/) | Install the MoM/YoY view and export per-metric MoM movements |
 | [account_level](account_level/) | Run and review separate account-level checks |
 
-This package has **17 files**, including this guide and two input workbooks.
-There are no tests, result exports, historical audit files or maintenance scripts.
+The inherited reusable package contains **17 template files**, including its guide
+and two input workbooks. The pre-RDS source setup files are additional.
 RDS settings are examples to change for your project.
 
 ## First time: basic profiling
