@@ -2,9 +2,7 @@
    logs and summaries only. Error policy: stop at the first required failure.
    The stored procedure owns database statuses; a CALL returning without an
    SQL error alone is not evidence of a successful run. */
-%global dq_controller_version;
-%let dq_controller_version=20261020_PROFILE_ONLY;
-%put NOTE: DQ controller loaded: &dq_controller_version;
+%put NOTE: DQ controller loaded.;
 %put NOTE: DQ SAS encoding: %sysfunc(getoption(encoding));
 
 %macro dq_validate_context;
