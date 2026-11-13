@@ -1,7 +1,7 @@
 # Pre-RDS project
 
 Working branch: **pre-rds-project**. MVT.
-Base: `release/dq-engine-team-reuse-2026-10-28`. The core engine scripts are unchanged.
+Base: `release/dq-engine-team-reuse-2026-10-28`. Core calculations are unchanged; the controller uses a simple loaded message.
 
 ## Start here — first profiling table
 
