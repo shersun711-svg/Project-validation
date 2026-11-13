@@ -798,8 +798,9 @@ END;
 /* INSTALL 20 — modules/02_special_value_list.sql */
 /* Small run-snapshot -> escaped SQL literal list, shared by Basic/Outliers.
    Workbook text is never executed as SQL. Numeric values use a typed DECIMAL;
-   categorical literals escape quotes. Empty list uses IN (NULL), which never
-   matches; CASE WHEN ... THEN NULL ELSE original END retains all values.
+   categorical literals escape quotes. Empty list returns the marker (NULL).
+   Callers translate this marker to 1=0; never emit IN (NULL), which Teradata
+   rejects with error 3731. All original nonmissing values remain eligible.
    CALL from procedures only, after the orchestrator snapshots configuration. */
 REPLACE PROCEDURE DQ_DB.SP_DQ_SPECIAL_LIST
     (IN P_RUN_ID CHAR(36),IN P_TYPE VARCHAR(16),OUT P_LIST VARCHAR(8000))
@@ -953,7 +954,9 @@ main: BEGIN
             IF CHARACTER_LENGTH(V_SOURCE_PROJECTION)+CHARACTER_LENGTH(V_LIST)+2*CHARACTER_LENGTH(TRIM(F.FIELD_NAME))+100>16000 THEN
                 SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Statistics SQL too long; reduce batch size or special list';
             END IF;
-            SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_LIST
+            SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION || ',CASE WHEN '
+              || CASE WHEN V_LIST='(NULL)' THEN '1=0'
+                      ELSE '"' || TRIM(F.FIELD_NAME) || '" IN ' || V_LIST END
               || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
             SET V_FIELD='S.DQ_C' || V_SUFFIX;
             SET V_PROJECTION=V_PROJECTION
@@ -1246,7 +1249,9 @@ main: BEGIN
                 SET V_FIELD = 'S.DQ_F' || V_SUFFIX;
                 SET V_CLEAN = 'S.DQ_C' || V_SUFFIX;
                 SET V_SOURCE_PART = V_SOURCE_PART
-                  || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_SPECIAL_LIST
+                  || ',CASE WHEN '
+                  || CASE WHEN V_SPECIAL_LIST='(NULL)' THEN '1=0'
+                          ELSE '"' || TRIM(F.FIELD_NAME) || '" IN ' || V_SPECIAL_LIST END
                   || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
                 SET V_METRIC_PART = ''
                  || ',COALESCE(SUM(CAST(CASE WHEN ' || V_FIELD || ' IS NOT NULL THEN 1 ELSE 0 END AS BIGINT)),0) AS N' || V_SUFFIX
@@ -1679,7 +1684,9 @@ main: BEGIN
                 /* Test special values in the native source first. Valid values
                    and final bounds use the metric store's DECIMAL(38,10)
                    comparison precision; never convert them back to FLOAT. */
-                SET V_SOURCE_PART='' || ',CASE WHEN "' || TRIM(F.FIELD_NAME) || '" IN ' || V_LIST
+                SET V_SOURCE_PART='' || ',CASE WHEN '
+                  || CASE WHEN V_LIST='(NULL)' THEN '1=0'
+                          ELSE '"' || TRIM(F.FIELD_NAME) || '" IN ' || V_LIST END
                   || ' THEN NULL ELSE CAST(ROUND("' || TRIM(F.FIELD_NAME)
                   || '",10) AS DECIMAL(38,10)) END AS DQ_C' || V_SUFFIX;
                 SET V_OVERALL_PART=''
@@ -2201,7 +2208,9 @@ main: BEGIN
                     SIGNAL SQLSTATE 'U0034' SET MESSAGE_TEXT='Categorical SQL too long; reduce SQL_BATCH_SIZE or special list';
                 END IF;
                 SET V_SOURCE_PROJECTION=V_SOURCE_PROJECTION
-                  || ',CASE WHEN UPPER(TRIM("' || TRIM(F.FIELD_NAME) || '")) IN ' || V_SPECIAL_LIST
+                  || ',CASE WHEN '
+                  || CASE WHEN V_SPECIAL_LIST='(NULL)' THEN '1=0'
+                          ELSE 'UPPER(TRIM("' || TRIM(F.FIELD_NAME) || '")) IN ' || V_SPECIAL_LIST END
                   || ' THEN NULL ELSE "' || TRIM(F.FIELD_NAME) || '" END AS DQ_C' || V_SUFFIX;
                 SET V_DISTINCT='S.DQ_C' || V_SUFFIX;
                 SET V_PROJECTION=V_PROJECTION

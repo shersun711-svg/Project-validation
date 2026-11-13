@@ -18,6 +18,21 @@ The inherited workbooks in the generic task folders remain RDS examples.
 Use the new table-specific configuration for this source project, not those defaults.
 Do not reinstall or overwrite an existing working engine to run this project.
 
+### Teradata error 3731 with no special-value list
+
+The empty-list fallback previously generated `IN (NULL)`, which Teradata rejects.
+The source now generates `CASE WHEN 1=0` when there are no active specials;
+nonmissing values remain eligible and populated special lists keep their rules.
+For an existing compatible engine, use
+[the procedure-only patch](fixes/01_empty_special_list_3731.sql).
+Replace `DQ_DB` with the existing engine database, pause engine executions, and
+submit each complete `REPLACE PROCEDURE` statement followed by its separate
+`GRANT`. This requires procedure-replace rights; do not run the full installer.
+After successful compilation, rerun the source-specific profiling runner with
+`retry_run_id` blank to create a new run. Retain the failed run for evidence.
+Local checks covered empty/populated numeric and categorical lists, NULLs and
+zeros. Live SAS/Teradata compilation and execution remain to be verified.
+
 ## Other source setup
 
 The [Holmes metadata setup](pre_rds/LAB_P_HOLMES_LIVE/README.txt) is retained for
