@@ -1,25 +1,28 @@
 # Pre-RDS project
 
 Working branch: **pre-rds-project**. MVT.
+Base: `release/dq-engine-team-reuse-2026-10-28`. The core engine scripts are unchanged.
 
-This branch starts from `release/dq-engine-team-reuse-2026-10-28`
-(commit `7082bd8946539031c881aa46c29180568dc2a24b`).
-The reusable engine scripts are unchanged.
+## Start here — first profiling table
 
-## Start with the source setup
+Source: **DWP00V_03_ORION_LEVEL1.AGGR_ACC_TXN_FACT**.
+Confirmed reporting date: **FACT_DT**. Confirmed identifier: **ACC_PROBE_ID**.
 
-The first source database is **LAB_P_HOLMES_LIVE**.
-Open [the project guidance](pre_rds/LAB_P_HOLMES_LIVE/README.txt), then run the
-two SELECTs in [01_source_metadata.sql](pre_rds/LAB_P_HOLMES_LIVE/01_source_metadata.sql).
-The metadata SQL covers the fields in the supplied completeness extract.
-A separate detailed field-inventory upload is pending authorization.
+Use the [table-specific run guide](pre_rds/DWP00V_03_ORION_LEVEL1/AGGR_ACC_TXN_FACT/README.txt).
+It covers the configuration workbook, profiling runner, and monthly uniqueness query.
+The workflow enables completeness, numeric accuracy screening and identifier profiling
+using the installed engine, plus a read-only monthly uniqueness check.
+No source-specific special codes have been assumed.
 
-The supplied extract contains completeness results. Accuracy and uniqueness
-are separate review areas. Source reporting dates, populations and special-value
-rules are not yet confirmed; no pre-RDS profiling run has been performed.
-The existing input workbooks still contain RDS examples. Prepare separate
-pre-RDS configurations before running profiling; do not overwrite the RDS project.
-All subsequent pre-RDS project files should be added to this branch.
+The inherited workbooks in the generic task folders remain RDS examples.
+Use the new table-specific configuration for this source project, not those defaults.
+Do not reinstall or overwrite an existing working engine to run this project.
+
+## Other source setup
+
+The [Holmes metadata setup](pre_rds/LAB_P_HOLMES_LIVE/README.txt) is retained for
+subsequent sources. It is a separate setup task, not this first Orion profiling run.
+A separate detailed source-inventory CSV upload is still pending authorization.
 
 # Reusable DQ engine — execution guide
 
