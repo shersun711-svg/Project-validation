@@ -9,8 +9,8 @@ Identifier: ACC_PROBE_ID
 
 Files
 DQ_PRE_RDS_ORION_TXN_config.xlsx -- 20 NUMERIC fields + ACC_PROBE_ID as IDENTIFIER.
-The workbook is prepared locally and provided in the chat. Its GitHub upload
-requires separate explicit authorization; the scripts can use the downloaded copy.
+The workbook is included in this folder. Download it and place it on the SAS
+server before loading configuration.
 02_run_profiling.sas            -- source-specific wrapper for the existing engine.
 03_check_uniqueness.sql        -- read-only monthly uniqueness aggregates.
 01_check_source_columns.sql    -- optional metadata check if a source column fails.
