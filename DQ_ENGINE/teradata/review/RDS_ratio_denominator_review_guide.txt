@@ -1,0 +1,69 @@
+RDS: testing whether additional ratio movements share the Issue 5 mechanism
+
+Run each .sql file separately in Teradata SQL Assistant. No SAS, new engine run,
+permanent tables or source edits are needed. Export each result to a separate
+Excel sheet. Both queries use complete account populations for selected dates.
+
+1. RDS_ratio_small_denominator_check.sql
+Four fields: loan/income, repayment/income, savings/repayment, recent/prior balance.
+Includes spike and neighbouring months identified in the MoM screening. These
+selected windows are diagnostic coverage, not every date in the source history.
+Up to 99 rows: 33 field/month combinations times three denominator cutoffs.
+No rows for a requested month means absent source data, not a passed test.
+
+Columns:
+FIELD_NAME / POU_DT: field and reporting month.
+DENOM_CUTOFF: cumulative small-positive-denominator scenario (1, 10, 100).
+  These are exploratory amount cutoffs, not approved materiality thresholds.
+  Repayment/income uses MONTHLY income; loan/income uses ANNUAL income.
+REVIEW_STATUS: require RECONCILED before attributing results to the stored inputs.
+VALID_COUNT: all non-NULL, non-special stored ratios (agreement-level weighting).
+RECONCILED_COUNT: valid ratios matching the quotient of valid stored inputs.
+  Matching tolerance: max(0.000001, abs(stored ratio)*0.000001), solely for
+  arithmetic reconciliation, not an account-jump or business tolerance.
+MEAN_ALL: mean of valid stored ratios; reconcile to the profiling run first.
+SMALL_DENOM_COUNT / SHARE: valid ratios with valid inputs and 0 < denominator
+  <= cutoff. SHARE uses VALID_COUNT as its denominator.
+ABS_RATIO_CONTRIB_SHARE: share of the sum of absolute ratio values from that group.
+  A magnitude-concentration diagnostic, not share of errors or model impact.
+  Absolute values avoid cancellation from negative ratios. Compare MEAN_ALL and
+  MEAN_WITHOUT_SMALL to assess the signed mean, not this share alone.
+MEAN_WITHOUT_SMALL: diagnostic mean after excluding that group; it is not a
+  recommendation to remove observations or a corrected model input.
+MIN_POS_DENOM: lowest positive valid denominator among valid ratios.
+All shares are fractions (0.95 = 95%); NULL means not calculable/suppressed.
+
+Interpretation:
+If a small fraction of accounts has small denominators, contributes most ratio
+magnitude, and excluding it substantially removes the mean spike relative to
+neighbouring months, this supports the Issue 5 mathematical mechanism.
+If the reduced mean still spikes, or reconciliation fails, do not conclude the
+same explanation. Investigate numerator movements, different input versions,
+formula differences, population composition or other causes.
+Matching arithmetic cannot prove underlying tiny income/repayment/balance values
+are correct, intentional or acceptable for modelling. Development must assess that.
+A generic input missingness limitation does not explain extreme positive ratios.
+
+2. RDS_delinquency_tail_check.sql
+Tests July 2018 and August 2020 plus adjacent months. Seven output columns:
+POU_DT; REVIEW_STATUS; VALID_COUNT; MEAN_ALL; TOP_1PCT_COUNT;
+TOP_1PCT_ABS_CONTRIB; MEAN_WITHOUT_TOP_1PCT.
+The top 1% (rounded up) is ranked by absolute ratio, ties broken by AGMT_ID.
+This can show concentration in the tail, but CANNOT establish small denominators.
+CUST_ALL_MT_MAX_DELINQ_BASE_RT is a maximum over related mortgage/term accounts.
+The main agreement's repayment is not necessarily the originating denominator.
+For direct proof we need the source relationship/join logic, the related-account
+DELINQUENCY_BASE_RT records and their repayment/arrears/balance inputs, matched
+by reporting month, and the applicable closure/split/maturity conditions. Tied
+maxima must be retained. Do not infer the winning related account from this output.
+
+Separate matters:
+CHQ missingness in 2021/22 and the PCKG_REPAY_AMT mean decline in Sep 2020 are
+not ratio denominators and cannot directly be proved to be Issue 5 by these tests.
+
+Controls and verification:
+Confirmed common special list is embedded explicitly, including 9999. Duplicate
+or missing agreement keys suppress output statistics. Source dates are month-end;
+source must match the original profiling version. Compare means/counts to MoM.
+Query arithmetic and controls were tested using SQLite-adapted synthetic cases;
+queries have not been executed against live Teradata.
