@@ -31,8 +31,8 @@ filter sources, or run profiling.
 Headers are matched without regard to case. Additional columns are ignored.
 Each table also has PERIMETER_VERSION, LOAD_ID and LOADED_AT.
 
-AGMT_ID is loaded as BIGINT after checking it contains digits and at most 15
-significant numeric digits. ACC_ID and both PROBE IDs are VARCHAR(128). The
+AGMT_ID is loaded as INTEGER, matching the supplied RDS DDL, after checking it
+contains digits and is between 0 and 2,147,483,647. ACC_ID and both PROBE IDs are VARCHAR(128). The
 program trims surrounding spaces; it does not pad, strip leading zeros from
 text IDs, change case, or assume ACC_ID equals ACC_PROBE_ID. IDs longer than
 128 characters are rejected rather than silently truncated.
@@ -80,6 +80,26 @@ After READY, check account mappings and reproduce the October 2017 source count
 of 135,059 using the supplied list. Use EXISTS to filter source rows by AGMT_ID,
 so perimeter duplicates or multiple relationships cannot multiply source rows.
 Then configure the existing engine against the agreed filtered source view.
+
+## Retrying after an AGMT_ID datatype mismatch
+
+The earlier program forced BIGINT for AGMT_ID. The reported SAS/ACCESS write
+failed with `Datatype mismatch for column: AGMT_ID`. The program now requests
+INTEGER, consistent with the supplied RDS DDL, and checks its range before any
+write. Live confirmation in the affected SAS/ACCESS installation is required.
+
+Download the updated program and reapply your workbook path, version and
+connection settings. The failed attempt may have left an empty account table.
+Preserve it for review and choose a new account destination, for example:
+
+```sas
+%let account_table = PRE_RDS_ACCOUNT_PERIMETER_V2;
+```
+
+Keep the relationship destination if it does not exist; otherwise give it a
+new name of at most 30 characters too. Run the whole program. It now starts with
+`options obs=max nosyntaxcheck;` to clear OBS=0/SYNTAXCHECK left by the earlier
+failure. No table is dropped automatically. Require READY again.
 
 ## Validation status
 

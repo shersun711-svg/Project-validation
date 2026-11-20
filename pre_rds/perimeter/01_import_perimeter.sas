@@ -22,6 +22,8 @@
    DDMMYY10. for a confirmed alternative; do not guess ambiguous dates. */
 %let text_date_informat = yymmdd10.;
 
+/* A prior failed DATA step may leave OBS=0/SYNTAXCHECK in this EG session. */
+options obs=max nosyntaxcheck;
 options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
 
 /* Called inside DATA steps. _bad is a flag; no IDs are printed to the log. */
@@ -139,12 +141,13 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
                LOADED_AT 8 _agmt_text $32767;
         set perbook.&_ac_sheet(rename=(AGMT_ID=_in_agmt ACC_ID=_in_acc));
         _bad=0; _numeric_text_id=0;
-        /* AGMT_ID is a numeric agreement key, not a text/probe identifier. */
+        /* AGMT_ID is INTEGER in the supplied RDS DDL. Match that type;
+           forcing BIGINT caused a SAS/ACCESS datatype mismatch on write. */
         if vtype(_in_agmt)='C' then _agmt_text=strip(_in_agmt);
         else _agmt_text=strip(putn(_in_agmt,'best32.'));
         AGMT_ID=input(_agmt_text,?? best32.);
         if prxmatch('/^[0-9]+$/',strip(_agmt_text))=0 or missing(AGMT_ID)
-           or AGMT_ID>999999999999999 then _bad=1;
+           or AGMT_ID>2147483647 then _bad=1;
         %perimeter_text_id(raw=_in_acc,out=ACC_ID);
         PERIMETER_VERSION=symget('perimeter_version');
         LOAD_ID="&_load_id"; LOADED_AT=&_loaded_at;
@@ -226,7 +229,7 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
        Two table writes are NOT atomic. On failure do not use either table;
        reconcile any partial load and choose new names for a subsequent import. */
     data perdb.&account_table
-        (dbtype=(AGMT_ID='BIGINT' ACC_ID='VARCHAR(128)' PERIMETER_VERSION='VARCHAR(64)'
+        (dbtype=(AGMT_ID='INTEGER' ACC_ID='VARCHAR(128)' PERIMETER_VERSION='VARCHAR(64)'
                  LOAD_ID='VARCHAR(36)' LOADED_AT='TIMESTAMP(0)'));
         set work.perimeter_accounts;
     run;
