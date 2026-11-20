@@ -30,6 +30,15 @@ macro expressions. A failed check does not by itself justify dropping a target.
 The account-only program has received the same validation improvement for future
 imports; the already verified account table must be preserved.
 
+If the relationship check reports failure, run `06_read_relationship_checks.sas`
+in the same session to reprint WORK diagnostic counts and validated-input load
+metadata. This performs no database writes or reloads. Share the numeric check
+row and load ID, not individual account/customer records. The earlier error-path
+messages contained unescaped semicolons, causing extra SAS 180-322 errors after
+the reconciliation failure; those message statements have been corrected. That
+fix does not establish why the underlying numeric check failed. Inspect ROW_N,
+KEY_N, MISSING_N, BAD_DATE_N, WRONG_LOAD_N, EXPECTED_ROWS and RECONCILED first.
+
 After READY, run `05_compare_relationship_perimeter.sql` one SELECT at a time.
 It compares October 2017 using all accounts in the second sheet, then separate
 inclusive/exclusive end-date hypotheses. NULL end dates are treated as open only

@@ -205,7 +205,7 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
     %if &syserr>4 %then %goto finish;
     proc print data=work.account_database_check noobs; run;
     %if &_reconcile_ok ne 1 %then %do;
-        %put ERROR: Reconciliation failed; inspect the printed diagnostic counts.;
+        %put ERROR: Reconciliation failed. Inspect the printed diagnostic counts.;
         %put ERROR: Verify the target before considering any reload or deletion.;
         %goto finish;
     %end;

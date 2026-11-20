@@ -222,7 +222,7 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
     %if %sysfunc(exist(perdb.&account_table)) or %sysfunc(exist(perdb.&relationship_table))
         or %sysfunc(exist(perdb.&account_table,VIEW))
         or %sysfunc(exist(perdb.&relationship_table,VIEW)) %then %do;
-        %put ERROR: A destination already exists. Choose NEW table names; no overwrite is permitted.;
+        %put ERROR: A destination already exists. Choose NEW table names. No overwrite is permitted.;
         %goto finish;
     %end;
     /* One writer must own these new names. Stop other imports using them.
