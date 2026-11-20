@@ -39,6 +39,9 @@ The [perimeter import](pre_rds/perimeter/README.md) loads CDAO's account list an
 dated account/customer relationships from Excel into new reusable Teradata
 tables. Set the SAS-server workbook path, perimeter version and destination
 settings, then run its standalone SAS program. Require `PERIMETER_IMPORT_STATUS=READY`.
+For the current account-only retry, use `pre_rds/perimeter/02_import_accounts_fast.sas`
+and require `ACCOUNT_PERIMETER_STATUS=READY`. The perimeter guide includes
+separate manual cleanup SQL for the incomplete account tables.
 
 The [Holmes metadata setup](pre_rds/LAB_P_HOLMES_LIVE/README.txt) is retained for
 subsequent sources. It is a separate setup task, not this first Orion profiling run.

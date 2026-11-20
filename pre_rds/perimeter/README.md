@@ -1,5 +1,54 @@
 # Import CDAO's reusable source-test perimeter
 
+## Current run: account-only FastLoad
+
+Use **`02_import_accounts_fast.sas`** for the account list first. It reads only
+the worksheet containing AGMT_ID and ACC_ID; it never reads or writes customer
+relationships. The original two-sheet importer below remains a separate program.
+
+1. Confirm with the DBA that the disconnected loading session has ended.
+2. Use `00_cleanup_failed_accounts.sql` manually, one statement at a time, to
+   inspect and drop the unusable original/V2 account tables. Skip missing tables;
+   review any table now containing a complete load before deleting it. Cleanup is
+   separate from the SAS loader and has not been executed from this workspace.
+3. In a fresh SAS session, set the workbook's server path, perimeter version and
+   approved connection settings in `02_import_accounts_fast.sas`. Keep the
+   expected account count at **293619** for the list already validated by MVT.
+   The default target is `LAB_T_ORION_MVT.PRE_RDS_ACCOUNT_PERIMETER`.
+4. Run the whole account-only program. Require **ACCOUNT_PERIMETER_STATUS=READY**
+   and inspect `WORK.ACCOUNT_PERIMETER_SUMMARY`. It checks database row count,
+   distinct agreement count, missing keys and the saved load ID. The target must
+   not already exist; this loader never appends or drops tables automatically.
+5. Run `03_check_account_perimeter.sql` to verify 293619 saved accounts and
+   compare October 2017 transaction rows with CDAO's 135059.
+
+The default `load_method=FASTLOAD` requests `BULKLOAD=YES TPT=YES`, using the
+[SAS/ACCESS Teradata bulk-load interface](https://support.sas.com/documentation/cdl/en/acreldb/63647/HTML/default/a003353049.htm).
+It needs the site's supported Teradata bulk-load runtime, utility permissions,
+space for utility/error tables and available load slots. Check the SAS log for
+the actual load method; utility admission or locks can still cause waits.
+Speed depends on the site; live performance has not been measured here.
+
+If FastLoad is unavailable, stop and diagnose that error before retrying. An
+explicit `load_method=MULTISTMT` alternative requests grouped inserts with
+DBCOMMIT=10000; SAS can revert to single-row inserts if grouping is unavailable,
+so this mode is not a guaranteed fast fallback. See the
+[SAS MULTISTMT documentation](https://support.sas.com/documentation/cdl/en/acreldb/65247/HTML/default/p085ydg1yuyi58n1sde03vyjgbnq.htm).
+No automatic retry or second loader is launched. Preserve failed-load logs and
+ask the DBA to inspect utility locks/error tables before dropping a bulk target.
+
+The account-only loader keeps the same INTEGER AGMT_ID and text-ID validation
+as the corrected original. Destination identifiers are limited to 26 characters
+to leave room for utility suffixes. Its stage log markers are
+ACCOUNT_INPUT_VALIDATED, ACCOUNT_DATABASE_LOAD_START and
+ACCOUNT_DATABASE_LOAD_RETURNED. FastLoad progress need not appear as steadily
+increasing COUNT(*) results while a bulk load is in progress.
+
+These programs were reviewed locally, but SAS/Teradata is unavailable here;
+live compilation, utility availability and the actual import remain untested.
+
+## Original two-sheet importer
+
 Run `01_import_perimeter.sas` in SAS Enterprise Guide. It imports the workbook
 into two new Teradata tables using the existing approved SAS AUTHDOMAIN.
 It does not install or modify the DQ engine, change project configuration,
