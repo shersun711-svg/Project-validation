@@ -35,7 +35,7 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
 
 %macro import_accounts_fast;
     %local _i _name _ac_n _ac_sheet _settings_ok _book_open _db_open
-           _load_id _loaded_at _bad_ac _ac_rows _numeric_ac _ac_clean
+           _load_id _load_sql _loaded_at _bad_ac _ac_rows _numeric_ac _ac_clean
            _check_rc _check_xrc _reconcile_ok _conflicts _db_rows _db_keys _db_missing _db_wrong_load _write_options;
     %global account_perimeter_status;
     %let account_perimeter_status=FAILED;
@@ -95,6 +95,9 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
         %goto finish;
     %end;
     %let _load_id=%sysfunc(uuidgen());
+    /* Build a quoted SQL literal outside the SQL source. A macro reference
+       written inside single quotes can remain literal text in pass-through. */
+    %let _load_sql=%sysfunc(quote(%superq(_load_id),%str(%')));
     %let _loaded_at=%sysfunc(datetime());
     data work.perimeter_accounts_valid work.perimeter_accounts_rejected;
         length AGMT_ID 8 ACC_ID $128 PERIMETER_VERSION $64 LOAD_ID $36
@@ -182,7 +185,7 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
                 cast(count(distinct AGMT_ID) as float) as KEY_N,
                 cast(coalesce(sum(case when AGMT_ID is null or ACC_ID is null
                              or trim(ACC_ID)='' then 1 else 0 end),0) as float) as MISSING_N,
-                cast(coalesce(sum(case when LOAD_ID is null or LOAD_ID<>'&_load_id'
+                cast(coalesce(sum(case when LOAD_ID is null or LOAD_ID<>%superq(_load_sql)
                              then 1 else 0 end),0) as float) as WRONG_LOAD_N
          from &perimeter_database..&account_table);
         %let _check_rc=&sqlrc;

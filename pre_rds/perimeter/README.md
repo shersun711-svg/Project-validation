@@ -39,6 +39,17 @@ the reconciliation failure; those message statements have been corrected. That
 fix does not establish why the underlying numeric check failed. Inspect ROW_N,
 KEY_N, MISSING_N, BAD_DATE_N, WRONG_LOAD_N, EXPECTED_ROWS and RECONCILED first.
 
+When every check passes except WRONG_LOAD_N equalling the full row count, verify
+the saved LOAD_ID against the input-validation log before considering a reload.
+The earlier loaders put `&_load_id` inside single quotes in pass-through SQL,
+which can leave a literal macro reference rather than the generated UUID. Both
+FastLoad programs now construct a quoted SQL literal before the query, matching
+the existing engine configuration loader's quoting pattern. This affects only
+validation SQL, not the loaded metadata. For an already loaded table, query
+`SELECT LOAD_ID, COUNT(*) FROM LAB_T_ORION_MVT.PRE_RDS_ACC_CUST_REL GROUP BY LOAD_ID;`
+and compare with RELATIONSHIP_INPUT_VALIDATED. If all 645076 rows share the
+expected ID and the other checks pass, retain the table; do not rerun the import.
+
 After READY, run `05_compare_relationship_perimeter.sql` one SELECT at a time.
 It compares October 2017 using all accounts in the second sheet, then separate
 inclusive/exclusive end-date hypotheses. NULL end dates are treated as open only

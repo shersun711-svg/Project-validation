@@ -56,7 +56,7 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
 
 %macro import_relationships_fast;
     %local _i _name _rel_n _rel_sheet _settings_ok _book_open _db_open
-           _load_id _loaded_at _bad_rel _rel_rows _numeric_rel _rel_clean
+           _load_id _load_sql _loaded_at _bad_rel _rel_rows _numeric_rel _rel_clean
            _check_rc _check_xrc _reconcile_ok _write_options;
     %global relationship_perimeter_status;
     %let relationship_perimeter_status=FAILED;
@@ -119,6 +119,9 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
         %goto finish;
     %end;
     %let _load_id=%sysfunc(uuidgen());
+    /* Build a quoted SQL literal outside the SQL source. A macro reference
+       written inside single quotes can remain literal text in pass-through. */
+    %let _load_sql=%sysfunc(quote(%superq(_load_id),%str(%')));
     %let _loaded_at=%sysfunc(datetime());
     data work.perimeter_rel_valid work.perimeter_rel_rejected;
         length ACC_PROBE_ID CUST_PROBE_ID $128 START_DT END_DT 8
@@ -201,7 +204,7 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
                    cast(coalesce(sum(case when START_DT is null
                         or (END_DT is not null and END_DT<START_DT)
                         then 1 else 0 end),0) as float) as BAD_DATE_N,
-                   cast(coalesce(sum(case when LOAD_ID is null or LOAD_ID<>'&_load_id'
+                   cast(coalesce(sum(case when LOAD_ID is null or LOAD_ID<>%superq(_load_sql)
                         then 1 else 0 end),0) as float) as WRONG_LOAD_N
             from &perimeter_database..&relationship_table) A
          cross join
