@@ -36,13 +36,13 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
 %macro import_accounts_fast;
     %local _i _name _ac_n _ac_sheet _settings_ok _book_open _db_open
            _load_id _loaded_at _bad_ac _ac_rows _numeric_ac _ac_clean
-           _check_rc _check_xrc _conflicts _db_rows _db_keys _db_missing _db_wrong_load _write_options;
+           _check_rc _check_xrc _reconcile_ok _conflicts _db_rows _db_keys _db_missing _db_wrong_load _write_options;
     %global account_perimeter_status;
     %let account_perimeter_status=FAILED;
     %let _book_open=0;
     %let _db_open=0;
     proc datasets library=work nolist;
-        delete account_perimeter_summary;
+        delete account_perimeter_summary account_database_check;
     quit;
     %do _i=1 %to 2;
         %let _name=%scan(perimeter_database account_table,&_i);
@@ -176,9 +176,8 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
             quit;
             %goto finish;
         %end;
-        select ROW_N,KEY_N,MISSING_N,WRONG_LOAD_N
-          into :_db_rows trimmed,:_db_keys trimmed,:_db_missing trimmed,:_db_wrong_load trimmed
-        from connection to percheck
+        create table work.account_database_check as
+        select * from connection to percheck
         (select cast(count(*) as float) as ROW_N,
                 cast(count(distinct AGMT_ID) as float) as KEY_N,
                 cast(coalesce(sum(case when AGMT_ID is null or ACC_ID is null
@@ -191,9 +190,23 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
         disconnect from percheck;
     quit;
     %if &_check_rc ne 0 or &_check_xrc ne 0 %then %goto finish;
-    %if &_db_rows ne &_ac_clean or &_db_keys ne &_ac_clean
-        or &_db_missing ne 0 or &_db_wrong_load ne 0 %then %do;
-        %put ERROR: Database reconciliation failed. Do not use this target.;
+    %let _reconcile_ok=0;
+    data work.account_database_check;
+        set work.account_database_check;
+        EXPECTED_ROWS=&_ac_clean;
+        RECONCILED=(nmiss(ROW_N,KEY_N,MISSING_N,WRONG_LOAD_N)=0
+                    and ROW_N=EXPECTED_ROWS and KEY_N=EXPECTED_ROWS
+                    and MISSING_N=0 and WRONG_LOAD_N=0);
+        format ROW_N KEY_N MISSING_N WRONG_LOAD_N EXPECTED_ROWS 20.;
+        call symputx('_reconcile_ok',RECONCILED,'L');
+        call symputx('_db_rows',strip(put(ROW_N,32.)),'L');
+        call symputx('_db_keys',strip(put(KEY_N,32.)),'L');
+    run;
+    %if &syserr>4 %then %goto finish;
+    proc print data=work.account_database_check noobs; run;
+    %if &_reconcile_ok ne 1 %then %do;
+        %put ERROR: Reconciliation failed; inspect the printed diagnostic counts.;
+        %put ERROR: Verify the target before considering any reload or deletion.;
         %goto finish;
     %end;
     data work.account_perimeter_summary;
@@ -212,7 +225,7 @@ options validvarname=v7 validmemname=extend nomprint nomlogic nosymbolgen;
     %if &_db_open %then %do; libname perdb clear; %end;
     %put NOTE: ACCOUNT_PERIMETER_STATUS=&account_perimeter_status.;
     %if &account_perimeter_status ne READY %then %do;
-        proc datasets library=work nolist; delete account_perimeter_summary; quit;
+        proc datasets library=work nolist; delete account_perimeter_summary account_database_check; quit;
         %put ERROR: Not READY. Do not use the target or automatically rerun the loader.;
         %put ERROR: For FastLoad errors, retain the log and ask the DBA to inspect utility locks/error tables.;
     %end;

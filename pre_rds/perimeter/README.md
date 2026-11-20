@@ -1,5 +1,45 @@
 # Import CDAO's reusable source-test perimeter
 
+## Next: relationship-sheet-only FastLoad
+
+The account table was loaded and independently checked at 293619 rows with
+293619 distinct agreement IDs, no missing keys, and the matching import load ID.
+Do **not** rerun the account loader or the old cleanup SQL for this completed table.
+
+Use **`04_import_relationships_fast.sas`** to import the second worksheet only.
+Set `perimeter_workbook` to the XLSX server path, set `perimeter_version`, and
+confirm the approved connection settings. Blank `relationship_sheet` discovers
+the worksheet by ACC_PROBE_ID, CUST_PROBE_ID, START_DT and END_DT headers.
+
+The new destination is **`LAB_T_ORION_MVT.PRE_RDS_ACC_CUST_REL`**. This shorter
+name leaves space for utility suffixes. It is separate from the account table
+and from the older, unused PRE_RDS_ACCOUNT_CUSTOMER_REL destination. The new
+destination must not exist; the loader neither overwrites nor appends.
+
+It uses FastLoad and expects **645076** records after exact relationship/date
+deduplication, based on the earlier SAS WORK count. A relationship record is not
+a unique account: joint borrowers and historical links are retained. Blank
+END_DT remains NULL. The existing text-ID and date validation rules below apply.
+
+Require **RELATIONSHIP_PERIMETER_STATUS=READY**. The printed
+`WORK.RELATIONSHIP_DATABASE_CHECK` shows expected and saved row counts, distinct
+four-column relationship count, missing keys, invalid intervals and wrong-load
+counts. Validation now compares numeric SAS variables and always prints the
+diagnostic counts; it no longer compares formatted database count strings in
+macro expressions. A failed check does not by itself justify dropping a target.
+The account-only program has received the same validation improvement for future
+imports; the already verified account table must be preserved.
+
+After READY, run `05_compare_relationship_perimeter.sql` one SELECT at a time.
+It compares October 2017 using all accounts in the second sheet, then separate
+inclusive/exclusive end-date hypotheses. NULL end dates are treated as open only
+for those candidate queries. Confirm date meanings and boundary rules with CDAO;
+do not choose a rule merely because its count matches 135059. Source rows are
+filtered using EXISTS to preserve source multiplicity without customer fan-out.
+
+Static code checks and local SQL fixture tests are available evidence only;
+live SAS/Teradata execution of the new relationship loader remains untested.
+
 ## Current run: account-only FastLoad
 
 Use **`02_import_accounts_fast.sas`** for the account list first. It reads only
